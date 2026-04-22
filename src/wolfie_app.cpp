@@ -1586,14 +1586,21 @@ void WolfieApp::createLayout() {
     controls_.placeholderExport = CreateWindowW(L"STATIC", L"ROON export will live here.", WS_CHILD | SS_CENTER,
                                                 0, 0, 0, 0, controls_.pageExport, nullptr, instance_, nullptr);
 
-    controls_.labelFadeIn = CreateWindowW(L"STATIC", L"Fade-in [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
-    controls_.labelFadeOut = CreateWindowW(L"STATIC", L"Fade-out [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
-    controls_.labelDuration = CreateWindowW(L"STATIC", L"Sweep Time [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelFadeIn = CreateWindowW(L"STATIC", L"Fade-In", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelFadeOut = CreateWindowW(L"STATIC", L"Fade-Out", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelDuration = CreateWindowW(L"STATIC", L"Sweep Time", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.labelStartFrequency = CreateWindowW(L"STATIC", L"Sweep Start", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.labelEndFrequency = CreateWindowW(L"STATIC", L"Sweep End", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
-    controls_.labelTargetLength = CreateWindowW(L"STATIC", L"Target length [samples]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
-    controls_.labelLeadIn = CreateWindowW(L"STATIC", L"Lead-in [samples]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
-    controls_.labelSampleRate = CreateWindowW(L"STATIC", L"Sample rate", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelTargetLength = CreateWindowW(L"STATIC", L"Target Length", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelLeadIn = CreateWindowW(L"STATIC", L"Lead-In", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelSampleRate = CreateWindowW(L"STATIC", L"Sample Rate", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.unitFadeIn = CreateWindowW(L"STATIC", L"sec", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.unitFadeOut = CreateWindowW(L"STATIC", L"sec", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.unitDuration = CreateWindowW(L"STATIC", L"sec", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.unitStartFrequency = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.unitEndFrequency = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.unitTargetLength = CreateWindowW(L"STATIC", L"samples", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.unitLeadIn = CreateWindowW(L"STATIC", L"samples", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
 
     controls_.editFadeIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.pageMeasurement,
                                            reinterpret_cast<HMENU>(kEditFadeIn), instance_, nullptr);
@@ -1645,6 +1652,13 @@ void WolfieApp::createLayout() {
     SetWindowLongPtrW(controls_.labelTargetLength, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelLeadIn, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelSampleRate, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.unitFadeIn, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.unitFadeOut, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.unitDuration, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.unitStartFrequency, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.unitEndFrequency, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.unitTargetLength, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.unitLeadIn, GWL_STYLE, centeredStaticStyle);
     SendMessageW(controls_.editEndFrequency, EM_SETREADONLY, TRUE, 0);
 
     SendMessageW(controls_.leftProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
@@ -1702,6 +1716,8 @@ void WolfieApp::layoutContent() {
     constexpr int kFieldGap = 48;
     constexpr int kLabelTopOffset = 2;
     constexpr int kFieldTopOffset = 22;
+    constexpr int kUnitHeight = 16;
+    constexpr int kUnitTopOffset = 52;
     constexpr int kButtonWidth = 184;
     constexpr int kProgressLabelWidth = 42;
     constexpr int kProgressBarWidth = 180;
@@ -1717,6 +1733,14 @@ void WolfieApp::layoutContent() {
         MoveWindow(edit, left, top + kFieldTopOffset, editWidth, 26, TRUE);
     };
 
+    auto placeCenteredFieldWithUnit = [&](HWND label, HWND edit, HWND unit, int left, int top, int labelWidth, int editWidth, int unitWidth) {
+        const int labelLeft = left + ((editWidth - labelWidth) / 2);
+        const int unitLeft = left + ((editWidth - unitWidth) / 2);
+        MoveWindow(label, labelLeft, top + kLabelTopOffset, labelWidth, 18, TRUE);
+        MoveWindow(edit, left, top + kFieldTopOffset, editWidth, 26, TRUE);
+        MoveWindow(unit, unitLeft, top + kUnitTopOffset, unitWidth, kUnitHeight, TRUE);
+    };
+
     auto placeCenteredComboField = [&](HWND label, HWND combo, int left, int top, int labelWidth, int comboWidth) {
         const int labelLeft = left + ((comboWidth - labelWidth) / 2);
         MoveWindow(label, labelLeft, top + kLabelTopOffset, labelWidth, 18, TRUE);
@@ -1726,23 +1750,23 @@ void WolfieApp::layoutContent() {
 
     const int paramsTop = contentTop;
     int left = contentLeft;
-    placeCenteredField(controls_.labelFadeIn, controls_.editFadeIn, left, paramsTop, kLabelWidthSmall, kValueWidthTiny);
+    placeCenteredFieldWithUnit(controls_.labelFadeIn, controls_.editFadeIn, controls_.unitFadeIn, left, paramsTop, kLabelWidthSmall, kValueWidthTiny, 32);
     left += kValueWidthTiny + kFieldGap;
-    placeCenteredField(controls_.labelFadeOut, controls_.editFadeOut, left, paramsTop, kLabelWidthSmall, kValueWidthTiny);
+    placeCenteredFieldWithUnit(controls_.labelFadeOut, controls_.editFadeOut, controls_.unitFadeOut, left, paramsTop, kLabelWidthSmall, kValueWidthTiny, 32);
     left += kValueWidthTiny + kFieldGap;
-    placeCenteredField(controls_.labelDuration, controls_.editDuration, left, paramsTop, kLabelWidthMedium, kValueWidthSmall);
+    placeCenteredFieldWithUnit(controls_.labelDuration, controls_.editDuration, controls_.unitDuration, left, paramsTop, kLabelWidthMedium, kValueWidthSmall, 32);
     left += kValueWidthSmall + kFieldGap;
-    placeCenteredField(controls_.labelStartFrequency, controls_.editStartFrequency, left, paramsTop, kLabelWidthLarge, kValueWidthTiny);
+    placeCenteredFieldWithUnit(controls_.labelStartFrequency, controls_.editStartFrequency, controls_.unitStartFrequency, left, paramsTop, kLabelWidthLarge, kValueWidthTiny, 24);
     left += kValueWidthTiny + kFieldGap;
-    placeCenteredField(controls_.labelEndFrequency, controls_.editEndFrequency, left, paramsTop, kLabelWidthLarge, kValueWidthMedium);
+    placeCenteredFieldWithUnit(controls_.labelEndFrequency, controls_.editEndFrequency, controls_.unitEndFrequency, left, paramsTop, kLabelWidthLarge, kValueWidthMedium, 24);
     left += kValueWidthMedium + kFieldGap;
-    placeCenteredField(controls_.labelTargetLength, controls_.editTargetLength, left, paramsTop, kLabelWidthLarge, kValueWidthMedium);
+    placeCenteredFieldWithUnit(controls_.labelTargetLength, controls_.editTargetLength, controls_.unitTargetLength, left, paramsTop, kLabelWidthLarge, kValueWidthMedium, 54);
     left += kValueWidthMedium + kFieldGap;
-    placeCenteredField(controls_.labelLeadIn, controls_.editLeadIn, left, paramsTop, kLabelWidthMedium, kValueWidthSmall);
+    placeCenteredFieldWithUnit(controls_.labelLeadIn, controls_.editLeadIn, controls_.unitLeadIn, left, paramsTop, kLabelWidthMedium, kValueWidthSmall, 54);
     left += kValueWidthSmall + kFieldGap;
     placeCenteredComboField(controls_.labelSampleRate, controls_.comboSampleRate, left, paramsTop, kLabelWidthMedium, kValueWidthCombo);
 
-    const int volumeTop = paramsTop + 60;
+    const int volumeTop = paramsTop + 82;
     MoveWindow(controls_.labelOutputVolume, contentLeft, volumeTop + 5, 90, 20, TRUE);
     MoveWindow(controls_.outputVolumeValue, contentLeft + 100, volumeTop + 5, kSliderValueWidth, 20, TRUE);
     MoveWindow(controls_.outputVolumeSlider, contentLeft + 100 + kSliderValueWidth + 12, volumeTop, kSliderWidth, 32, TRUE);

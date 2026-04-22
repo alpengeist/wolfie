@@ -133,6 +133,13 @@ private:
         HWND labelTargetLength = nullptr;
         HWND labelLeadIn = nullptr;
         HWND labelSampleRate = nullptr;
+        HWND unitFadeIn = nullptr;
+        HWND unitFadeOut = nullptr;
+        HWND unitDuration = nullptr;
+        HWND unitStartFrequency = nullptr;
+        HWND unitEndFrequency = nullptr;
+        HWND unitTargetLength = nullptr;
+        HWND unitLeadIn = nullptr;
         HWND editFadeIn = nullptr;
         HWND editFadeOut = nullptr;
         HWND editDuration = nullptr;
