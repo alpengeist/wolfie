@@ -32,6 +32,7 @@ constexpr int kEditEndFrequency = 3008;
 constexpr int kEditTargetLength = 3009;
 constexpr int kEditLeadIn = 3010;
 constexpr int kButtonMeasure = 3011;
+constexpr int kComboMeasurementSampleRate = 3012;
 constexpr int kTabMain = 3013;
 
 constexpr wchar_t kMainClassName[] = L"WolfieMainWindow";
@@ -214,6 +215,45 @@ uint64_t tickMillis() {
 template <typename T>
 T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
+}
+
+double defaultSweepEndFrequencyHz(int sampleRate) {
+    return sampleRate == 44100 ? 22050.0 : 24000.0;
+}
+
+void syncDerivedMeasurementSettings(MeasurementSettings& settings) {
+    settings.endFrequencyHz = defaultSweepEndFrequencyHz(settings.sampleRate);
+}
+
+int measurementSampleRateFromComboIndex(int index) {
+    switch (index) {
+    case 1:
+        return 48000;
+    case 2:
+        return 96000;
+    case 0:
+    default:
+        return 44100;
+    }
+}
+
+int comboIndexFromMeasurementSampleRate(int sampleRate) {
+    switch (sampleRate) {
+    case 48000:
+        return 1;
+    case 96000:
+        return 2;
+    case 44100:
+    default:
+        return 0;
+    }
+}
+
+void populateMeasurementSampleRateCombo(HWND combo) {
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"44.1 kHz"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"48 kHz"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"96 kHz"));
 }
 
 std::vector<float> generateSweepSamples(const MeasurementSettings& settings, int sampleRate) {
@@ -823,7 +863,7 @@ bool MeasurementEngine::start(const WorkspaceState& workspace) {
     peakAmplitudeDb_ = -90.0;
     lastErrorMessage_.clear();
 
-    const int sampleRate = std::max(8000, workspace.audio.sampleRate);
+    const int sampleRate = std::max(8000, workspace.measurement.sampleRate);
     auto runtime = std::make_unique<Runtime>();
     runtime->sampleRate = sampleRate;
     runtime->leadInFrames = static_cast<size_t>(std::max(0, workspace.measurement.leadInSamples));
@@ -1005,9 +1045,7 @@ void MeasurementEngine::tick() {
     cleanupRuntime();
 }
 
-WolfieApp::WolfieApp(HINSTANCE instance) : instance_(instance) {
-    workspace_.measurement.endFrequencyHz = workspace_.audio.sampleRate / 2.0;
-}
+WolfieApp::WolfieApp(HINSTANCE instance) : instance_(instance) {}
 
 int WolfieApp::run() {
     INITCOMMONCONTROLSEX initCommonControls{};
@@ -1052,6 +1090,9 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
 
     switch (message) {
     case WM_COMMAND:
+        if (LOWORD(wParam) == kComboMeasurementSampleRate && HIWORD(wParam) != CBN_SELCHANGE) {
+            return 0;
+        }
         app->onCommand(LOWORD(wParam));
         return 0;
     case WM_NOTIFY:
@@ -1321,35 +1362,15 @@ LRESULT CALLBACK WolfieApp::SettingsWindowProc(HWND window, UINT message, WPARAM
         HWND right = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", formatWideDouble(app->workspace_.audio.rightOutputChannel, 0).c_str(),
                                      WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 170, 124, 80, 24, window,
                                      reinterpret_cast<HMENU>(4), nullptr, nullptr);
-        CreateWindowW(L"STATIC", L"Sample rate", WS_CHILD | WS_VISIBLE, 20, 164, 140, 20, window, nullptr, nullptr, nullptr);
-        HWND sampleRate = CreateWindowW(L"COMBOBOX", nullptr,
-                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                                        170, 160, 120, 200, window, reinterpret_cast<HMENU>(5), nullptr, nullptr);
-        SendMessageW(sampleRate, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"44.1 kHz"));
-        SendMessageW(sampleRate, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"48 kHz"));
-        SendMessageW(sampleRate, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"96 kHz"));
-        switch (app->workspace_.audio.sampleRate) {
-        case 48000:
-            SendMessageW(sampleRate, CB_SETCURSEL, 1, 0);
-            break;
-        case 96000:
-            SendMessageW(sampleRate, CB_SETCURSEL, 2, 0);
-            break;
-        case 44100:
-        default:
-            SendMessageW(sampleRate, CB_SETCURSEL, 0, 0);
-            break;
-        }
-        CreateWindowW(L"BUTTON", L"Open ASIO Control Panel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 208, 180, 28, window,
+        CreateWindowW(L"BUTTON", L"Open ASIO Control Panel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 164, 180, 28, window,
                       reinterpret_cast<HMENU>(7), nullptr, nullptr);
-        CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 340, 208, 80, 28, window,
+        CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 340, 164, 80, 28, window,
                       reinterpret_cast<HMENU>(8), nullptr, nullptr);
 
         SetPropW(window, L"driver", driver);
         SetPropW(window, L"mic", mic);
         SetPropW(window, L"left", left);
         SetPropW(window, L"right", right);
-        SetPropW(window, L"sampleRate", sampleRate);
         return 0;
     }
     case WM_CTLCOLORDLG:
@@ -1393,9 +1414,6 @@ LRESULT CALLBACK WolfieApp::SettingsWindowProc(HWND window, UINT message, WPARAM
                 app->workspace_.audio.rightOutputChannel = parsedValue;
             }
 
-            const int sampleRateIndex = static_cast<int>(SendMessageW(reinterpret_cast<HWND>(GetPropW(window, L"sampleRate")), CB_GETCURSEL, 0, 0));
-            app->workspace_.audio.sampleRate = sampleRateIndex == 1 ? 48000 : sampleRateIndex == 2 ? 96000 : 44100;
-            app->workspace_.measurement.endFrequencyHz = app->workspace_.audio.sampleRate / 2.0;
             app->populateControlsFromState();
             app->saveWorkspaceFiles();
             app->refreshMeasurementStatus();
@@ -1408,10 +1426,6 @@ LRESULT CALLBACK WolfieApp::SettingsWindowProc(HWND window, UINT message, WPARAM
             return 0;
         }
         if ((commandId == 2 || commandId == 3 || commandId == 4) && notificationCode == EN_KILLFOCUS) {
-            autosaveSettings();
-            return 0;
-        }
-        if (commandId == 5 && notificationCode == CBN_SELCHANGE) {
             autosaveSettings();
             return 0;
         }
@@ -1460,9 +1474,6 @@ LRESULT CALLBACK WolfieApp::SettingsWindowProc(HWND window, UINT message, WPARAM
             if (tryParseInt(getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"right"))), parsedValue)) {
                 app->workspace_.audio.rightOutputChannel = parsedValue;
             }
-            const int sampleRateIndex = static_cast<int>(SendMessageW(reinterpret_cast<HWND>(GetPropW(window, L"sampleRate")), CB_GETCURSEL, 0, 0));
-            app->workspace_.audio.sampleRate = sampleRateIndex == 1 ? 48000 : sampleRateIndex == 2 ? 96000 : 44100;
-            app->workspace_.measurement.endFrequencyHz = app->workspace_.audio.sampleRate / 2.0;
             app->populateControlsFromState();
             app->saveWorkspaceFiles();
             app->refreshMeasurementStatus();
@@ -1582,6 +1593,7 @@ void WolfieApp::createLayout() {
     controls_.labelEndFrequency = CreateWindowW(L"STATIC", L"Sweep End", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.labelTargetLength = CreateWindowW(L"STATIC", L"Target length [samples]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.labelLeadIn = CreateWindowW(L"STATIC", L"Lead-in [samples]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelSampleRate = CreateWindowW(L"STATIC", L"Sample rate", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
 
     controls_.editFadeIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.pageMeasurement,
                                            reinterpret_cast<HMENU>(kEditFadeIn), instance_, nullptr);
@@ -1597,6 +1609,10 @@ void WolfieApp::createLayout() {
                                                  reinterpret_cast<HMENU>(kEditTargetLength), instance_, nullptr);
     controls_.editLeadIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.pageMeasurement,
                                            reinterpret_cast<HMENU>(kEditLeadIn), instance_, nullptr);
+    controls_.comboSampleRate = CreateWindowW(L"COMBOBOX", nullptr,
+                                              WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                              0, 0, 0, 0, controls_.pageMeasurement,
+                                              reinterpret_cast<HMENU>(kComboMeasurementSampleRate), instance_, nullptr);
     controls_.labelOutputVolume = CreateWindowW(L"STATIC", L"Output level", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.outputVolumeValue = CreateWindowW(L"STATIC", L"-30 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.outputVolumeSlider = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr,
@@ -1628,12 +1644,15 @@ void WolfieApp::createLayout() {
     SetWindowLongPtrW(controls_.labelEndFrequency, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelTargetLength, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelLeadIn, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.labelSampleRate, GWL_STYLE, centeredStaticStyle);
+    SendMessageW(controls_.editEndFrequency, EM_SETREADONLY, TRUE, 0);
 
     SendMessageW(controls_.leftProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
     SendMessageW(controls_.rightProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
     SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMIN, FALSE, 0);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMAX, FALSE, kOutputVolumeSliderMax);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETTICFREQ, 10, 0);
+    populateMeasurementSampleRateCombo(controls_.comboSampleRate);
     updateVisibleTab();
     layoutMainWindow();
 }
@@ -1679,7 +1698,8 @@ void WolfieApp::layoutContent() {
     constexpr int kValueWidthSmall = 62;
     constexpr int kValueWidthMedium = 74;
     constexpr int kValueWidthLarge = 82;
-    constexpr int kFieldGap = 60;
+    constexpr int kValueWidthCombo = 96;
+    constexpr int kFieldGap = 48;
     constexpr int kLabelTopOffset = 2;
     constexpr int kFieldTopOffset = 22;
     constexpr int kButtonWidth = 184;
@@ -1697,6 +1717,13 @@ void WolfieApp::layoutContent() {
         MoveWindow(edit, left, top + kFieldTopOffset, editWidth, 26, TRUE);
     };
 
+    auto placeCenteredComboField = [&](HWND label, HWND combo, int left, int top, int labelWidth, int comboWidth) {
+        const int labelLeft = left + ((comboWidth - labelWidth) / 2);
+        MoveWindow(label, labelLeft, top + kLabelTopOffset, labelWidth, 18, TRUE);
+        // For dropdown combos the window height defines the popup list height as well.
+        MoveWindow(combo, left, top + kFieldTopOffset, comboWidth, 220, TRUE);
+    };
+
     const int paramsTop = contentTop;
     int left = contentLeft;
     placeCenteredField(controls_.labelFadeIn, controls_.editFadeIn, left, paramsTop, kLabelWidthSmall, kValueWidthTiny);
@@ -1712,6 +1739,8 @@ void WolfieApp::layoutContent() {
     placeCenteredField(controls_.labelTargetLength, controls_.editTargetLength, left, paramsTop, kLabelWidthLarge, kValueWidthMedium);
     left += kValueWidthMedium + kFieldGap;
     placeCenteredField(controls_.labelLeadIn, controls_.editLeadIn, left, paramsTop, kLabelWidthMedium, kValueWidthSmall);
+    left += kValueWidthSmall + kFieldGap;
+    placeCenteredComboField(controls_.labelSampleRate, controls_.comboSampleRate, left, paramsTop, kLabelWidthMedium, kValueWidthCombo);
 
     const int volumeTop = paramsTop + 60;
     MoveWindow(controls_.labelOutputVolume, contentLeft, volumeTop + 5, 90, 20, TRUE);
@@ -1752,17 +1781,21 @@ void WolfieApp::layoutContent() {
 void WolfieApp::showSettingsWindow() {
     CreateWindowExW(WS_EX_DLGMODALFRAME, kSettingsClassName, L"Measurement Settings",
                     WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                    CW_USEDEFAULT, CW_USEDEFAULT, 460, 290, mainWindow_, nullptr, instance_, this);
+                    CW_USEDEFAULT, CW_USEDEFAULT, 460, 246, mainWindow_, nullptr, instance_, this);
 }
 
 void WolfieApp::populateControlsFromState() {
+    syncDerivedMeasurementSettings(workspace_.measurement);
     setWindowText(controls_.editFadeIn, formatWideDouble(workspace_.measurement.fadeInSeconds));
     setWindowText(controls_.editFadeOut, formatWideDouble(workspace_.measurement.fadeOutSeconds));
-    setWindowText(controls_.editDuration, formatWideDouble(workspace_.measurement.durationSeconds, 1));
+    setWindowText(controls_.editDuration, formatWideDouble(workspace_.measurement.durationSeconds, 0));
     setWindowText(controls_.editStartFrequency, formatWideDouble(workspace_.measurement.startFrequencyHz, 0));
     setWindowText(controls_.editEndFrequency, formatWideDouble(workspace_.measurement.endFrequencyHz, 0));
     setWindowText(controls_.editTargetLength, formatWideDouble(workspace_.measurement.targetLengthSamples, 0));
     setWindowText(controls_.editLeadIn, formatWideDouble(workspace_.measurement.leadInSamples, 0));
+    if (controls_.comboSampleRate != nullptr) {
+        SendMessageW(controls_.comboSampleRate, CB_SETCURSEL, comboIndexFromMeasurementSampleRate(workspace_.measurement.sampleRate), 0);
+    }
     if (controls_.outputVolumeValue != nullptr) {
         setWindowText(controls_.outputVolumeValue, formatOutputVolumeLabel(workspace_.audio.outputVolumeDb));
     }
@@ -1772,13 +1805,15 @@ void WolfieApp::populateControlsFromState() {
 }
 
 void WolfieApp::syncStateFromControls() {
+    workspace_.measurement.sampleRate = measurementSampleRateFromComboIndex(
+        static_cast<int>(SendMessageW(controls_.comboSampleRate, CB_GETCURSEL, 0, 0)));
     workspace_.measurement.fadeInSeconds = std::stod(getWindowText(controls_.editFadeIn));
     workspace_.measurement.fadeOutSeconds = std::stod(getWindowText(controls_.editFadeOut));
     workspace_.measurement.durationSeconds = std::stod(getWindowText(controls_.editDuration));
     workspace_.measurement.startFrequencyHz = std::stod(getWindowText(controls_.editStartFrequency));
-    workspace_.measurement.endFrequencyHz = std::stod(getWindowText(controls_.editEndFrequency));
     workspace_.measurement.targetLengthSamples = std::stoi(getWindowText(controls_.editTargetLength));
     workspace_.measurement.leadInSamples = std::stoi(getWindowText(controls_.editLeadIn));
+    syncDerivedMeasurementSettings(workspace_.measurement);
 }
 
 void WolfieApp::refreshWindowTitle() {
@@ -1872,6 +1907,18 @@ void WolfieApp::onCommand(WORD commandId) {
             startMeasurement();
         }
         return;
+    case kComboMeasurementSampleRate:
+        try {
+            syncStateFromControls();
+        } catch (...) {
+        }
+        workspace_.measurement.sampleRate = measurementSampleRateFromComboIndex(
+            static_cast<int>(SendMessageW(controls_.comboSampleRate, CB_GETCURSEL, 0, 0)));
+        syncDerivedMeasurementSettings(workspace_.measurement);
+        populateControlsFromState();
+        saveWorkspaceFiles();
+        refreshMeasurementStatus();
+        return;
     default:
         if (commandId >= kMenuFileRecentBase && commandId < kMenuFileRecentBase + 8) {
             const size_t index = commandId - kMenuFileRecentBase;
@@ -1946,7 +1993,7 @@ void WolfieApp::newWorkspace() {
 
     workspace_ = {};
     workspace_.rootPath = *path;
-    workspace_.measurement.endFrequencyHz = workspace_.audio.sampleRate / 2.0;
+    syncDerivedMeasurementSettings(workspace_.measurement);
     populateControlsFromState();
     refreshWindowTitle();
     invalidateGraphs();
@@ -2071,7 +2118,7 @@ void WolfieApp::saveAppState() const {
 void WolfieApp::loadWorkspace(const std::filesystem::path& path) {
     workspace_ = {};
     workspace_.rootPath = path;
-    workspace_.measurement.endFrequencyHz = workspace_.audio.sampleRate / 2.0;
+    syncDerivedMeasurementSettings(workspace_.measurement);
 
     if (const auto content = readTextFile(path / "workspace.json")) {
         if (const auto driver = findJsonString(*content, "driver")) {
@@ -2087,7 +2134,7 @@ void WolfieApp::loadWorkspace(const std::filesystem::path& path) {
             workspace_.audio.rightOutputChannel = static_cast<int>(*value);
         }
         if (const auto value = findJsonNumber(*content, "sampleRate")) {
-            workspace_.audio.sampleRate = static_cast<int>(*value);
+            workspace_.measurement.sampleRate = static_cast<int>(*value);
         }
         if (const auto value = findJsonNumber(*content, "outputVolumeDb")) {
             workspace_.audio.outputVolumeDb = *value;
@@ -2104,9 +2151,6 @@ void WolfieApp::loadWorkspace(const std::filesystem::path& path) {
         if (const auto value = findJsonNumber(*content, "startFrequencyHz")) {
             workspace_.measurement.startFrequencyHz = *value;
         }
-        if (const auto value = findJsonNumber(*content, "endFrequencyHz")) {
-            workspace_.measurement.endFrequencyHz = *value;
-        }
         if (const auto value = findJsonNumber(*content, "targetLengthSamples")) {
             workspace_.measurement.targetLengthSamples = static_cast<int>(*value);
         }
@@ -2120,6 +2164,8 @@ void WolfieApp::loadWorkspace(const std::filesystem::path& path) {
             workspace_.ui.resultSectionHeight = static_cast<int>(*value);
         }
     }
+
+    syncDerivedMeasurementSettings(workspace_.measurement);
 
     loadMeasurementResultFile();
 }
@@ -2166,10 +2212,10 @@ void WolfieApp::saveWorkspaceFiles() const {
                   << "    \"micInputChannel\": " << workspace_.audio.micInputChannel << ",\n"
                   << "    \"leftOutputChannel\": " << workspace_.audio.leftOutputChannel << ",\n"
                   << "    \"rightOutputChannel\": " << workspace_.audio.rightOutputChannel << ",\n"
-                  << "    \"sampleRate\": " << workspace_.audio.sampleRate << ",\n"
                   << "    \"outputVolumeDb\": " << workspace_.audio.outputVolumeDb << "\n"
                   << "  },\n"
                   << "  \"measurement\": {\n"
+                  << "    \"sampleRate\": " << workspace_.measurement.sampleRate << ",\n"
                   << "    \"fadeInSeconds\": " << workspace_.measurement.fadeInSeconds << ",\n"
                   << "    \"fadeOutSeconds\": " << workspace_.measurement.fadeOutSeconds << ",\n"
                   << "    \"durationSeconds\": " << workspace_.measurement.durationSeconds << ",\n"

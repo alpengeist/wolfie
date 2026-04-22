@@ -29,11 +29,11 @@ struct AudioSettings {
     int micInputChannel = 1;
     int leftOutputChannel = 1;
     int rightOutputChannel = 2;
-    int sampleRate = 44100;
     double outputVolumeDb = -30.0;
 };
 
 struct MeasurementSettings {
+    int sampleRate = 44100;
     double fadeInSeconds = 0.5;
     double fadeOutSeconds = 0.1;
     double durationSeconds = 60.0;
@@ -132,6 +132,7 @@ private:
         HWND labelEndFrequency = nullptr;
         HWND labelTargetLength = nullptr;
         HWND labelLeadIn = nullptr;
+        HWND labelSampleRate = nullptr;
         HWND editFadeIn = nullptr;
         HWND editFadeOut = nullptr;
         HWND editDuration = nullptr;
@@ -139,6 +140,7 @@ private:
         HWND editEndFrequency = nullptr;
         HWND editTargetLength = nullptr;
         HWND editLeadIn = nullptr;
+        HWND comboSampleRate = nullptr;
         HWND labelOutputVolume = nullptr;
         HWND outputVolumeValue = nullptr;
         HWND outputVolumeSlider = nullptr;
