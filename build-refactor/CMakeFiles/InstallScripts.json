@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"E:/proj/wolfie/build-refactor/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

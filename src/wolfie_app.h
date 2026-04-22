@@ -1,12 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include <filesystem>
-#include <memory>
 #include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -16,97 +11,14 @@
 #endif
 #include <windows.h>
 
+#include "audio/asio_service.h"
+#include "core/models.h"
+#include "measurement/measurement_controller.h"
+#include "persistence/app_state_repository.h"
+#include "persistence/workspace_repository.h"
+#include "ui/measurement_page.h"
+
 namespace wolfie {
-
-enum class MeasurementChannel {
-    None,
-    Left,
-    Right
-};
-
-struct AudioSettings {
-    std::string driver = "ASIO driver";
-    int micInputChannel = 1;
-    int leftOutputChannel = 1;
-    int rightOutputChannel = 2;
-    double outputVolumeDb = -30.0;
-};
-
-struct MeasurementSettings {
-    int sampleRate = 44100;
-    double fadeInSeconds = 0.5;
-    double fadeOutSeconds = 0.1;
-    double durationSeconds = 60.0;
-    double startFrequencyHz = 20.0;
-    double endFrequencyHz = 22050.0;
-    int targetLengthSamples = 65536;
-    int leadInSamples = 6000;
-};
-
-struct UiSettings {
-    int measurementSectionHeight = 320;
-    int resultSectionHeight = 360;
-};
-
-struct MeasurementResult {
-    std::vector<double> frequencyAxisHz;
-    std::vector<double> leftChannelDb;
-    std::vector<double> rightChannelDb;
-};
-
-struct WorkspaceState {
-    std::filesystem::path rootPath;
-    AudioSettings audio;
-    MeasurementSettings measurement;
-    UiSettings ui;
-    MeasurementResult result;
-};
-
-struct AppState {
-    std::filesystem::path lastWorkspace;
-    std::vector<std::filesystem::path> recentWorkspaces;
-};
-
-class MeasurementEngine {
-public:
-    MeasurementEngine();
-    ~MeasurementEngine();
-
-    bool start(const WorkspaceState& workspace);
-    void cancel();
-    void tick();
-
-    [[nodiscard]] bool running() const { return running_; }
-    [[nodiscard]] bool finished() const { return finished_; }
-    [[nodiscard]] double progress() const { return progress_; }
-    [[nodiscard]] double currentFrequencyHz() const { return currentFrequencyHz_; }
-    [[nodiscard]] double currentAmplitudeDb() const { return currentAmplitudeDb_; }
-    [[nodiscard]] double peakAmplitudeDb() const { return peakAmplitudeDb_; }
-    [[nodiscard]] MeasurementChannel currentChannel() const { return currentChannel_; }
-    [[nodiscard]] const std::filesystem::path& generatedSweepPath() const { return generatedSweepPath_; }
-    [[nodiscard]] const MeasurementResult& result() const { return result_; }
-    [[nodiscard]] std::wstring_view lastError() const { return lastErrorMessage_; }
-
-private:
-    struct Runtime;
-
-    void cleanupRuntime();
-
-    WorkspaceState snapshot_;
-    MeasurementResult result_;
-    bool running_ = false;
-    bool finished_ = false;
-    uint64_t startTickMs_ = 0;
-    uint64_t durationMs_ = 0;
-    double progress_ = 0.0;
-    MeasurementChannel currentChannel_ = MeasurementChannel::None;
-    double currentFrequencyHz_ = 0.0;
-    double currentAmplitudeDb_ = -90.0;
-    double peakAmplitudeDb_ = -90.0;
-    std::filesystem::path generatedSweepPath_;
-    std::wstring lastErrorMessage_;
-    std::unique_ptr<Runtime> runtime_;
-};
 
 class WolfieApp {
 public:
@@ -114,80 +26,10 @@ public:
     int run();
 
 private:
-    struct Controls {
-        HWND tabControl = nullptr;
-        HWND pageMeasurement = nullptr;
-        HWND pageAlignment = nullptr;
-        HWND pageTargetCurve = nullptr;
-        HWND pageFilters = nullptr;
-        HWND pageExport = nullptr;
-        HWND placeholderAlignment = nullptr;
-        HWND placeholderTargetCurve = nullptr;
-        HWND placeholderFilters = nullptr;
-        HWND placeholderExport = nullptr;
-        HWND labelFadeIn = nullptr;
-        HWND labelFadeOut = nullptr;
-        HWND labelDuration = nullptr;
-        HWND labelStartFrequency = nullptr;
-        HWND labelEndFrequency = nullptr;
-        HWND labelTargetLength = nullptr;
-        HWND labelLeadIn = nullptr;
-        HWND labelSampleRate = nullptr;
-        HWND unitFadeIn = nullptr;
-        HWND unitFadeOut = nullptr;
-        HWND unitDuration = nullptr;
-        HWND unitStartFrequency = nullptr;
-        HWND unitEndFrequency = nullptr;
-        HWND unitTargetLength = nullptr;
-        HWND unitLeadIn = nullptr;
-        HWND editFadeIn = nullptr;
-        HWND editFadeOut = nullptr;
-        HWND editDuration = nullptr;
-        HWND editStartFrequency = nullptr;
-        HWND editEndFrequency = nullptr;
-        HWND editTargetLength = nullptr;
-        HWND editLeadIn = nullptr;
-        HWND comboSampleRate = nullptr;
-        HWND labelOutputVolume = nullptr;
-        HWND outputVolumeValue = nullptr;
-        HWND outputVolumeSlider = nullptr;
-        HWND outputVolumeMuteLabel = nullptr;
-        HWND outputVolumeMaxLabel = nullptr;
-        HWND buttonMeasure = nullptr;
-        HWND leftChannelLabel = nullptr;
-        HWND leftProgressBar = nullptr;
-        HWND leftProgressText = nullptr;
-        HWND rightChannelLabel = nullptr;
-        HWND rightProgressBar = nullptr;
-        HWND rightProgressText = nullptr;
-        HWND statusText = nullptr;
-        HWND currentFrequency = nullptr;
-        HWND currentAmplitude = nullptr;
-        HWND peakAmplitude = nullptr;
-        HWND resultGraph = nullptr;
-    };
-
-    enum class GraphKind {
-        Response
-    };
-
     static constexpr UINT_PTR kMeasurementTimerId = 101;
     static constexpr int kContentMargin = 20;
-    static constexpr int kControlHeight = 24;
-
-    HINSTANCE instance_;
-    HWND mainWindow_ = nullptr;
-    HACCEL acceleratorTable_ = nullptr;
-    Controls controls_;
-    WorkspaceState workspace_;
-    AppState appState_;
-    MeasurementEngine measurementEngine_;
-    bool measurementDirty_ = false;
 
     static LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
-    static LRESULT CALLBACK GraphWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
-    static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
-    static LRESULT CALLBACK SettingsWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 
     void createMainWindow();
     void createMenus();
@@ -200,13 +42,12 @@ private:
     void refreshWindowTitle();
     void refreshMeasurementStatus();
     void refreshRecentMenu();
-    void onCommand(WORD commandId);
-    void onHScroll(LPARAM lParam);
+    void onCommand(WORD commandId, WORD notificationCode);
+    void onHScroll(HWND source);
     void onNotify(LPARAM lParam);
     void onTimer(UINT_PTR timerId);
     void onResize();
     void updateVisibleTab();
-    void invalidateGraphs();
 
     void newWorkspace();
     void openWorkspace();
@@ -214,25 +55,32 @@ private:
     void saveWorkspace(bool saveAs);
     void loadLastWorkspaceIfPossible();
     void touchRecentWorkspace(const std::filesystem::path& path);
-
-    [[nodiscard]] std::optional<std::filesystem::path> pickFolder(bool createIfMissing) const;
-    [[nodiscard]] std::filesystem::path appStatePath() const;
-    void loadAppState();
-    void saveAppState() const;
-    void loadWorkspace(const std::filesystem::path& path);
-    void loadMeasurementResultFile();
-    void saveWorkspaceFiles() const;
-    void saveMeasurementResultFile() const;
-
     void startMeasurement();
     void stopMeasurement();
     void finalizeMeasurement();
 
+    [[nodiscard]] std::optional<std::filesystem::path> pickFolder(bool createIfMissing) const;
     [[nodiscard]] RECT clientRect(HWND window) const;
-    [[nodiscard]] static std::wstring toWide(std::string_view value);
-    [[nodiscard]] static std::string toUtf8(std::wstring_view value);
-    [[nodiscard]] static std::string formatDouble(double value, int decimals = 2);
-    [[nodiscard]] static std::wstring formatWideDouble(double value, int decimals = 2);
+
+    HINSTANCE instance_;
+    HWND mainWindow_ = nullptr;
+    HACCEL acceleratorTable_ = nullptr;
+    HWND tabControl_ = nullptr;
+    HWND pageAlignment_ = nullptr;
+    HWND pageTargetCurve_ = nullptr;
+    HWND pageFilters_ = nullptr;
+    HWND pageExport_ = nullptr;
+    HWND placeholderAlignment_ = nullptr;
+    HWND placeholderTargetCurve_ = nullptr;
+    HWND placeholderFilters_ = nullptr;
+    HWND placeholderExport_ = nullptr;
+    WorkspaceState workspace_;
+    AppState appState_;
+    ui::MeasurementPage measurementPage_;
+    MeasurementController measurementController_;
+    persistence::WorkspaceRepository workspaceRepository_;
+    persistence::AppStateRepository appStateRepository_;
+    audio::AsioService asioService_;
 };
 
 }  // namespace wolfie
