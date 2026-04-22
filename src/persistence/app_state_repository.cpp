@@ -32,6 +32,10 @@ std::optional<std::string> readTextFile(const std::filesystem::path& path) {
 }
 
 bool writeTextFile(const std::filesystem::path& path, const std::string& content) {
+    if (!path.parent_path().empty()) {
+        std::filesystem::create_directories(path.parent_path());
+    }
+
     std::ofstream out(path, std::ios::binary);
     if (!out) {
         return false;

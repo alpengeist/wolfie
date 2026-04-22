@@ -1,6 +1,7 @@
 #include "wolfie_app.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 #include <commctrl.h>
 #include <shobjidl.h>
@@ -24,12 +25,37 @@ constexpr int kMenuFileRecentBase = 1100;
 constexpr int kTabMain = 3013;
 constexpr wchar_t kMainClassName[] = L"WolfieMainWindow";
 
+std::filesystem::path appStatePath() {
+    const std::filesystem::path legacyPath = std::filesystem::current_path() / "wolfie-app-state.json";
+
+    std::filesystem::path basePath;
+    if (const wchar_t* home = _wgetenv(L"HOME"); home != nullptr && home[0] != L'\0') {
+        basePath = std::filesystem::path(home);
+    } else if (const wchar_t* profile = _wgetenv(L"USERPROFILE"); profile != nullptr && profile[0] != L'\0') {
+        basePath = std::filesystem::path(profile);
+    } else {
+        basePath = std::filesystem::current_path();
+    }
+
+    const std::filesystem::path newPath = basePath / L".wolfie" / L"wolfie-app-state.json";
+    if (std::filesystem::exists(newPath) || !std::filesystem::exists(legacyPath)) {
+        return newPath;
+    }
+
+    std::error_code error;
+    std::filesystem::create_directories(newPath.parent_path(), error);
+    if (!error) {
+        std::filesystem::rename(legacyPath, newPath, error);
+    }
+    return error ? legacyPath : newPath;
+}
+
 }  // namespace
 
 WolfieApp::WolfieApp(HINSTANCE instance)
     : instance_(instance),
       measurementController_(audio::createWinMmAudioBackend()),
-      appStateRepository_(std::filesystem::current_path() / "wolfie-app-state.json") {}
+      appStateRepository_(appStatePath()) {}
 
 int WolfieApp::run() {
     INITCOMMONCONTROLSEX initCommonControls{};
