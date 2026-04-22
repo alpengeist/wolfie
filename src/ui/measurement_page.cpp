@@ -134,8 +134,8 @@ void MeasurementPage::layout() {
     constexpr int kProgressLabelWidth = 42;
     constexpr int kProgressBarWidth = 180;
     constexpr int kProgressTextWidth = 44;
-    constexpr int kMetricWidth = 150;
-    constexpr int kMetricGap = 16;
+    constexpr int kMetricWidth = 90;
+    constexpr int kMetricGap = 10;
     constexpr int kSliderWidth = 220;
     constexpr int kSliderValueWidth = 56;
 
