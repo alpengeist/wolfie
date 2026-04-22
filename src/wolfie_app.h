@@ -18,6 +18,12 @@
 
 namespace wolfie {
 
+enum class MeasurementChannel {
+    None,
+    Left,
+    Right
+};
+
 struct AudioSettings {
     std::string driver = "ASIO driver";
     int micInputChannel = 1;
@@ -76,6 +82,7 @@ public:
     [[nodiscard]] double currentFrequencyHz() const { return currentFrequencyHz_; }
     [[nodiscard]] double currentAmplitudeDb() const { return currentAmplitudeDb_; }
     [[nodiscard]] double peakAmplitudeDb() const { return peakAmplitudeDb_; }
+    [[nodiscard]] MeasurementChannel currentChannel() const { return currentChannel_; }
     [[nodiscard]] const std::filesystem::path& generatedSweepPath() const { return generatedSweepPath_; }
     [[nodiscard]] const MeasurementResult& result() const { return result_; }
     [[nodiscard]] std::wstring_view lastError() const { return lastErrorMessage_; }
@@ -92,6 +99,7 @@ private:
     uint64_t startTickMs_ = 0;
     uint64_t durationMs_ = 0;
     double progress_ = 0.0;
+    MeasurementChannel currentChannel_ = MeasurementChannel::None;
     double currentFrequencyHz_ = 0.0;
     double currentAmplitudeDb_ = -90.0;
     double peakAmplitudeDb_ = -90.0;
@@ -107,9 +115,16 @@ public:
 
 private:
     struct Controls {
-        HWND sectionWorkspace = nullptr;
-        HWND sectionMeasurement = nullptr;
-        HWND workspacePath = nullptr;
+        HWND tabControl = nullptr;
+        HWND pageMeasurement = nullptr;
+        HWND pageAlignment = nullptr;
+        HWND pageTargetCurve = nullptr;
+        HWND pageFilters = nullptr;
+        HWND pageExport = nullptr;
+        HWND placeholderAlignment = nullptr;
+        HWND placeholderTargetCurve = nullptr;
+        HWND placeholderFilters = nullptr;
+        HWND placeholderExport = nullptr;
         HWND labelFadeIn = nullptr;
         HWND labelFadeOut = nullptr;
         HWND labelDuration = nullptr;
@@ -124,8 +139,13 @@ private:
         HWND editEndFrequency = nullptr;
         HWND editTargetLength = nullptr;
         HWND editLeadIn = nullptr;
+        HWND labelOutputVolume = nullptr;
+        HWND outputVolumeValue = nullptr;
+        HWND outputVolumeSlider = nullptr;
+        HWND outputVolumeMuteLabel = nullptr;
+        HWND outputVolumeMaxLabel = nullptr;
         HWND buttonMeasure = nullptr;
-        HWND buttonStopMeasurement = nullptr;
+        HWND currentChannelLabel = nullptr;
         HWND statusText = nullptr;
         HWND progressText = nullptr;
         HWND currentFrequency = nullptr;
@@ -140,10 +160,8 @@ private:
     };
 
     static constexpr UINT_PTR kMeasurementTimerId = 101;
-    static constexpr int kSectionSpacing = 16;
     static constexpr int kContentMargin = 20;
     static constexpr int kControlHeight = 24;
-    static constexpr int kLabelWidth = 160;
 
     HINSTANCE instance_;
     HWND mainWindow_ = nullptr;
@@ -156,23 +174,26 @@ private:
 
     static LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK GraphWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK SettingsWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 
     void createMainWindow();
     void createMenus();
     void createLayout();
-    void createSectionChrome(HWND parent, HWND& section, const wchar_t* title);
     void layoutMainWindow();
     void layoutContent();
     void showSettingsWindow();
     void populateControlsFromState();
     void syncStateFromControls();
-    void refreshWorkspaceLabels();
+    void refreshWindowTitle();
     void refreshMeasurementStatus();
     void refreshRecentMenu();
     void onCommand(WORD commandId);
+    void onHScroll(LPARAM lParam);
+    void onNotify(LPARAM lParam);
     void onTimer(UINT_PTR timerId);
     void onResize();
+    void updateVisibleTab();
     void invalidateGraphs();
 
     void newWorkspace();
@@ -187,7 +208,9 @@ private:
     void loadAppState();
     void saveAppState() const;
     void loadWorkspace(const std::filesystem::path& path);
+    void loadMeasurementResultFile();
     void saveWorkspaceFiles() const;
+    void saveMeasurementResultFile() const;
 
     void startMeasurement();
     void stopMeasurement();

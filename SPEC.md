@@ -61,6 +61,7 @@ Parameters are:
 - sweep start frequency in Hz (default 20Hz)
 - sweep end frequency in Hz (default that makes sense with the sample rate)
 - target length and lead in in samples (default 65536 and 6000)
+- output volume slider in dB. muted to the far left, start with -60dB. 0dB at the far right. Default is the safe center at -30dB.
 
 Pulses are normalized to 1.0.
 Peak optimize the sweep.

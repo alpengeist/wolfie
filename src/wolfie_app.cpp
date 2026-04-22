@@ -32,10 +32,11 @@ constexpr int kEditEndFrequency = 3008;
 constexpr int kEditTargetLength = 3009;
 constexpr int kEditLeadIn = 3010;
 constexpr int kButtonMeasure = 3011;
-constexpr int kButtonStopMeasurement = 3012;
+constexpr int kTabMain = 3013;
 
 constexpr wchar_t kMainClassName[] = L"WolfieMainWindow";
 constexpr wchar_t kGraphClassName[] = L"WolfieGraphWindow";
+constexpr wchar_t kPageClassName[] = L"WolfiePageWindow";
 constexpr wchar_t kSettingsClassName[] = L"WolfieSettingsWindow";
 constexpr wchar_t kNoAsioDrivers[] = L"(No ASIO drivers found)";
 
@@ -47,7 +48,8 @@ constexpr COLORREF kGreen = RGB(46, 143, 82);
 constexpr COLORREF kRed = RGB(190, 69, 69);
 constexpr COLORREF kText = RGB(45, 52, 61);
 constexpr COLORREF kMuted = RGB(109, 118, 130);
-constexpr int kWorkspaceSectionHeight = 72;
+constexpr double kMutedOutputVolumeDb = -100.0;
+constexpr int kOutputVolumeSliderMax = 61;
 
 using ASIOBool = long;
 using ASIOSampleRate = double;
@@ -253,6 +255,9 @@ std::vector<float> generateSweepSamples(const MeasurementSettings& settings, int
 }
 
 std::vector<float> scaleSweepSamples(const std::vector<float>& samples, double volumeDb) {
+    if (volumeDb <= kMutedOutputVolumeDb) {
+        return std::vector<float>(samples.size(), 0.0f);
+    }
     const double gain = clampValue(std::pow(10.0, volumeDb / 20.0), 0.0, 1.0);
     std::vector<float> scaled(samples.size(), 0.0f);
     for (size_t i = 0; i < samples.size(); ++i) {
@@ -406,8 +411,23 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
     }
 
     const size_t sweepFrames = playedSweep.size();
+    const size_t fadeInFrames = clampValue<size_t>(static_cast<size_t>(std::round(std::max(0.0, settings.fadeInSeconds) * sampleRate)),
+                                                   0,
+                                                   sweepFrames);
+    const size_t fadeOutFrames = clampValue<size_t>(static_cast<size_t>(std::round(std::max(0.0, settings.fadeOutSeconds) * sampleRate)),
+                                                    0,
+                                                    sweepFrames - fadeInFrames);
+    const size_t analysisBegin = fadeInFrames;
+    const size_t analysisEnd = sweepFrames - fadeOutFrames;
+    if (analysisEnd <= analysisBegin) {
+        return result;
+    }
+
+    const size_t analysisFrames = analysisEnd - analysisBegin;
     const size_t segmentFrames = leadInFrames + sweepFrames;
-    const size_t pointCount = clampValue<size_t>(sweepFrames / 256, 128, 1024);
+    // Ignore the faded sweep edges when generating the response plot because
+    // those regions are intentionally attenuated and skew the measured ratio.
+    const size_t pointCount = std::min<size_t>(analysisFrames, clampValue<size_t>(analysisFrames / 256, 128, 1024));
     result.frequencyAxisHz.reserve(pointCount);
     result.leftChannelDb.reserve(pointCount);
     result.rightChannelDb.reserve(pointCount);
@@ -427,8 +447,8 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
     };
 
     for (size_t i = 0; i < pointCount; ++i) {
-        const size_t begin = (i * sweepFrames) / pointCount;
-        const size_t end = std::max(begin + 1, ((i + 1) * sweepFrames) / pointCount);
+        const size_t begin = analysisBegin + ((i * analysisFrames) / pointCount);
+        const size_t end = std::max(begin + 1, analysisBegin + (((i + 1) * analysisFrames) / pointCount));
         const size_t center = begin + ((end - begin) / 2);
 
         result.frequencyAxisHz.push_back(sweepFrequencyAtSample(settings, sampleRate, center, sweepFrames));
@@ -456,14 +476,63 @@ std::wstring getWindowText(HWND control) {
 std::wstring formatFrequencyLabel(double frequencyHz) {
     std::wostringstream out;
     out.setf(std::ios::fixed);
-    if (frequencyHz >= 1000.0) {
-        const double khz = frequencyHz / 1000.0;
-        out.precision(khz >= 10.0 ? 0 : 1);
-        out << khz << L" kHz";
-    } else {
-        out.precision(frequencyHz >= 100.0 ? 0 : 1);
-        out << frequencyHz << L" Hz";
+    out.precision(0);
+    out << std::round(std::max(0.0, frequencyHz)) << L" Hz";
+    return out.str();
+}
+
+int outputVolumeDbToSliderPosition(double volumeDb) {
+    if (volumeDb <= kMutedOutputVolumeDb) {
+        return 0;
     }
+    return clampValue(static_cast<int>(std::lround(volumeDb + 61.0)), 1, kOutputVolumeSliderMax);
+}
+
+double sliderPositionToOutputVolumeDb(int position) {
+    if (position <= 0) {
+        return kMutedOutputVolumeDb;
+    }
+    return static_cast<double>(clampValue(position, 1, kOutputVolumeSliderMax) - 61);
+}
+
+std::wstring formatOutputVolumeLabel(double volumeDb) {
+    if (volumeDb <= kMutedOutputVolumeDb) {
+        return L"Mute";
+    }
+    if (volumeDb >= 0.0) {
+        return L"0 dB";
+    }
+    std::wostringstream out;
+    out.setf(std::ios::fixed);
+    out.precision(0);
+    out << volumeDb << L" dB";
+    return out.str();
+}
+
+double responseGraphXT(double frequencyHz) {
+    constexpr double kMinFrequency = 10.0;
+    constexpr double kMaxFrequency = 20000.0;
+    const double clamped = clampValue(frequencyHz, kMinFrequency, kMaxFrequency);
+    if (clamped < 100.0) {
+        return std::log10(clamped / 10.0) / 3.5;
+    }
+    if (clamped < 1000.0) {
+        return (1.0 + std::log10(clamped / 100.0)) / 3.5;
+    }
+    if (clamped < 10000.0) {
+        return (2.0 + std::log10(clamped / 1000.0)) / 3.5;
+    }
+    return (3.0 + (std::log10(clamped / 10000.0) / std::log10(2.0) * 0.5)) / 3.5;
+}
+
+std::wstring formatResponseTickLabel(double frequencyHz) {
+    if (frequencyHz >= 1000.0) {
+        std::wostringstream out;
+        out << static_cast<int>(std::lround(frequencyHz / 1000.0)) << L"k";
+        return out.str();
+    }
+    std::wostringstream out;
+    out << static_cast<int>(std::lround(frequencyHz));
     return out.str();
 }
 
@@ -748,6 +817,7 @@ bool MeasurementEngine::start(const WorkspaceState& workspace) {
     running_ = false;
     finished_ = false;
     progress_ = 0.0;
+    currentChannel_ = MeasurementChannel::None;
     currentFrequencyHz_ = 0.0;
     currentAmplitudeDb_ = -90.0;
     peakAmplitudeDb_ = -90.0;
@@ -848,6 +918,7 @@ bool MeasurementEngine::start(const WorkspaceState& workspace) {
     startTickMs_ = tickMillis();
     runtime_ = std::move(runtime);
     running_ = true;
+    currentChannel_ = MeasurementChannel::Left;
     return true;
 }
 
@@ -855,6 +926,7 @@ void MeasurementEngine::cancel() {
     running_ = false;
     finished_ = false;
     progress_ = 0.0;
+    currentChannel_ = MeasurementChannel::None;
     currentFrequencyHz_ = 0.0;
     currentAmplitudeDb_ = -90.0;
     peakAmplitudeDb_ = -90.0;
@@ -869,12 +941,28 @@ void MeasurementEngine::tick() {
     runtime_->processCapture(currentAmplitudeDb_, peakAmplitudeDb_);
 
     const uint64_t elapsedMs = tickMillis() - startTickMs_;
-    progress_ = clampValue(static_cast<double>(elapsedMs) / static_cast<double>(durationMs_), 0.0, 1.0);
-
     const size_t elapsedFrames = std::min(
         runtime_->totalFrames,
         static_cast<size_t>((elapsedMs * static_cast<uint64_t>(runtime_->sampleRate)) / 1000ULL));
+    const size_t leftSweepStart = runtime_->leadInFrames;
     const size_t rightSegmentStart = runtime_->segmentFrames;
+    const size_t rightSweepStart = rightSegmentStart + runtime_->leadInFrames;
+    const double sweepFrames = std::max(1.0, static_cast<double>(runtime_->sweepFrames));
+    if (elapsedFrames < rightSegmentStart) {
+        currentChannel_ = MeasurementChannel::Left;
+        if (elapsedFrames <= leftSweepStart) {
+            progress_ = 0.0;
+        } else {
+            progress_ = clampValue(static_cast<double>(elapsedFrames - leftSweepStart) / sweepFrames, 0.0, 1.0);
+        }
+    } else {
+        currentChannel_ = MeasurementChannel::Right;
+        if (elapsedFrames <= rightSweepStart) {
+            progress_ = 0.0;
+        } else {
+            progress_ = clampValue(static_cast<double>(elapsedFrames - rightSweepStart) / sweepFrames, 0.0, 1.0);
+        }
+    }
     if (elapsedFrames < runtime_->leadInFrames) {
         currentFrequencyHz_ = snapshot_.measurement.startFrequencyHz;
     } else if (elapsedFrames < runtime_->segmentFrames) {
@@ -893,7 +981,7 @@ void MeasurementEngine::tick() {
     }
 
     const bool playbackDone = (runtime_->playbackHeader.dwFlags & WHDR_DONE) != 0;
-    if (!playbackDone && progress_ < 1.0) {
+    if (!playbackDone && elapsedMs < durationMs_) {
         return;
     }
 
@@ -907,6 +995,7 @@ void MeasurementEngine::tick() {
     running_ = false;
     finished_ = true;
     progress_ = 1.0;
+    currentChannel_ = MeasurementChannel::None;
     currentFrequencyHz_ = snapshot_.measurement.endFrequencyHz;
     result_ = buildMeasurementResultFromCapture(runtime_->capturedSamples,
                                                 runtime_->playedSweep,
@@ -923,7 +1012,7 @@ WolfieApp::WolfieApp(HINSTANCE instance) : instance_(instance) {
 int WolfieApp::run() {
     INITCOMMONCONTROLSEX initCommonControls{};
     initCommonControls.dwSize = sizeof(initCommonControls);
-    initCommonControls.dwICC = ICC_STANDARD_CLASSES | ICC_PROGRESS_CLASS;
+    initCommonControls.dwICC = ICC_STANDARD_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES;
     InitCommonControlsEx(&initCommonControls);
 
     loadAppState();
@@ -965,6 +1054,64 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
     case WM_COMMAND:
         app->onCommand(LOWORD(wParam));
         return 0;
+    case WM_NOTIFY:
+        app->onNotify(lParam);
+        return 0;
+    case WM_HSCROLL:
+        app->onHScroll(lParam);
+        return 0;
+    case WM_DRAWITEM: {
+        const auto* draw = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+        if (draw != nullptr && draw->CtlID == kButtonMeasure) {
+            HDC hdc = draw->hDC;
+            RECT rect = draw->rcItem;
+            const bool pressed = (draw->itemState & ODS_SELECTED) != 0;
+            const bool focused = (draw->itemState & ODS_FOCUS) != 0;
+            const bool running = app->measurementEngine_.running();
+            const COLORREF fill = running ? kRed : kGreen;
+            const COLORREF fillPressed = running ? RGB(156, 53, 53) : RGB(37, 118, 68);
+            const COLORREF border = running ? RGB(132, 42, 42) : RGB(29, 95, 55);
+
+            HBRUSH brush = CreateSolidBrush(pressed ? fillPressed : fill);
+            FillRect(hdc, &rect, brush);
+            DeleteObject(brush);
+
+            HPEN pen = CreatePen(PS_SOLID, 1, border);
+            HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
+            HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
+            Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
+            SelectObject(hdc, oldBrush);
+            SelectObject(hdc, oldPen);
+            DeleteObject(pen);
+
+            LOGFONTW baseFont{};
+            HFONT guiFont = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            GetObjectW(guiFont, sizeof(baseFont), &baseFont);
+            baseFont.lfWeight = FW_BOLD;
+            baseFont.lfHeight = -18;
+            HFONT buttonFont = CreateFontIndirectW(&baseFont);
+            HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, buttonFont));
+
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(255, 255, 255));
+            RECT textRect = rect;
+            if (pressed) {
+                OffsetRect(&textRect, 0, 1);
+            }
+            DrawTextW(hdc, running ? L"STOP" : L"START", -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+            if (focused) {
+                RECT focusRect = rect;
+                InflateRect(&focusRect, -4, -4);
+                DrawFocusRect(hdc, &focusRect);
+            }
+
+            SelectObject(hdc, oldFont);
+            DeleteObject(buttonFont);
+            return TRUE;
+        }
+        break;
+    }
     case WM_KEYDOWN:
         if ((GetKeyState(VK_CONTROL) & 0x8000) && (wParam == 'S' || wParam == 's')) {
             app->saveWorkspace(false);
@@ -983,8 +1130,6 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
         info->ptMinTrackSize.y = 760;
         return 0;
     }
-    case WM_ERASEBKGND:
-        return 1;
     case WM_DESTROY:
         if (app->acceleratorTable_) {
             DestroyAcceleratorTable(app->acceleratorTable_);
@@ -1032,21 +1177,33 @@ LRESULT CALLBACK WolfieApp::GraphWindowProc(HWND window, UINT message, WPARAM wP
                 LineTo(hdc, graph.right, graph.bottom);
 
                 const MeasurementResult& result = app->workspace_.result;
-                if (!result.frequencyAxisHz.empty()) {
-                    const double startHz = std::max(1.0, app->workspace_.measurement.startFrequencyHz);
-                    const double endHz = std::max(startHz + 1.0, app->workspace_.measurement.endFrequencyHz);
-                    const double logStart = std::log10(startHz);
-                    const double logEnd = std::log10(endHz);
-                    const double logRange = std::max(0.001, logEnd - logStart);
+                constexpr std::array<double, 5> kFrequencyTicks{10.0, 100.0, 1000.0, 10000.0, 20000.0};
+                constexpr double kMinDb = -30.0;
+                double maxDb = kMinDb + 1.0;
+                for (const double value : result.leftChannelDb) {
+                    maxDb = std::max(maxDb, value);
+                }
+                for (const double value : result.rightChannelDb) {
+                    maxDb = std::max(maxDb, value);
+                }
+                maxDb = std::ceil(maxDb);
 
+                SetDCPenColor(hdc, kBorder);
+                for (const double tickHz : kFrequencyTicks) {
+                    const int x = graph.left + static_cast<int>(responseGraphXT(tickHz) * (graph.right - graph.left));
+                    MoveToEx(hdc, x, graph.top, nullptr);
+                    LineTo(hdc, x, graph.bottom);
+                }
+                const int zeroY = graph.bottom - static_cast<int>(clampValue((0.0 - kMinDb) / (maxDb - kMinDb), 0.0, 1.0) * (graph.bottom - graph.top));
+                MoveToEx(hdc, graph.left, zeroY, nullptr);
+                LineTo(hdc, graph.right, zeroY);
+
+                if (!result.frequencyAxisHz.empty()) {
                     auto drawSeries = [&](const std::vector<double>& values, COLORREF color) {
                         SetDCPenColor(hdc, color);
-                        const double minDb = -12.0;
-                        const double maxDb = 12.0;
                         for (size_t i = 0; i < values.size(); ++i) {
-                            const double frequency = clampValue(result.frequencyAxisHz[i], startHz, endHz);
-                            const double xT = values.size() == 1 ? 0.0 : (std::log10(frequency) - logStart) / logRange;
-                            const double yT = clampValue((values[i] - minDb) / (maxDb - minDb), 0.0, 1.0);
+                            const double xT = responseGraphXT(result.frequencyAxisHz[i]);
+                            const double yT = clampValue((values[i] - kMinDb) / (maxDb - kMinDb), 0.0, 1.0);
                             const int x = graph.left + static_cast<int>(xT * (graph.right - graph.left));
                             const int y = graph.bottom - static_cast<int>(yT * (graph.bottom - graph.top));
                             if (i == 0) {
@@ -1062,17 +1219,31 @@ LRESULT CALLBACK WolfieApp::GraphWindowProc(HWND window, UINT message, WPARAM wP
                 }
 
                 SetTextColor(hdc, kMuted);
-                RECT label1{graph.left - 8, graph.bottom + 6, graph.left + 60, graph.bottom + 24};
-                RECT label2{graph.right - 84, graph.bottom + 6, graph.right + 8, graph.bottom + 24};
-                RECT label3{graph.left - 40, graph.top - 8, graph.left + 10, graph.top + 12};
-                RECT label4{graph.left - 40, graph.bottom - 8, graph.left + 10, graph.bottom + 12};
-                const std::wstring startLabel = formatFrequencyLabel(std::max(1.0, app->workspace_.measurement.startFrequencyHz));
-                const std::wstring endLabel = formatFrequencyLabel(std::max(app->workspace_.measurement.startFrequencyHz + 1.0,
-                                                                            app->workspace_.measurement.endFrequencyHz));
-                DrawTextW(hdc, startLabel.c_str(), -1, &label1, DT_LEFT);
-                DrawTextW(hdc, endLabel.c_str(), -1, &label2, DT_RIGHT);
-                DrawTextW(hdc, L"+12 dB", -1, &label3, DT_RIGHT);
-                DrawTextW(hdc, L"-12 dB", -1, &label4, DT_RIGHT);
+                for (const double tickHz : kFrequencyTicks) {
+                    const int x = graph.left + static_cast<int>(responseGraphXT(tickHz) * (graph.right - graph.left));
+                    RECT label{x - 28, graph.bottom + 6, x + 28, graph.bottom + 24};
+                    UINT align = DT_CENTER;
+                    if (tickHz == kFrequencyTicks.front()) {
+                        label.left = graph.left - 4;
+                        label.right = graph.left + 40;
+                        align = DT_LEFT;
+                    } else if (tickHz == kFrequencyTicks.back()) {
+                        label.left = graph.right - 44;
+                        label.right = graph.right + 4;
+                        align = DT_RIGHT;
+                    }
+                    const std::wstring tickLabel = formatResponseTickLabel(tickHz);
+                    DrawTextW(hdc, tickLabel.c_str(), -1, &label, align);
+                }
+
+                RECT labelTop{graph.left - 56, graph.top - 8, graph.left - 4, graph.top + 12};
+                RECT labelBottom{graph.left - 56, graph.bottom - 8, graph.left - 4, graph.bottom + 12};
+                RECT labelZero{graph.left - 56, zeroY - 8, graph.left - 4, zeroY + 12};
+                DrawTextW(hdc, (formatWideDouble(maxDb, 0) + L" dB").c_str(), -1, &labelTop, DT_RIGHT);
+                DrawTextW(hdc, L"-30 dB", -1, &labelBottom, DT_RIGHT);
+                if (zeroY > graph.top + 12 && zeroY < graph.bottom - 12) {
+                    DrawTextW(hdc, L"0 dB", -1, &labelZero, DT_RIGHT);
+                }
             }
         }
 
@@ -1084,7 +1255,40 @@ LRESULT CALLBACK WolfieApp::GraphWindowProc(HWND window, UINT message, WPARAM wP
     }
 }
 
+LRESULT CALLBACK WolfieApp::PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    static HBRUSH pageBackgroundBrush = CreateSolidBrush(kBackground);
+    switch (message) {
+    case WM_COMMAND:
+    case WM_HSCROLL: {
+        HWND root = GetAncestor(window, GA_ROOT);
+        if (root != nullptr) {
+            return SendMessageW(root, message, wParam, lParam);
+        }
+        return 0;
+    }
+    case WM_DRAWITEM: {
+        HWND root = GetAncestor(window, GA_ROOT);
+        if (root != nullptr) {
+            return SendMessageW(root, message, wParam, lParam);
+        }
+        return 0;
+    }
+    case WM_CTLCOLORDLG:
+        return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORBTN: {
+        HDC hdc = reinterpret_cast<HDC>(wParam);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, kText);
+        return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+    }
+    default:
+        return DefWindowProcW(window, message, wParam, lParam);
+    }
+}
+
 LRESULT CALLBACK WolfieApp::SettingsWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    static HBRUSH settingsBackgroundBrush = CreateSolidBrush(kBackground);
     switch (message) {
     case WM_NCCREATE: {
         const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
@@ -1138,10 +1342,8 @@ LRESULT CALLBACK WolfieApp::SettingsWindowProc(HWND window, UINT message, WPARAM
         }
         CreateWindowW(L"BUTTON", L"Open ASIO Control Panel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 208, 180, 28, window,
                       reinterpret_cast<HMENU>(7), nullptr, nullptr);
-        CreateWindowW(L"BUTTON", L"Save", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 250, 208, 80, 28, window,
-                      reinterpret_cast<HMENU>(8), nullptr, nullptr);
         CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 340, 208, 80, 28, window,
-                      reinterpret_cast<HMENU>(9), nullptr, nullptr);
+                      reinterpret_cast<HMENU>(8), nullptr, nullptr);
 
         SetPropW(window, L"driver", driver);
         SetPropW(window, L"mic", mic);
@@ -1150,38 +1352,121 @@ LRESULT CALLBACK WolfieApp::SettingsWindowProc(HWND window, UINT message, WPARAM
         SetPropW(window, L"sampleRate", sampleRate);
         return 0;
     }
+    case WM_CTLCOLORDLG:
+        return reinterpret_cast<INT_PTR>(settingsBackgroundBrush);
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = reinterpret_cast<HDC>(wParam);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, kText);
+        return reinterpret_cast<INT_PTR>(settingsBackgroundBrush);
+    }
     case WM_COMMAND: {
         auto* app = reinterpret_cast<WolfieApp*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-        if (LOWORD(wParam) == 8) {
+        auto autosaveSettings = [&]() {
             const std::wstring driverText = getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"driver")));
             if (driverText != kNoAsioDrivers) {
                 app->workspace_.audio.driver = toUtf8(driverText);
             }
-            app->workspace_.audio.micInputChannel = std::stoi(getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"mic"))));
-            app->workspace_.audio.leftOutputChannel = std::stoi(getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"left"))));
-            app->workspace_.audio.rightOutputChannel = std::stoi(getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"right"))));
+
+            auto tryParseInt = [](const std::wstring& text, int& value) {
+                try {
+                    size_t cursor = 0;
+                    const int parsed = std::stoi(text, &cursor);
+                    if (cursor != text.size()) {
+                        return false;
+                    }
+                    value = parsed;
+                    return true;
+                } catch (...) {
+                    return false;
+                }
+            };
+
+            int parsedValue = 0;
+            if (tryParseInt(getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"mic"))), parsedValue)) {
+                app->workspace_.audio.micInputChannel = parsedValue;
+            }
+            if (tryParseInt(getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"left"))), parsedValue)) {
+                app->workspace_.audio.leftOutputChannel = parsedValue;
+            }
+            if (tryParseInt(getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"right"))), parsedValue)) {
+                app->workspace_.audio.rightOutputChannel = parsedValue;
+            }
+
             const int sampleRateIndex = static_cast<int>(SendMessageW(reinterpret_cast<HWND>(GetPropW(window, L"sampleRate")), CB_GETCURSEL, 0, 0));
             app->workspace_.audio.sampleRate = sampleRateIndex == 1 ? 48000 : sampleRateIndex == 2 ? 96000 : 44100;
             app->workspace_.measurement.endFrequencyHz = app->workspace_.audio.sampleRate / 2.0;
             app->populateControlsFromState();
             app->saveWorkspaceFiles();
-            DestroyWindow(window);
+            app->refreshMeasurementStatus();
+        };
+
+        const WORD commandId = LOWORD(wParam);
+        const WORD notificationCode = HIWORD(wParam);
+        if (commandId == 1 && notificationCode == CBN_SELCHANGE) {
+            autosaveSettings();
             return 0;
         }
-        if (LOWORD(wParam) == 7) {
+        if ((commandId == 2 || commandId == 3 || commandId == 4) && notificationCode == EN_KILLFOCUS) {
+            autosaveSettings();
+            return 0;
+        }
+        if (commandId == 5 && notificationCode == CBN_SELCHANGE) {
+            autosaveSettings();
+            return 0;
+        }
+        if (commandId == 7) {
             const std::wstring driverText = getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"driver")));
             if (const auto error = openAsioControlPanel(window, driverText)) {
                 MessageBoxW(window, error->c_str(), L"ASIO Control Panel", MB_OK | MB_ICONERROR);
             }
             return 0;
         }
-        if (LOWORD(wParam) == 9) {
+        if (commandId == 8) {
+            autosaveSettings();
             DestroyWindow(window);
             return 0;
         }
         break;
     }
     case WM_CLOSE:
+        if (auto* app = reinterpret_cast<WolfieApp*>(GetWindowLongPtrW(window, GWLP_USERDATA))) {
+            const std::wstring driverText = getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"driver")));
+            if (driverText != kNoAsioDrivers) {
+                app->workspace_.audio.driver = toUtf8(driverText);
+            }
+
+            auto tryParseInt = [](const std::wstring& text, int& value) {
+                try {
+                    size_t cursor = 0;
+                    const int parsed = std::stoi(text, &cursor);
+                    if (cursor != text.size()) {
+                        return false;
+                    }
+                    value = parsed;
+                    return true;
+                } catch (...) {
+                    return false;
+                }
+            };
+
+            int parsedValue = 0;
+            if (tryParseInt(getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"mic"))), parsedValue)) {
+                app->workspace_.audio.micInputChannel = parsedValue;
+            }
+            if (tryParseInt(getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"left"))), parsedValue)) {
+                app->workspace_.audio.leftOutputChannel = parsedValue;
+            }
+            if (tryParseInt(getWindowText(reinterpret_cast<HWND>(GetPropW(window, L"right"))), parsedValue)) {
+                app->workspace_.audio.rightOutputChannel = parsedValue;
+            }
+            const int sampleRateIndex = static_cast<int>(SendMessageW(reinterpret_cast<HWND>(GetPropW(window, L"sampleRate")), CB_GETCURSEL, 0, 0));
+            app->workspace_.audio.sampleRate = sampleRateIndex == 1 ? 48000 : sampleRateIndex == 2 ? 96000 : 44100;
+            app->workspace_.measurement.endFrequencyHz = app->workspace_.audio.sampleRate / 2.0;
+            app->populateControlsFromState();
+            app->saveWorkspaceFiles();
+            app->refreshMeasurementStatus();
+        }
         DestroyWindow(window);
         return 0;
     default:
@@ -1207,22 +1492,30 @@ void WolfieApp::createMainWindow() {
     graphClass.hbrBackground = CreateSolidBrush(RGB(248, 250, 252));
     RegisterClassW(&graphClass);
 
+    WNDCLASSW pageClass{};
+    pageClass.lpfnWndProc = PageWindowProc;
+    pageClass.hInstance = instance_;
+    pageClass.lpszClassName = kPageClassName;
+    pageClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    pageClass.hbrBackground = CreateSolidBrush(kBackground);
+    RegisterClassW(&pageClass);
+
     WNDCLASSW settingsClass{};
     settingsClass.lpfnWndProc = SettingsWindowProc;
     settingsClass.hInstance = instance_;
     settingsClass.lpszClassName = kSettingsClassName;
     settingsClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    settingsClass.hbrBackground = CreateSolidBrush(kPanelBackground);
+    settingsClass.hbrBackground = CreateSolidBrush(kBackground);
     RegisterClassW(&settingsClass);
 
     mainWindow_ = CreateWindowExW(
-        0, kMainClassName, L"Wolfie", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        0, kMainClassName, L"Wolfie", WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, 1400, 920, nullptr, nullptr, instance_, this);
 
     createMenus();
     createLayout();
     populateControlsFromState();
-    refreshWorkspaceLabels();
+    refreshWindowTitle();
     refreshMeasurementStatus();
 }
 
@@ -1244,164 +1537,226 @@ void WolfieApp::createMenus() {
     refreshRecentMenu();
 }
 
-void WolfieApp::createSectionChrome(HWND parent, HWND& section, const wchar_t* title) {
-    section = CreateWindowW(L"BUTTON", title, WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0, 0, 100, 100, parent, nullptr, instance_, nullptr);
-}
-
 void WolfieApp::createLayout() {
-    createSectionChrome(mainWindow_, controls_.sectionWorkspace, L" Workspace");
-    createSectionChrome(mainWindow_, controls_.sectionMeasurement, L" Measurement");
+    controls_.tabControl = CreateWindowExW(0, WC_TABCONTROLW, nullptr,
+                                           WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
+                                           0, 0, 0, 0, mainWindow_, reinterpret_cast<HMENU>(kTabMain), instance_, nullptr);
 
-    controls_.workspacePath = CreateWindowW(L"STATIC", L"No workspace selected", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionWorkspace, nullptr, instance_, nullptr);
+    TCITEMW item{};
+    item.mask = TCIF_TEXT;
+    item.pszText = const_cast<LPWSTR>(L"Measurement");
+    TabCtrl_InsertItem(controls_.tabControl, 0, &item);
+    item.pszText = const_cast<LPWSTR>(L"Align Mic");
+    TabCtrl_InsertItem(controls_.tabControl, 1, &item);
+    item.pszText = const_cast<LPWSTR>(L"Target Curve");
+    TabCtrl_InsertItem(controls_.tabControl, 2, &item);
+    item.pszText = const_cast<LPWSTR>(L"Filters");
+    TabCtrl_InsertItem(controls_.tabControl, 3, &item);
+    item.pszText = const_cast<LPWSTR>(L"Export");
+    TabCtrl_InsertItem(controls_.tabControl, 4, &item);
 
-    controls_.labelFadeIn = CreateWindowW(L"STATIC", L"Fade-in [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.labelFadeOut = CreateWindowW(L"STATIC", L"Fade-out [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.labelDuration = CreateWindowW(L"STATIC", L"Sweep duration [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.labelStartFrequency = CreateWindowW(L"STATIC", L"Start frequency [Hz]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.labelEndFrequency = CreateWindowW(L"STATIC", L"End frequency [Hz]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.labelTargetLength = CreateWindowW(L"STATIC", L"Target length [samples]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.labelLeadIn = CreateWindowW(L"STATIC", L"Lead-in [samples]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
+    controls_.pageMeasurement = CreateWindowExW(0, kPageClassName, nullptr, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+                                                0, 0, 0, 0, controls_.tabControl, nullptr, instance_, nullptr);
+    controls_.pageAlignment = CreateWindowExW(0, kPageClassName, nullptr, WS_CHILD | WS_CLIPCHILDREN,
+                                              0, 0, 0, 0, controls_.tabControl, nullptr, instance_, nullptr);
+    controls_.pageTargetCurve = CreateWindowExW(0, kPageClassName, nullptr, WS_CHILD | WS_CLIPCHILDREN,
+                                                0, 0, 0, 0, controls_.tabControl, nullptr, instance_, nullptr);
+    controls_.pageFilters = CreateWindowExW(0, kPageClassName, nullptr, WS_CHILD | WS_CLIPCHILDREN,
+                                            0, 0, 0, 0, controls_.tabControl, nullptr, instance_, nullptr);
+    controls_.pageExport = CreateWindowExW(0, kPageClassName, nullptr, WS_CHILD | WS_CLIPCHILDREN,
+                                           0, 0, 0, 0, controls_.tabControl, nullptr, instance_, nullptr);
 
-    controls_.editFadeIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.sectionMeasurement,
+    controls_.placeholderAlignment = CreateWindowW(L"STATIC", L"Microphone alignment will live here.", WS_CHILD | SS_CENTER,
+                                                   0, 0, 0, 0, controls_.pageAlignment, nullptr, instance_, nullptr);
+    controls_.placeholderTargetCurve = CreateWindowW(L"STATIC", L"Target curve design is not implemented yet.", WS_CHILD | SS_CENTER,
+                                                     0, 0, 0, 0, controls_.pageTargetCurve, nullptr, instance_, nullptr);
+    controls_.placeholderFilters = CreateWindowW(L"STATIC", L"Filter design and simulation will live here.", WS_CHILD | SS_CENTER,
+                                                 0, 0, 0, 0, controls_.pageFilters, nullptr, instance_, nullptr);
+    controls_.placeholderExport = CreateWindowW(L"STATIC", L"ROON export will live here.", WS_CHILD | SS_CENTER,
+                                                0, 0, 0, 0, controls_.pageExport, nullptr, instance_, nullptr);
+
+    controls_.labelFadeIn = CreateWindowW(L"STATIC", L"Fade-in [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelFadeOut = CreateWindowW(L"STATIC", L"Fade-out [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelDuration = CreateWindowW(L"STATIC", L"Sweep Time [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelStartFrequency = CreateWindowW(L"STATIC", L"Sweep Start [Hz]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelEndFrequency = CreateWindowW(L"STATIC", L"Sweep End [Hz]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelTargetLength = CreateWindowW(L"STATIC", L"Target length [samples]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelLeadIn = CreateWindowW(L"STATIC", L"Lead-in [samples]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+
+    controls_.editFadeIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.pageMeasurement,
                                            reinterpret_cast<HMENU>(kEditFadeIn), instance_, nullptr);
-    controls_.editFadeOut = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.sectionMeasurement,
+    controls_.editFadeOut = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.pageMeasurement,
                                             reinterpret_cast<HMENU>(kEditFadeOut), instance_, nullptr);
-    controls_.editDuration = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.sectionMeasurement,
+    controls_.editDuration = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.pageMeasurement,
                                              reinterpret_cast<HMENU>(kEditDuration), instance_, nullptr);
-    controls_.editStartFrequency = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.sectionMeasurement,
+    controls_.editStartFrequency = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.pageMeasurement,
                                                    reinterpret_cast<HMENU>(kEditStartFrequency), instance_, nullptr);
-    controls_.editEndFrequency = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.sectionMeasurement,
+    controls_.editEndFrequency = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.pageMeasurement,
                                                  reinterpret_cast<HMENU>(kEditEndFrequency), instance_, nullptr);
-    controls_.editTargetLength = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.sectionMeasurement,
+    controls_.editTargetLength = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.pageMeasurement,
                                                  reinterpret_cast<HMENU>(kEditTargetLength), instance_, nullptr);
-    controls_.editLeadIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.sectionMeasurement,
+    controls_.editLeadIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0, controls_.pageMeasurement,
                                            reinterpret_cast<HMENU>(kEditLeadIn), instance_, nullptr);
-    controls_.buttonMeasure = CreateWindowW(L"BUTTON", L"Start Measurement", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, mainWindow_,
+    controls_.labelOutputVolume = CreateWindowW(L"STATIC", L"Output level", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.outputVolumeValue = CreateWindowW(L"STATIC", L"-30 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.outputVolumeSlider = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr,
+                                                   WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS | TBS_HORZ,
+                                                   0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.outputVolumeMuteLabel = CreateWindowW(L"STATIC", L"Mute", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.outputVolumeMaxLabel = CreateWindowW(L"STATIC", L"0 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.buttonMeasure = CreateWindowW(L"BUTTON", L"START", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW, 0, 0, 0, 0, controls_.pageMeasurement,
                                             reinterpret_cast<HMENU>(kButtonMeasure), instance_, nullptr);
-    controls_.buttonStopMeasurement = CreateWindowW(L"BUTTON", L"Stop Measurement", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, mainWindow_,
-                                                    reinterpret_cast<HMENU>(kButtonStopMeasurement), instance_, nullptr);
+    controls_.currentChannelLabel = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
 
-    controls_.statusText = CreateWindowW(L"STATIC", L"Ready", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.progressText = CreateWindowW(L"STATIC", L"0%", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.currentFrequency = CreateWindowW(L"STATIC", L"Current frequency: 0 Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.currentAmplitude = CreateWindowW(L"STATIC", L"Current amplitude: -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.peakAmplitude = CreateWindowW(L"STATIC", L"Peak amplitude: -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.progressBar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_, nullptr);
-    controls_.resultGraph = CreateWindowExW(0, kGraphClassName, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.sectionMeasurement, nullptr, instance_,
+    controls_.statusText = CreateWindowW(L"STATIC", L"Ready", WS_CHILD, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.progressText = CreateWindowW(L"STATIC", L"0%", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.currentFrequency = CreateWindowW(L"STATIC", L"Freq 0 Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.currentAmplitude = CreateWindowW(L"STATIC", L"Amp -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.peakAmplitude = CreateWindowW(L"STATIC", L"Peak -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.progressBar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.resultGraph = CreateWindowExW(0, kGraphClassName, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_,
                                             reinterpret_cast<void*>(static_cast<INT_PTR>(GraphKind::Response)));
 
+    const DWORD centeredStaticStyle = SS_CENTER | WS_CHILD | WS_VISIBLE;
+    SetWindowLongPtrW(controls_.labelFadeIn, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.labelFadeOut, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.labelDuration, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.labelStartFrequency, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.labelEndFrequency, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.labelTargetLength, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.labelLeadIn, GWL_STYLE, centeredStaticStyle);
+
     SendMessageW(controls_.progressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
+    SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMIN, FALSE, 0);
+    SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMAX, FALSE, kOutputVolumeSliderMax);
+    SendMessageW(controls_.outputVolumeSlider, TBM_SETTICFREQ, 10, 0);
+    updateVisibleTab();
     layoutMainWindow();
 }
 
 void WolfieApp::layoutMainWindow() {
     const RECT bounds = clientRect(mainWindow_);
     const int width = std::max(320L, bounds.right - (2 * kContentMargin));
-    const int workspaceTop = kContentMargin;
-    const int measurementTop = workspaceTop + kWorkspaceSectionHeight + kSectionSpacing;
-    const int measurementHeight = std::max(420L, bounds.bottom - measurementTop - kContentMargin);
+    const int height = std::max(360L, bounds.bottom - (2 * kContentMargin));
+    MoveWindow(controls_.tabControl, kContentMargin, kContentMargin, width, height, TRUE);
 
-    MoveWindow(controls_.sectionWorkspace, kContentMargin, workspaceTop, width, kWorkspaceSectionHeight, TRUE);
-    MoveWindow(controls_.sectionMeasurement, kContentMargin, measurementTop, width, measurementHeight, TRUE);
+    RECT tabRect{};
+    GetClientRect(controls_.tabControl, &tabRect);
+    TabCtrl_AdjustRect(controls_.tabControl, FALSE, &tabRect);
+    const int pageWidth = std::max(320L, tabRect.right - tabRect.left);
+    const int pageHeight = std::max(240L, tabRect.bottom - tabRect.top);
+    MoveWindow(controls_.pageMeasurement, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
+    MoveWindow(controls_.pageAlignment, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
+    MoveWindow(controls_.pageTargetCurve, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
+    MoveWindow(controls_.pageFilters, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
+    MoveWindow(controls_.pageExport, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     layoutContent();
 }
 
 void WolfieApp::layoutContent() {
-    RECT workspaceRect = clientRect(controls_.sectionWorkspace);
-    const int workspaceInnerWidth = std::max(240L, workspaceRect.right - 32);
-    MoveWindow(controls_.workspacePath, 18, 30, workspaceInnerWidth - 36, 20, TRUE);
+    RECT alignmentRect = clientRect(controls_.pageAlignment);
+    MoveWindow(controls_.placeholderAlignment, 24, 32, std::max(200L, alignmentRect.right - 48), 24, TRUE);
+    RECT targetRect = clientRect(controls_.pageTargetCurve);
+    MoveWindow(controls_.placeholderTargetCurve, 24, 32, std::max(200L, targetRect.right - 48), 24, TRUE);
+    RECT filtersRect = clientRect(controls_.pageFilters);
+    MoveWindow(controls_.placeholderFilters, 24, 32, std::max(200L, filtersRect.right - 48), 24, TRUE);
+    RECT exportRect = clientRect(controls_.pageExport);
+    MoveWindow(controls_.placeholderExport, 24, 32, std::max(200L, exportRect.right - 48), 24, TRUE);
 
-    RECT measurementRect = clientRect(controls_.sectionMeasurement);
-    RECT measurementBounds{};
-    GetWindowRect(controls_.sectionMeasurement, &measurementBounds);
-    MapWindowPoints(nullptr, mainWindow_, reinterpret_cast<LPPOINT>(&measurementBounds), 2);
-    const int innerWidth = std::max(480L, measurementRect.right - 32);
-    const int innerHeight = std::max(360L, measurementRect.bottom - 32);
-    const int sectionLeft = 24;
-    const int sectionTop = 34;
-    const bool stackStatus = innerWidth < 980;
-    const int formWidth = stackStatus ? innerWidth - 48 : std::max(560, innerWidth - 360);
-    const int actionLeft = stackStatus ? sectionLeft : sectionLeft + formWidth + 24;
-    const int actionWidth = stackStatus ? innerWidth - 48 : std::max(240, innerWidth - actionLeft - 24);
-    const bool singleFormColumn = formWidth < 620;
+    RECT measurementRect = clientRect(controls_.pageMeasurement);
+    const int contentLeft = 20;
+    const int contentTop = 20;
+    const int innerWidth = std::max(480L, measurementRect.right - (contentLeft * 2));
+    const int innerHeight = std::max(360L, measurementRect.bottom - (contentTop * 2));
+    constexpr int kLabelWidthSmall = 86;
+    constexpr int kLabelWidthMedium = 100;
+    constexpr int kLabelWidthLarge = 104;
+    constexpr int kValueWidthTiny = 56;
+    constexpr int kValueWidthSmall = 62;
+    constexpr int kValueWidthMedium = 74;
+    constexpr int kValueWidthLarge = 82;
+    constexpr int kFieldGap = 60;
+    constexpr int kLabelTopOffset = 2;
+    constexpr int kFieldTopOffset = 22;
+    constexpr int kButtonWidth = 184;
+    constexpr int kChannelWidth = 64;
+    constexpr int kProgressBarWidth = 170;
+    constexpr int kProgressTextWidth = 44;
+    constexpr int kMetricWidth = 150;
+    constexpr int kMetricGap = 16;
+    constexpr int kSliderWidth = 220;
+    constexpr int kSliderValueWidth = 56;
 
-    auto placeField = [&](HWND label, HWND edit, int left, int top, int width) {
-        const int editWidth = std::max(90, std::min(160, width - kLabelWidth - 12));
-        MoveWindow(label, left, top + 4, kLabelWidth, 20, TRUE);
-        MoveWindow(edit, left + kLabelWidth, top, editWidth, kControlHeight, TRUE);
+    auto placeCenteredField = [&](HWND label, HWND edit, int left, int top, int labelWidth, int editWidth) {
+        const int labelLeft = left + ((editWidth - labelWidth) / 2);
+        MoveWindow(label, labelLeft, top + kLabelTopOffset, labelWidth, 18, TRUE);
+        MoveWindow(edit, left, top + kFieldTopOffset, editWidth, 26, TRUE);
     };
 
-    int formBottom = sectionTop;
-    if (singleFormColumn) {
-        const int fieldWidth = formWidth - 24;
-        const int rowGap = 32;
-        placeField(controls_.labelFadeIn, controls_.editFadeIn, sectionLeft, sectionTop, fieldWidth);
-        placeField(controls_.labelFadeOut, controls_.editFadeOut, sectionLeft, sectionTop + rowGap, fieldWidth);
-        placeField(controls_.labelDuration, controls_.editDuration, sectionLeft, sectionTop + rowGap * 2, fieldWidth);
-        placeField(controls_.labelStartFrequency, controls_.editStartFrequency, sectionLeft, sectionTop + rowGap * 3, fieldWidth);
-        placeField(controls_.labelEndFrequency, controls_.editEndFrequency, sectionLeft, sectionTop + rowGap * 4, fieldWidth);
-        placeField(controls_.labelTargetLength, controls_.editTargetLength, sectionLeft, sectionTop + rowGap * 5, fieldWidth);
-        placeField(controls_.labelLeadIn, controls_.editLeadIn, sectionLeft, sectionTop + rowGap * 6, fieldWidth);
-        formBottom = sectionTop + rowGap * 6 + kControlHeight;
-    } else {
-        const int columnGap = 28;
-        const int columnWidth = (formWidth - columnGap) / 2;
-        const int leftColumn = sectionLeft;
-        const int rightColumn = sectionLeft + columnWidth + columnGap;
-        const int rowGap = 34;
-        placeField(controls_.labelFadeIn, controls_.editFadeIn, leftColumn, sectionTop, columnWidth);
-        placeField(controls_.labelFadeOut, controls_.editFadeOut, leftColumn, sectionTop + rowGap, columnWidth);
-        placeField(controls_.labelDuration, controls_.editDuration, leftColumn, sectionTop + rowGap * 2, columnWidth);
-        placeField(controls_.labelStartFrequency, controls_.editStartFrequency, rightColumn, sectionTop, columnWidth);
-        placeField(controls_.labelEndFrequency, controls_.editEndFrequency, rightColumn, sectionTop + rowGap, columnWidth);
-        placeField(controls_.labelTargetLength, controls_.editTargetLength, rightColumn, sectionTop + rowGap * 2, columnWidth);
-        placeField(controls_.labelLeadIn, controls_.editLeadIn, rightColumn, sectionTop + rowGap * 3, columnWidth);
-        formBottom = sectionTop + rowGap * 3 + kControlHeight;
-    }
+    const int paramsTop = contentTop;
+    int left = contentLeft;
+    placeCenteredField(controls_.labelFadeIn, controls_.editFadeIn, left, paramsTop, kLabelWidthSmall, kValueWidthTiny);
+    left += kValueWidthTiny + kFieldGap;
+    placeCenteredField(controls_.labelFadeOut, controls_.editFadeOut, left, paramsTop, kLabelWidthSmall, kValueWidthTiny);
+    left += kValueWidthTiny + kFieldGap;
+    placeCenteredField(controls_.labelDuration, controls_.editDuration, left, paramsTop, kLabelWidthMedium, kValueWidthSmall);
+    left += kValueWidthSmall + kFieldGap;
+    placeCenteredField(controls_.labelStartFrequency, controls_.editStartFrequency, left, paramsTop, kLabelWidthLarge, kValueWidthTiny);
+    left += kValueWidthTiny + kFieldGap;
+    placeCenteredField(controls_.labelEndFrequency, controls_.editEndFrequency, left, paramsTop, kLabelWidthLarge, kValueWidthMedium);
+    left += kValueWidthMedium + kFieldGap;
+    placeCenteredField(controls_.labelTargetLength, controls_.editTargetLength, left, paramsTop, kLabelWidthLarge, kValueWidthMedium);
+    left += kValueWidthMedium + kFieldGap;
+    placeCenteredField(controls_.labelLeadIn, controls_.editLeadIn, left, paramsTop, kLabelWidthMedium, kValueWidthSmall);
 
-    int actionTop = stackStatus ? formBottom + 20 : sectionTop;
-    const bool stackButtons = actionWidth < 300;
-    const int buttonLeft = measurementBounds.left + actionLeft;
-    const int buttonTop = measurementBounds.top + actionTop;
-    if (stackButtons) {
-        MoveWindow(controls_.buttonMeasure, buttonLeft, buttonTop, actionWidth, 30, TRUE);
-        MoveWindow(controls_.buttonStopMeasurement, buttonLeft, buttonTop + 38, actionWidth, 30, TRUE);
-        actionTop += 76;
-    } else {
-        const int measureWidth = 150;
-        const int stopWidth = std::max(140, actionWidth - measureWidth - 10);
-        MoveWindow(controls_.buttonMeasure, buttonLeft, buttonTop, measureWidth, 30, TRUE);
-        MoveWindow(controls_.buttonStopMeasurement, buttonLeft + measureWidth + 10, buttonTop, stopWidth, 30, TRUE);
-        actionTop += 42;
-    }
+    const int volumeTop = paramsTop + 60;
+    MoveWindow(controls_.labelOutputVolume, contentLeft, volumeTop + 5, 90, 20, TRUE);
+    MoveWindow(controls_.outputVolumeValue, contentLeft + 100, volumeTop + 5, kSliderValueWidth, 20, TRUE);
+    MoveWindow(controls_.outputVolumeSlider, contentLeft + 100 + kSliderValueWidth + 12, volumeTop, kSliderWidth, 32, TRUE);
+    MoveWindow(controls_.outputVolumeMuteLabel, contentLeft + 100 + kSliderValueWidth + 12, volumeTop + 32, 40, 18, TRUE);
+    MoveWindow(controls_.outputVolumeMaxLabel, contentLeft + 100 + kSliderValueWidth + 12 + kSliderWidth - 40, volumeTop + 32, 40, 18, TRUE);
 
-    MoveWindow(controls_.statusText, actionLeft, actionTop, actionWidth, 20, TRUE);
-    MoveWindow(controls_.progressBar, actionLeft, actionTop + 28, actionWidth, 18, TRUE);
-    MoveWindow(controls_.progressText, actionLeft, actionTop + 52, actionWidth, 18, TRUE);
-    MoveWindow(controls_.currentFrequency, actionLeft, actionTop + 80, actionWidth, 20, TRUE);
-    MoveWindow(controls_.currentAmplitude, actionLeft, actionTop + 108, actionWidth, 20, TRUE);
-    MoveWindow(controls_.peakAmplitude, actionLeft, actionTop + 136, actionWidth, 20, TRUE);
-    const int actionBottom = actionTop + 156;
+    const int metricsTop = volumeTop + 66;
+    int metricLeft = contentLeft;
+    MoveWindow(controls_.buttonMeasure, metricLeft, metricsTop - 4, kButtonWidth, 38, TRUE);
+    metricLeft += kButtonWidth + kMetricGap;
+    MoveWindow(controls_.currentChannelLabel, metricLeft, metricsTop + 4, kChannelWidth, 20, TRUE);
+    metricLeft += kChannelWidth + kMetricGap;
+    MoveWindow(controls_.progressBar, metricLeft, metricsTop + 6, kProgressBarWidth, 18, TRUE);
+    metricLeft += kProgressBarWidth + 8;
+    MoveWindow(controls_.progressText, metricLeft, metricsTop + 4, kProgressTextWidth, 20, TRUE);
+    metricLeft += kProgressTextWidth + kMetricGap;
+    MoveWindow(controls_.currentFrequency, metricLeft, metricsTop + 4, kMetricWidth, 20, TRUE);
+    metricLeft += kMetricWidth + kMetricGap;
+    MoveWindow(controls_.currentAmplitude, metricLeft, metricsTop + 4, kMetricWidth, 20, TRUE);
+    metricLeft += kMetricWidth + kMetricGap;
+    MoveWindow(controls_.peakAmplitude, metricLeft, metricsTop + 4, kMetricWidth, 20, TRUE);
 
-    const int graphTop = std::max(formBottom, actionBottom) + 20;
+    const int graphTop = metricsTop + 44;
     const int graphHeight = std::max(200, innerHeight - graphTop - 12);
-    MoveWindow(controls_.resultGraph, sectionLeft, graphTop, innerWidth - 48, graphHeight, TRUE);
+    MoveWindow(controls_.resultGraph, contentLeft, graphTop, innerWidth, graphHeight, TRUE);
 }
 
 void WolfieApp::showSettingsWindow() {
     CreateWindowExW(WS_EX_DLGMODALFRAME, kSettingsClassName, L"Measurement Settings",
                     WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                    CW_USEDEFAULT, CW_USEDEFAULT, 460, 320, mainWindow_, nullptr, instance_, this);
+                    CW_USEDEFAULT, CW_USEDEFAULT, 460, 290, mainWindow_, nullptr, instance_, this);
 }
 
 void WolfieApp::populateControlsFromState() {
     setWindowText(controls_.editFadeIn, formatWideDouble(workspace_.measurement.fadeInSeconds));
     setWindowText(controls_.editFadeOut, formatWideDouble(workspace_.measurement.fadeOutSeconds));
     setWindowText(controls_.editDuration, formatWideDouble(workspace_.measurement.durationSeconds, 1));
-    setWindowText(controls_.editStartFrequency, formatWideDouble(workspace_.measurement.startFrequencyHz, 1));
-    setWindowText(controls_.editEndFrequency, formatWideDouble(workspace_.measurement.endFrequencyHz, 1));
+    setWindowText(controls_.editStartFrequency, formatWideDouble(workspace_.measurement.startFrequencyHz, 0));
+    setWindowText(controls_.editEndFrequency, formatWideDouble(workspace_.measurement.endFrequencyHz, 0));
     setWindowText(controls_.editTargetLength, formatWideDouble(workspace_.measurement.targetLengthSamples, 0));
     setWindowText(controls_.editLeadIn, formatWideDouble(workspace_.measurement.leadInSamples, 0));
+    if (controls_.outputVolumeValue != nullptr) {
+        setWindowText(controls_.outputVolumeValue, formatOutputVolumeLabel(workspace_.audio.outputVolumeDb));
+    }
+    if (controls_.outputVolumeSlider != nullptr) {
+        SendMessageW(controls_.outputVolumeSlider, TBM_SETPOS, TRUE, outputVolumeDbToSliderPosition(workspace_.audio.outputVolumeDb));
+    }
 }
 
 void WolfieApp::syncStateFromControls() {
@@ -1414,25 +1769,32 @@ void WolfieApp::syncStateFromControls() {
     workspace_.measurement.leadInSamples = std::stoi(getWindowText(controls_.editLeadIn));
 }
 
-void WolfieApp::refreshWorkspaceLabels() {
-    const std::wstring pathLabel = workspace_.rootPath.empty()
-        ? L"No workspace selected"
-        : L"Workspace: " + workspace_.rootPath.wstring();
-    setWindowText(controls_.workspacePath, pathLabel);
+void WolfieApp::refreshWindowTitle() {
+    std::wstring title = L"Wolfie";
+    if (!workspace_.rootPath.empty()) {
+        title += L" - " + workspace_.rootPath.filename().wstring();
+    }
+    SetWindowTextW(mainWindow_, title.c_str());
 }
 
 void WolfieApp::refreshMeasurementStatus() {
     const int progress = static_cast<int>(measurementEngine_.progress() * 1000.0);
     SendMessageW(controls_.progressBar, PBM_SETPOS, progress, 0);
     setWindowText(controls_.progressText, std::to_wstring(progress / 10) + L"%");
-    setWindowText(controls_.currentFrequency, L"Current frequency: " + formatWideDouble(measurementEngine_.currentFrequencyHz(), 0) + L" Hz");
-    setWindowText(controls_.currentAmplitude, L"Current amplitude: " + formatWideDouble(measurementEngine_.currentAmplitudeDb(), 1) + L" dB");
-    setWindowText(controls_.peakAmplitude, L"Peak amplitude: " + formatWideDouble(measurementEngine_.peakAmplitudeDb(), 1) + L" dB");
-    EnableWindow(controls_.buttonMeasure, !measurementEngine_.running());
-    EnableWindow(controls_.buttonStopMeasurement, measurementEngine_.running());
+    setWindowText(controls_.currentChannelLabel,
+                  measurementEngine_.running()
+                      ? (measurementEngine_.currentChannel() == MeasurementChannel::Right ? L"RIGHT" : L"LEFT")
+                      : L"");
+    setWindowText(controls_.currentFrequency, L"Freq " + formatWideDouble(measurementEngine_.currentFrequencyHz(), 0) + L" Hz");
+    setWindowText(controls_.currentAmplitude, L"Amp " + formatWideDouble(measurementEngine_.currentAmplitudeDb(), 1) + L" dB");
+    setWindowText(controls_.peakAmplitude, L"Peak " + formatWideDouble(measurementEngine_.peakAmplitudeDb(), 1) + L" dB");
+    InvalidateRect(controls_.buttonMeasure, nullptr, TRUE);
+    EnableWindow(controls_.buttonMeasure, TRUE);
 
     if (measurementEngine_.running()) {
-        setWindowText(controls_.statusText, L"Measurement running");
+        setWindowText(controls_.statusText, measurementEngine_.currentChannel() == MeasurementChannel::Right
+            ? L"measuring RIGHT"
+            : L"measuring LEFT");
     } else if (!measurementEngine_.lastError().empty()) {
         setWindowText(controls_.statusText, std::wstring(measurementEngine_.lastError()));
     } else if (!workspace_.result.frequencyAxisHz.empty()) {
@@ -1441,7 +1803,6 @@ void WolfieApp::refreshMeasurementStatus() {
         setWindowText(controls_.statusText, L"Ready to measure");
     }
 
-    invalidateGraphs();
 }
 
 void WolfieApp::refreshRecentMenu() {
@@ -1481,10 +1842,11 @@ void WolfieApp::onCommand(WORD commandId) {
         showSettingsWindow();
         return;
     case kButtonMeasure:
-        startMeasurement();
-        return;
-    case kButtonStopMeasurement:
-        stopMeasurement();
+        if (measurementEngine_.running()) {
+            stopMeasurement();
+        } else {
+            startMeasurement();
+        }
         return;
     default:
         if (commandId >= kMenuFileRecentBase && commandId < kMenuFileRecentBase + 8) {
@@ -1494,6 +1856,28 @@ void WolfieApp::onCommand(WORD commandId) {
             }
         }
         return;
+    }
+}
+
+void WolfieApp::onHScroll(LPARAM lParam) {
+    if (reinterpret_cast<HWND>(lParam) != controls_.outputVolumeSlider) {
+        return;
+    }
+
+    workspace_.audio.outputVolumeDb = sliderPositionToOutputVolumeDb(
+        static_cast<int>(SendMessageW(controls_.outputVolumeSlider, TBM_GETPOS, 0, 0)));
+    setWindowText(controls_.outputVolumeValue, formatOutputVolumeLabel(workspace_.audio.outputVolumeDb));
+    saveWorkspaceFiles();
+}
+
+void WolfieApp::onNotify(LPARAM lParam) {
+    const auto* header = reinterpret_cast<const NMHDR*>(lParam);
+    if (!header || header->hwndFrom != controls_.tabControl) {
+        return;
+    }
+    if (header->code == TCN_SELCHANGE) {
+        updateVisibleTab();
+        layoutContent();
     }
 }
 
@@ -1512,6 +1896,16 @@ void WolfieApp::onTimer(UINT_PTR timerId) {
 
 void WolfieApp::onResize() {
     layoutMainWindow();
+    RedrawWindow(mainWindow_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+}
+
+void WolfieApp::updateVisibleTab() {
+    const int selected = controls_.tabControl == nullptr ? 0 : TabCtrl_GetCurSel(controls_.tabControl);
+    ShowWindow(controls_.pageMeasurement, selected == 0 ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.pageAlignment, selected == 1 ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.pageTargetCurve, selected == 2 ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.pageFilters, selected == 3 ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.pageExport, selected == 4 ? SW_SHOW : SW_HIDE);
 }
 
 void WolfieApp::invalidateGraphs() {
@@ -1530,7 +1924,8 @@ void WolfieApp::newWorkspace() {
     workspace_.rootPath = *path;
     workspace_.measurement.endFrequencyHz = workspace_.audio.sampleRate / 2.0;
     populateControlsFromState();
-    refreshWorkspaceLabels();
+    refreshWindowTitle();
+    invalidateGraphs();
     saveWorkspaceFiles();
     touchRecentWorkspace(*path);
 }
@@ -1546,8 +1941,9 @@ void WolfieApp::openWorkspace(const std::filesystem::path& path) {
     loadWorkspace(path);
     touchRecentWorkspace(path);
     populateControlsFromState();
-    refreshWorkspaceLabels();
+    refreshWindowTitle();
     refreshMeasurementStatus();
+    invalidateGraphs();
 }
 
 void WolfieApp::saveWorkspace(bool saveAs) {
@@ -1562,7 +1958,7 @@ void WolfieApp::saveWorkspace(bool saveAs) {
 
     syncStateFromControls();
     saveWorkspaceFiles();
-    refreshWorkspaceLabels();
+    refreshWindowTitle();
 }
 
 void WolfieApp::loadLastWorkspaceIfPossible() {
@@ -1701,7 +2097,16 @@ void WolfieApp::loadWorkspace(const std::filesystem::path& path) {
         }
     }
 
-    if (const auto response = readTextFile(path / "measurement" / "response.csv")) {
+    loadMeasurementResultFile();
+}
+
+void WolfieApp::loadMeasurementResultFile() {
+    workspace_.result = {};
+    if (workspace_.rootPath.empty()) {
+        return;
+    }
+
+    if (const auto response = readTextFile(workspace_.rootPath / "measurement" / "response.csv")) {
         std::istringstream in(*response);
         std::string line;
         while (std::getline(in, line)) {
@@ -1762,7 +2167,14 @@ void WolfieApp::saveWorkspaceFiles() const {
            << "  \"resultSectionHeight\": " << workspace_.ui.resultSectionHeight << "\n"
            << "}\n";
     writeTextFile(workspace_.rootPath / "ui.json", uiJson.str());
+}
 
+void WolfieApp::saveMeasurementResultFile() const {
+    if (workspace_.rootPath.empty()) {
+        return;
+    }
+
+    std::filesystem::create_directories(workspace_.rootPath / "measurement");
     std::ostringstream responseCsv;
     responseCsv << "frequency,left,right\n";
     for (size_t i = 0; i < workspace_.result.frequencyAxisHz.size(); ++i) {
@@ -1789,6 +2201,7 @@ void WolfieApp::startMeasurement() {
     }
 
     workspace_.result = {};
+    invalidateGraphs();
     SetTimer(mainWindow_, kMeasurementTimerId, 50, nullptr);
     refreshMeasurementStatus();
 }
@@ -1800,12 +2213,16 @@ void WolfieApp::stopMeasurement() {
 
     measurementEngine_.cancel();
     KillTimer(mainWindow_, kMeasurementTimerId);
+    loadMeasurementResultFile();
+    invalidateGraphs();
     refreshMeasurementStatus();
 }
 
 void WolfieApp::finalizeMeasurement() {
     workspace_.result = measurementEngine_.result();
+    saveMeasurementResultFile();
     saveWorkspaceFiles();
+    invalidateGraphs();
     refreshMeasurementStatus();
 }
 
