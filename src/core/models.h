@@ -43,12 +43,28 @@ struct MeasurementResult {
     std::vector<double> rightChannelDb;
 };
 
+struct ResponseSmoothingSettings {
+    std::string psychoacousticModel = "ERB auditory smoothing";
+    int resolutionPercent = 50;
+    double lowFrequencyWindowCycles = 15.0;
+    double highFrequencyWindowCycles = 15.0;
+    double highFrequencySlopeCutoffHz = 21000.0;
+};
+
+struct SmoothedResponse {
+    std::vector<double> frequencyAxisHz;
+    std::vector<double> leftChannelDb;
+    std::vector<double> rightChannelDb;
+};
+
 struct WorkspaceState {
     std::filesystem::path rootPath;
     AudioSettings audio;
     MeasurementSettings measurement;
+    ResponseSmoothingSettings smoothing;
     UiSettings ui;
     MeasurementResult result;
+    SmoothedResponse smoothedResponse;
 };
 
 struct AppState {

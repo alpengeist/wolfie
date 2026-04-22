@@ -1,5 +1,4 @@
 /workspaces/
 /.idea/
 /cmake-build-debug/
-/build-clion/
-
+/build-*/

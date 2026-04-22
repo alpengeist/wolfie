@@ -18,6 +18,8 @@ add_executable(wolfie WIN32
     src/measurement/measurement_controller.h
     src/measurement/response_analyzer.cpp
     src/measurement/response_analyzer.h
+    src/measurement/response_smoother.cpp
+    src/measurement/response_smoother.h
     src/measurement/sweep_generator.cpp
     src/measurement/sweep_generator.h
     src/persistence/app_state_repository.cpp
@@ -30,6 +32,8 @@ add_executable(wolfie WIN32
     src/ui/response_graph.h
     src/ui/settings_dialog.cpp
     src/ui/settings_dialog.h
+    src/ui/smoothing_page.cpp
+    src/ui/smoothing_page.h
     src/ui/ui_theme.h
     src/wolfie_app.cpp
     src/wolfie_app.h

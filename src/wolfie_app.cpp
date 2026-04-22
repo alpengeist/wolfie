@@ -6,6 +6,7 @@
 #include <shobjidl.h>
 
 #include "audio/winmm_audio_backend.h"
+#include "measurement/response_smoother.h"
 #include "ui/response_graph.h"
 #include "ui/settings_dialog.h"
 #include "ui/ui_theme.h"
@@ -131,6 +132,7 @@ void WolfieApp::createMainWindow() {
 
     ui::ResponseGraph::registerWindowClass(instance_);
     ui::MeasurementPage::registerPageWindowClass(instance_);
+    ui::SmoothingPage::registerPageWindowClass(instance_);
 
     mainWindow_ = CreateWindowExW(0, kMainClassName, L"Wolfie", WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN,
                                   CW_USEDEFAULT, CW_USEDEFAULT, 1400, 920, nullptr, nullptr, instance_, this);
@@ -168,7 +170,7 @@ void WolfieApp::createLayout() {
     item.mask = TCIF_TEXT;
     item.pszText = const_cast<LPWSTR>(L"Measurement");
     TabCtrl_InsertItem(tabControl_, 0, &item);
-    item.pszText = const_cast<LPWSTR>(L"Align Mic");
+    item.pszText = const_cast<LPWSTR>(L"Smoothing");
     TabCtrl_InsertItem(tabControl_, 1, &item);
     item.pszText = const_cast<LPWSTR>(L"Target Curve");
     TabCtrl_InsertItem(tabControl_, 2, &item);
@@ -178,8 +180,8 @@ void WolfieApp::createLayout() {
     TabCtrl_InsertItem(tabControl_, 4, &item);
 
     measurementPage_.create(tabControl_, instance_);
-    pageAlignment_ = CreateWindowExW(0, ui::MeasurementPage::pageWindowClassName(), nullptr, WS_CHILD | WS_CLIPCHILDREN,
-                                     0, 0, 0, 0, tabControl_, nullptr, instance_, nullptr);
+    smoothingPage_.create(tabControl_, instance_);
+    pageSmoothing_ = smoothingPage_.window();
     pageTargetCurve_ = CreateWindowExW(0, ui::MeasurementPage::pageWindowClassName(), nullptr, WS_CHILD | WS_CLIPCHILDREN,
                                        0, 0, 0, 0, tabControl_, nullptr, instance_, nullptr);
     pageFilters_ = CreateWindowExW(0, ui::MeasurementPage::pageWindowClassName(), nullptr, WS_CHILD | WS_CLIPCHILDREN,
@@ -187,8 +189,6 @@ void WolfieApp::createLayout() {
     pageExport_ = CreateWindowExW(0, ui::MeasurementPage::pageWindowClassName(), nullptr, WS_CHILD | WS_CLIPCHILDREN,
                                   0, 0, 0, 0, tabControl_, nullptr, instance_, nullptr);
 
-    placeholderAlignment_ = CreateWindowW(L"STATIC", L"Microphone alignment will live here.", WS_CHILD | SS_CENTER,
-                                          0, 0, 0, 0, pageAlignment_, nullptr, instance_, nullptr);
     placeholderTargetCurve_ = CreateWindowW(L"STATIC", L"Target curve design is not implemented yet.", WS_CHILD | SS_CENTER,
                                             0, 0, 0, 0, pageTargetCurve_, nullptr, instance_, nullptr);
     placeholderFilters_ = CreateWindowW(L"STATIC", L"Filter design and simulation will live here.", WS_CHILD | SS_CENTER,
@@ -212,7 +212,7 @@ void WolfieApp::layoutMainWindow() {
     const int pageWidth = std::max(320L, tabRect.right - tabRect.left);
     const int pageHeight = std::max(240L, tabRect.bottom - tabRect.top);
     MoveWindow(measurementPage_.window(), tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
-    MoveWindow(pageAlignment_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
+    MoveWindow(pageSmoothing_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     MoveWindow(pageTargetCurve_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     MoveWindow(pageFilters_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     MoveWindow(pageExport_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
@@ -220,8 +220,6 @@ void WolfieApp::layoutMainWindow() {
 }
 
 void WolfieApp::layoutContent() {
-    RECT alignmentRect = clientRect(pageAlignment_);
-    MoveWindow(placeholderAlignment_, 24, 32, std::max(200L, alignmentRect.right - 48), 24, TRUE);
     RECT targetRect = clientRect(pageTargetCurve_);
     MoveWindow(placeholderTargetCurve_, 24, 32, std::max(200L, targetRect.right - 48), 24, TRUE);
     RECT filtersRect = clientRect(pageFilters_);
@@ -229,6 +227,7 @@ void WolfieApp::layoutContent() {
     RECT exportRect = clientRect(pageExport_);
     MoveWindow(placeholderExport_, 24, 32, std::max(200L, exportRect.right - 48), 24, TRUE);
     measurementPage_.layout();
+    smoothingPage_.layout();
 }
 
 void WolfieApp::showSettingsWindow() {
@@ -242,7 +241,9 @@ void WolfieApp::showSettingsWindow() {
 
 void WolfieApp::populateControlsFromState() {
     measurement::syncDerivedMeasurementSettings(workspace_.measurement);
+    measurement::normalizeResponseSmoothingSettings(workspace_.smoothing);
     measurementPage_.populate(workspace_);
+    smoothingPage_.populate(workspace_);
 }
 
 void WolfieApp::syncStateFromControls() {
@@ -279,6 +280,16 @@ void WolfieApp::refreshRecentMenu() {
     }
 }
 
+void WolfieApp::ensureSmoothedResponseReady() {
+    if (!workspace_.smoothedResponse.frequencyAxisHz.empty() ||
+        workspace_.result.frequencyAxisHz.empty()) {
+        return;
+    }
+
+    measurement::normalizeResponseSmoothingSettings(workspace_.smoothing);
+    workspace_.smoothedResponse = measurement::buildSmoothedResponse(workspace_.result, workspace_.smoothing);
+}
+
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     bool measurePressed = false;
     bool sampleRateChanged = false;
@@ -293,6 +304,17 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             } else {
                 startMeasurement();
             }
+        }
+        return;
+    }
+
+    bool smoothingModelChanged = false;
+    if (smoothingPage_.handleCommand(commandId, notificationCode, workspace_, smoothingModelChanged)) {
+        if (smoothingModelChanged) {
+            workspace_.smoothedResponse = {};
+            ensureSmoothedResponseReady();
+            smoothingPage_.populate(workspace_);
+            workspaceRepository_.save(workspace_);
         }
         return;
     }
@@ -327,6 +349,17 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
 void WolfieApp::onHScroll(HWND source) {
     if (measurementPage_.handleHScroll(source, workspace_)) {
         workspaceRepository_.save(workspace_);
+        return;
+    }
+
+    bool smoothingResolutionChanged = false;
+    if (smoothingPage_.handleHScroll(source, workspace_, smoothingResolutionChanged)) {
+        if (smoothingResolutionChanged) {
+            workspace_.smoothedResponse = {};
+            ensureSmoothedResponseReady();
+            smoothingPage_.populate(workspace_);
+            workspaceRepository_.save(workspace_);
+        }
     }
 }
 
@@ -358,8 +391,15 @@ void WolfieApp::onResize() {
 
 void WolfieApp::updateVisibleTab() {
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
+    if (selected == 1 || selected == 2) {
+        ensureSmoothedResponseReady();
+        if (selected == 1) {
+            smoothingPage_.populate(workspace_);
+        }
+    }
+
     measurementPage_.setVisible(selected == 0);
-    ShowWindow(pageAlignment_, selected == 1 ? SW_SHOW : SW_HIDE);
+    smoothingPage_.setVisible(selected == 1);
     ShowWindow(pageTargetCurve_, selected == 2 ? SW_SHOW : SW_HIDE);
     ShowWindow(pageFilters_, selected == 3 ? SW_SHOW : SW_HIDE);
     ShowWindow(pageExport_, selected == 4 ? SW_SHOW : SW_HIDE);
@@ -374,6 +414,7 @@ void WolfieApp::newWorkspace() {
     workspace_ = {};
     workspace_.rootPath = *path;
     measurement::syncDerivedMeasurementSettings(workspace_.measurement);
+    measurement::normalizeResponseSmoothingSettings(workspace_.smoothing);
     populateControlsFromState();
     refreshWindowTitle();
     measurementPage_.invalidateGraph();
@@ -445,7 +486,9 @@ void WolfieApp::startMeasurement() {
     }
 
     workspace_.result = {};
+    workspace_.smoothedResponse = {};
     measurementPage_.setMeasurementResult(workspace_.result);
+    smoothingPage_.populate(workspace_);
     SetTimer(mainWindow_, kMeasurementTimerId, 50, nullptr);
     refreshMeasurementStatus();
 }
@@ -458,15 +501,24 @@ void WolfieApp::stopMeasurement() {
     measurementController_.cancel();
     KillTimer(mainWindow_, kMeasurementTimerId);
     if (!workspace_.rootPath.empty()) {
-        workspace_.result = workspaceRepository_.load(workspace_.rootPath).result;
+        const WorkspaceState persistedWorkspace = workspaceRepository_.load(workspace_.rootPath);
+        workspace_.result = persistedWorkspace.result;
+        workspace_.smoothedResponse = {};
         measurementPage_.setMeasurementResult(workspace_.result);
+        smoothingPage_.populate(workspace_);
     }
     refreshMeasurementStatus();
 }
 
 void WolfieApp::finalizeMeasurement() {
     workspace_.result = measurementController_.result();
+    workspace_.smoothedResponse = {};
+    const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
+    if (selected == 1 || selected == 2) {
+        ensureSmoothedResponseReady();
+    }
     measurementPage_.setMeasurementResult(workspace_.result);
+    smoothingPage_.populate(workspace_);
     workspaceRepository_.save(workspace_);
     refreshMeasurementStatus();
 }

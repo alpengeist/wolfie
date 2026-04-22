@@ -17,6 +17,7 @@
 #include "persistence/app_state_repository.h"
 #include "persistence/workspace_repository.h"
 #include "ui/measurement_page.h"
+#include "ui/smoothing_page.h"
 
 namespace wolfie {
 
@@ -42,6 +43,7 @@ private:
     void refreshWindowTitle();
     void refreshMeasurementStatus();
     void refreshRecentMenu();
+    void ensureSmoothedResponseReady();
     void onCommand(WORD commandId, WORD notificationCode);
     void onHScroll(HWND source);
     void onNotify(LPARAM lParam);
@@ -66,17 +68,17 @@ private:
     HWND mainWindow_ = nullptr;
     HACCEL acceleratorTable_ = nullptr;
     HWND tabControl_ = nullptr;
-    HWND pageAlignment_ = nullptr;
+    HWND pageSmoothing_ = nullptr;
     HWND pageTargetCurve_ = nullptr;
     HWND pageFilters_ = nullptr;
     HWND pageExport_ = nullptr;
-    HWND placeholderAlignment_ = nullptr;
     HWND placeholderTargetCurve_ = nullptr;
     HWND placeholderFilters_ = nullptr;
     HWND placeholderExport_ = nullptr;
     WorkspaceState workspace_;
     AppState appState_;
     ui::MeasurementPage measurementPage_;
+    ui::SmoothingPage smoothingPage_;
     MeasurementController measurementController_;
     persistence::WorkspaceRepository workspaceRepository_;
     persistence::AppStateRepository appStateRepository_;

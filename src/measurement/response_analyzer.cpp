@@ -45,22 +45,6 @@ double amplitudeToDb(double amplitude) {
     return clampValue(20.0 * std::log10(amplitude), -90.0, 24.0);
 }
 
-void smoothResponse(std::vector<double>& series) {
-    if (series.size() < 3) {
-        return;
-    }
-
-    std::vector<double> smoothed(series.size(), 0.0);
-    for (int pass = 0; pass < 2; ++pass) {
-        smoothed.front() = series.front();
-        smoothed.back() = series.back();
-        for (size_t i = 1; i + 1 < series.size(); ++i) {
-            smoothed[i] = (series[i - 1] + (series[i] * 2.0) + series[i + 1]) * 0.25;
-        }
-        series.swap(smoothed);
-    }
-}
-
 }  // namespace
 
 double amplitudeDbFromPcm16(const int16_t* samples, size_t count) {
@@ -143,8 +127,6 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
         result.rightChannelDb.push_back(channelDb(segmentFrames, begin, end));
     }
 
-    smoothResponse(result.leftChannelDb);
-    smoothResponse(result.rightChannelDb);
     return result;
 }
 

@@ -5,6 +5,7 @@
 #include <optional>
 #include <sstream>
 
+#include "measurement/response_smoother.h"
 #include "measurement/sweep_generator.h"
 
 namespace wolfie::persistence {
@@ -148,6 +149,7 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
     WorkspaceState workspace;
     workspace.rootPath = path;
     measurement::syncDerivedMeasurementSettings(workspace.measurement);
+    measurement::normalizeResponseSmoothingSettings(workspace.smoothing);
 
     const auto content = readTextFile(path / "workspace.json");
     if (content) {
@@ -193,9 +195,25 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonNumber(*content, "resultSectionHeight")) {
             workspace.ui.resultSectionHeight = static_cast<int>(*value);
         }
+        if (const auto model = findJsonString(*content, "psychoacousticModel")) {
+            workspace.smoothing.psychoacousticModel = *model;
+        }
+        if (const auto value = findJsonNumber(*content, "resolutionPercent")) {
+            workspace.smoothing.resolutionPercent = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, "lowFrequencyWindowCycles")) {
+            workspace.smoothing.lowFrequencyWindowCycles = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "highFrequencyWindowCycles")) {
+            workspace.smoothing.highFrequencyWindowCycles = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "highFrequencySlopeCutoffHz")) {
+            workspace.smoothing.highFrequencySlopeCutoffHz = *value;
+        }
     }
 
     measurement::syncDerivedMeasurementSettings(workspace.measurement);
+    measurement::normalizeResponseSmoothingSettings(workspace.smoothing);
     loadMeasurementResultFile(workspace);
     return workspace;
 }
@@ -225,6 +243,13 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"endFrequencyHz\": " << workspace.measurement.endFrequencyHz << ",\n"
                   << "    \"targetLengthSamples\": " << workspace.measurement.targetLengthSamples << ",\n"
                   << "    \"leadInSamples\": " << workspace.measurement.leadInSamples << "\n"
+                  << "  },\n"
+                  << "  \"smoothing\": {\n"
+                  << "    \"psychoacousticModel\": \"" << escapeJson(workspace.smoothing.psychoacousticModel) << "\",\n"
+                  << "    \"resolutionPercent\": " << workspace.smoothing.resolutionPercent << ",\n"
+                  << "    \"lowFrequencyWindowCycles\": " << workspace.smoothing.lowFrequencyWindowCycles << ",\n"
+                  << "    \"highFrequencyWindowCycles\": " << workspace.smoothing.highFrequencyWindowCycles << ",\n"
+                  << "    \"highFrequencySlopeCutoffHz\": " << workspace.smoothing.highFrequencySlopeCutoffHz << "\n"
                   << "  },\n"
                   << "  \"ui\": {\n"
                   << "    \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
