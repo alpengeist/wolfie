@@ -145,13 +145,16 @@ private:
         HWND outputVolumeMuteLabel = nullptr;
         HWND outputVolumeMaxLabel = nullptr;
         HWND buttonMeasure = nullptr;
-        HWND currentChannelLabel = nullptr;
+        HWND leftChannelLabel = nullptr;
+        HWND leftProgressBar = nullptr;
+        HWND leftProgressText = nullptr;
+        HWND rightChannelLabel = nullptr;
+        HWND rightProgressBar = nullptr;
+        HWND rightProgressText = nullptr;
         HWND statusText = nullptr;
-        HWND progressText = nullptr;
         HWND currentFrequency = nullptr;
         HWND currentAmplitude = nullptr;
         HWND peakAmplitude = nullptr;
-        HWND progressBar = nullptr;
         HWND resultGraph = nullptr;
     };
 

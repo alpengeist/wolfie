@@ -1578,8 +1578,8 @@ void WolfieApp::createLayout() {
     controls_.labelFadeIn = CreateWindowW(L"STATIC", L"Fade-in [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.labelFadeOut = CreateWindowW(L"STATIC", L"Fade-out [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.labelDuration = CreateWindowW(L"STATIC", L"Sweep Time [s]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
-    controls_.labelStartFrequency = CreateWindowW(L"STATIC", L"Sweep Start [Hz]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
-    controls_.labelEndFrequency = CreateWindowW(L"STATIC", L"Sweep End [Hz]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelStartFrequency = CreateWindowW(L"STATIC", L"Sweep Start", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.labelEndFrequency = CreateWindowW(L"STATIC", L"Sweep End", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.labelTargetLength = CreateWindowW(L"STATIC", L"Target length [samples]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.labelLeadIn = CreateWindowW(L"STATIC", L"Lead-in [samples]", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
 
@@ -1606,14 +1606,17 @@ void WolfieApp::createLayout() {
     controls_.outputVolumeMaxLabel = CreateWindowW(L"STATIC", L"0 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.buttonMeasure = CreateWindowW(L"BUTTON", L"START", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW, 0, 0, 0, 0, controls_.pageMeasurement,
                                             reinterpret_cast<HMENU>(kButtonMeasure), instance_, nullptr);
-    controls_.currentChannelLabel = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_CENTER, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.leftChannelLabel = CreateWindowW(L"STATIC", L"Left", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.leftProgressBar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.leftProgressText = CreateWindowW(L"STATIC", L"0%", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.rightChannelLabel = CreateWindowW(L"STATIC", L"Right", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.rightProgressBar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
+    controls_.rightProgressText = CreateWindowW(L"STATIC", L"0%", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
 
     controls_.statusText = CreateWindowW(L"STATIC", L"Ready", WS_CHILD, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
-    controls_.progressText = CreateWindowW(L"STATIC", L"0%", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.currentFrequency = CreateWindowW(L"STATIC", L"Freq 0 Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.currentAmplitude = CreateWindowW(L"STATIC", L"Amp -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.peakAmplitude = CreateWindowW(L"STATIC", L"Peak -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
-    controls_.progressBar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_, nullptr);
     controls_.resultGraph = CreateWindowExW(0, kGraphClassName, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, controls_.pageMeasurement, nullptr, instance_,
                                             reinterpret_cast<void*>(static_cast<INT_PTR>(GraphKind::Response)));
 
@@ -1626,7 +1629,8 @@ void WolfieApp::createLayout() {
     SetWindowLongPtrW(controls_.labelTargetLength, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelLeadIn, GWL_STYLE, centeredStaticStyle);
 
-    SendMessageW(controls_.progressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
+    SendMessageW(controls_.leftProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
+    SendMessageW(controls_.rightProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
     SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMIN, FALSE, 0);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMAX, FALSE, kOutputVolumeSliderMax);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETTICFREQ, 10, 0);
@@ -1679,8 +1683,8 @@ void WolfieApp::layoutContent() {
     constexpr int kLabelTopOffset = 2;
     constexpr int kFieldTopOffset = 22;
     constexpr int kButtonWidth = 184;
-    constexpr int kChannelWidth = 64;
-    constexpr int kProgressBarWidth = 170;
+    constexpr int kProgressLabelWidth = 42;
+    constexpr int kProgressBarWidth = 180;
     constexpr int kProgressTextWidth = 44;
     constexpr int kMetricWidth = 150;
     constexpr int kMetricGap = 16;
@@ -1717,22 +1721,30 @@ void WolfieApp::layoutContent() {
     MoveWindow(controls_.outputVolumeMaxLabel, contentLeft + 100 + kSliderValueWidth + 12 + kSliderWidth - 40, volumeTop + 32, 40, 18, TRUE);
 
     const int metricsTop = volumeTop + 66;
-    int metricLeft = contentLeft;
-    MoveWindow(controls_.buttonMeasure, metricLeft, metricsTop - 4, kButtonWidth, 38, TRUE);
-    metricLeft += kButtonWidth + kMetricGap;
-    MoveWindow(controls_.currentChannelLabel, metricLeft, metricsTop + 4, kChannelWidth, 20, TRUE);
-    metricLeft += kChannelWidth + kMetricGap;
-    MoveWindow(controls_.progressBar, metricLeft, metricsTop + 6, kProgressBarWidth, 18, TRUE);
-    metricLeft += kProgressBarWidth + 8;
-    MoveWindow(controls_.progressText, metricLeft, metricsTop + 4, kProgressTextWidth, 20, TRUE);
-    metricLeft += kProgressTextWidth + kMetricGap;
-    MoveWindow(controls_.currentFrequency, metricLeft, metricsTop + 4, kMetricWidth, 20, TRUE);
-    metricLeft += kMetricWidth + kMetricGap;
-    MoveWindow(controls_.currentAmplitude, metricLeft, metricsTop + 4, kMetricWidth, 20, TRUE);
-    metricLeft += kMetricWidth + kMetricGap;
-    MoveWindow(controls_.peakAmplitude, metricLeft, metricsTop + 4, kMetricWidth, 20, TRUE);
+    const int dataRowTop = metricsTop;
+    const int progressRowTop = dataRowTop + 30;
+    const int buttonTop = dataRowTop - 4;
+    const int buttonHeight = (progressRowTop + 20) - buttonTop;
+    MoveWindow(controls_.buttonMeasure, contentLeft, buttonTop, kButtonWidth, buttonHeight, TRUE);
+    MoveWindow(controls_.statusText, contentLeft, dataRowTop + 4, 0, 0, TRUE);
 
-    const int graphTop = metricsTop + 44;
+    int metricLeft = contentLeft + kButtonWidth + kMetricGap;
+    MoveWindow(controls_.currentFrequency, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
+    metricLeft += kMetricWidth + kMetricGap;
+    MoveWindow(controls_.currentAmplitude, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
+    metricLeft += kMetricWidth + kMetricGap;
+    MoveWindow(controls_.peakAmplitude, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
+
+    metricLeft = contentLeft + kButtonWidth + kMetricGap;
+    MoveWindow(controls_.leftChannelLabel, metricLeft, progressRowTop + 2, kProgressLabelWidth, 18, TRUE);
+    MoveWindow(controls_.leftProgressBar, metricLeft + kProgressLabelWidth + 8, progressRowTop + 4, kProgressBarWidth, 16, TRUE);
+    MoveWindow(controls_.leftProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
+    metricLeft += kProgressLabelWidth + 8 + kProgressBarWidth + 8 + kProgressTextWidth + kMetricGap;
+    MoveWindow(controls_.rightChannelLabel, metricLeft, progressRowTop + 2, kProgressLabelWidth, 18, TRUE);
+    MoveWindow(controls_.rightProgressBar, metricLeft + kProgressLabelWidth + 8, progressRowTop + 4, kProgressBarWidth, 16, TRUE);
+    MoveWindow(controls_.rightProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
+
+    const int graphTop = progressRowTop + 40;
     const int graphHeight = std::max(200, innerHeight - graphTop - 12);
     MoveWindow(controls_.resultGraph, contentLeft, graphTop, innerWidth, graphHeight, TRUE);
 }
@@ -1778,13 +1790,25 @@ void WolfieApp::refreshWindowTitle() {
 }
 
 void WolfieApp::refreshMeasurementStatus() {
-    const int progress = static_cast<int>(measurementEngine_.progress() * 1000.0);
-    SendMessageW(controls_.progressBar, PBM_SETPOS, progress, 0);
-    setWindowText(controls_.progressText, std::to_wstring(progress / 10) + L"%");
-    setWindowText(controls_.currentChannelLabel,
-                  measurementEngine_.running()
-                      ? (measurementEngine_.currentChannel() == MeasurementChannel::Right ? L"RIGHT" : L"LEFT")
-                      : L"");
+    int leftProgress = 0;
+    int rightProgress = 0;
+    const int currentProgress = static_cast<int>(measurementEngine_.progress() * 1000.0);
+    if (measurementEngine_.running()) {
+        if (measurementEngine_.currentChannel() == MeasurementChannel::Right) {
+            leftProgress = 1000;
+            rightProgress = currentProgress;
+        } else {
+            leftProgress = currentProgress;
+        }
+    } else if (measurementEngine_.finished()) {
+        leftProgress = 1000;
+        rightProgress = 1000;
+    }
+
+    SendMessageW(controls_.leftProgressBar, PBM_SETPOS, leftProgress, 0);
+    SendMessageW(controls_.rightProgressBar, PBM_SETPOS, rightProgress, 0);
+    setWindowText(controls_.leftProgressText, std::to_wstring(leftProgress / 10) + L"%");
+    setWindowText(controls_.rightProgressText, std::to_wstring(rightProgress / 10) + L"%");
     setWindowText(controls_.currentFrequency, L"Freq " + formatWideDouble(measurementEngine_.currentFrequencyHz(), 0) + L" Hz");
     setWindowText(controls_.currentAmplitude, L"Amp " + formatWideDouble(measurementEngine_.currentAmplitudeDb(), 1) + L" dB");
     setWindowText(controls_.peakAmplitude, L"Peak " + formatWideDouble(measurementEngine_.peakAmplitudeDb(), 1) + L" dB");
