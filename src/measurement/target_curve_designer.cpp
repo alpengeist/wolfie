@@ -94,17 +94,11 @@ double bandContributionDb(const TargetEqBand& band, int sampleRate, double frequ
     return 20.0 * std::log10(std::max(magnitude, 1e-9));
 }
 
-void sortBandsByFrequency(TargetCurveSettings& settings) {
-    std::stable_sort(settings.eqBands.begin(), settings.eqBands.end(), [](const TargetEqBand& left, const TargetEqBand& right) {
-        return left.frequencyHz < right.frequencyHz;
-    });
-}
-
 }  // namespace
 
 TargetEqBand makeDefaultTargetEqBand(double frequencyHz, int colorIndex) {
     TargetEqBand band;
-    band.enabled = true;
+    band.enabled = false;
     band.colorIndex = colorIndex;
     band.frequencyHz = frequencyHz;
     band.gainDb = 0.0;
@@ -136,7 +130,6 @@ void normalizeTargetCurveSettings(TargetCurveSettings& settings, double minFrequ
         band.gainDb = clampValue(band.gainDb, kMinBellGainDb, kMaxBellGainDb);
         band.q = clampValue(band.q, kMinBellQ, kMaxBellQ);
     }
-    sortBandsByFrequency(settings);
 }
 
 TargetCurvePlotData buildTargetCurvePlotData(const SmoothedResponse& response,

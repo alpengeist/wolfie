@@ -222,9 +222,10 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
             return true;
         }
         if (notificationCode == LBN_DBLCLK) {
-            const int index = static_cast<int>(SendMessageW(controls_.listBands, LB_GETCURSEL, 0, 0));
-            if (index >= 0) {
-                toggleBandEnabled(index, workspace);
+            const int listIndex = static_cast<int>(SendMessageW(controls_.listBands, LB_GETCURSEL, 0, 0));
+            if (listIndex >= 0) {
+                const int bandIndex = static_cast<int>(SendMessageW(controls_.listBands, LB_GETITEMDATA, listIndex, 0));
+                toggleBandEnabled(bandIndex, workspace);
                 workspaceChanged = true;
                 return true;
             }
@@ -418,7 +419,7 @@ LRESULT CALLBACK TargetCurvePage::BandListProc(HWND window, UINT message, WPARAM
             SendMessageW(window, LB_GETITEMRECT, index, reinterpret_cast<LPARAM>(&itemRect));
             const RECT checkboxRect{itemRect.left + 8, itemRect.top + 6, itemRect.left + 22, itemRect.top + 20};
             if (PtInRect(&checkboxRect, point) != FALSE) {
-                page->pendingBandToggleIndex_ = index;
+                page->pendingBandToggleIndex_ = static_cast<int>(SendMessageW(window, LB_GETITEMDATA, index, 0));
                 SendMessageW(window, LB_SETCURSEL, index, 0);
                 HWND parent = GetParent(window);
                 if (parent != nullptr) {
@@ -503,10 +504,11 @@ void TargetCurvePage::refreshList(const WorkspaceState& workspace) {
     displayedBands_ = workspace.targetCurve.eqBands;
     SendMessageW(controls_.listBands, LB_RESETCONTENT, 0, 0);
     for (size_t i = 0; i < workspace.targetCurve.eqBands.size(); ++i) {
+        const int bandIndex = static_cast<int>(i);
         const TargetEqBand& band = workspace.targetCurve.eqBands[i];
         const std::wstring label = L"Bell";
         const LRESULT index = SendMessageW(controls_.listBands, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
-        SendMessageW(controls_.listBands, LB_SETITEMDATA, index, static_cast<LPARAM>(i));
+        SendMessageW(controls_.listBands, LB_SETITEMDATA, index, static_cast<LPARAM>(bandIndex));
     }
     if (selectedBandIndex_ >= 0 && selectedBandIndex_ < static_cast<int>(workspace.targetCurve.eqBands.size())) {
         SendMessageW(controls_.listBands, LB_SETCURSEL, selectedBandIndex_, 0);
@@ -555,10 +557,13 @@ void TargetCurvePage::refreshGraph(const WorkspaceState& workspace) {
 }
 
 void TargetCurvePage::selectBand(int index, WorkspaceState& workspace) {
-    if (index < 0 || index >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
+    if (index < 0) {
         selectedBandIndex_ = workspace.targetCurve.eqBands.empty() ? -1 : 0;
     } else {
-        selectedBandIndex_ = index;
+        const int bandIndex = static_cast<int>(SendMessageW(controls_.listBands, LB_GETITEMDATA, index, 0));
+        selectedBandIndex_ = bandIndex >= 0 && bandIndex < static_cast<int>(workspace.targetCurve.eqBands.size())
+                                 ? bandIndex
+                                 : (workspace.targetCurve.eqBands.empty() ? -1 : 0);
     }
     refreshList(workspace);
     refreshDetailControls(workspace);

@@ -237,7 +237,7 @@ void drawSeries(HDC hdc,
     DeleteObject(pen);
 }
 
-void drawHandle(HDC hdc, const POINT& center, COLORREF fill, bool selected) {
+void drawRectHandle(HDC hdc, const POINT& center, COLORREF fill, bool selected) {
     RECT rect{center.x - kHandleHalfSize, center.y - kHandleHalfSize, center.x + kHandleHalfSize + 1, center.y + kHandleHalfSize + 1};
     HBRUSH brush = CreateSolidBrush(fill);
     FillRect(hdc, &rect, brush);
@@ -249,6 +249,22 @@ void drawHandle(HDC hdc, const POINT& center, COLORREF fill, bool selected) {
     Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
     SelectObject(hdc, oldBrush);
     SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+}
+
+void drawRoundHandle(HDC hdc, const POINT& center, COLORREF fill, bool selected) {
+    HBRUSH brush = CreateSolidBrush(fill);
+    HPEN pen = CreatePen(PS_SOLID, selected ? 2 : 1, selected ? ui_theme::kText : ui_theme::kBorder);
+    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, brush));
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
+    Ellipse(hdc,
+            center.x - kHandleHalfSize,
+            center.y - kHandleHalfSize,
+            center.x + kHandleHalfSize + 1,
+            center.y + kHandleHalfSize + 1);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(brush);
     DeleteObject(pen);
 }
 
@@ -638,6 +654,7 @@ bool TargetCurveGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
     }
 
     extraVisibleRangeDb_ = nextExtra;
+    invalidateBackgroundCache();
     invalidate();
     notifyParent(kZoomChangedNotification);
     return true;
@@ -827,6 +844,9 @@ int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type)
 
     for (int i = static_cast<int>(settings_.eqBands.size()) - 1; i >= 0; --i) {
         const TargetEqBand& band = settings_.eqBands[static_cast<size_t>(i)];
+        if (!band.enabled) {
+            continue;
+        }
         const double handleDb = sampleSeriesAtFrequency(plot_.frequencyAxisHz, plot_.targetCurveDb, band.frequencyHz);
         const POINT point = pointOnCurve(layout.graph,
                                          plot_.minFrequencyHz,
@@ -879,26 +899,6 @@ void TargetCurveGraph::onPaint() const {
     BitBlt(frameDc, 0, 0, rect.right - rect.left, rect.bottom - rect.top, cacheSource, 0, 0, SRCCOPY);
     SetBkMode(frameDc, TRANSPARENT);
 
-    if (!plot_.selectedBandContributionDb.empty() &&
-        selectedBandIndex_ >= 0 &&
-        selectedBandIndex_ < static_cast<int>(settings_.eqBands.size())) {
-        std::vector<double> selectedOverlay;
-        selectedOverlay.reserve(plot_.basicCurveDb.size());
-        for (size_t i = 0; i < plot_.basicCurveDb.size() && i < plot_.selectedBandContributionDb.size(); ++i) {
-            selectedOverlay.push_back(plot_.basicCurveDb[i] + plot_.selectedBandContributionDb[i]);
-        }
-        drawSeries(frameDc,
-                   layout.graph,
-                   plot_.minFrequencyHz,
-                   plot_.maxFrequencyHz,
-                   layout.axisMinDb,
-                   layout.axisMaxDb,
-                   plot_.frequencyAxisHz,
-                   selectedOverlay,
-                   targetCurveBandColor(settings_.eqBands[static_cast<size_t>(selectedBandIndex_)].colorIndex),
-                   2);
-    }
-
     drawSeries(frameDc,
                layout.graph,
                plot_.minFrequencyHz,
@@ -908,7 +908,7 @@ void TargetCurveGraph::onPaint() const {
                plot_.frequencyAxisHz,
                plot_.targetCurveDb,
                ui_theme::kAccent,
-               3);
+               2);
 
     const POINT lowPoint = pointOnCurve(layout.graph,
                                         plot_.minFrequencyHz,
@@ -931,12 +931,15 @@ void TargetCurveGraph::onPaint() const {
                                          layout.axisMaxDb,
                                          plot_.maxFrequencyHz,
                                          settings_.highGainDb);
-    drawHandle(frameDc, lowPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicLow);
-    drawHandle(frameDc, midPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicMid);
-    drawHandle(frameDc, highPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicHigh);
+    drawRectHandle(frameDc, lowPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicLow);
+    drawRectHandle(frameDc, midPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicMid);
+    drawRectHandle(frameDc, highPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicHigh);
 
     for (size_t i = 0; i < settings_.eqBands.size(); ++i) {
         const TargetEqBand& band = settings_.eqBands[i];
+        if (!band.enabled) {
+            continue;
+        }
         const double handleDb = sampleSeriesAtFrequency(plot_.frequencyAxisHz, plot_.targetCurveDb, band.frequencyHz);
         const POINT point = pointOnCurve(layout.graph,
                                          plot_.minFrequencyHz,
@@ -945,10 +948,10 @@ void TargetCurveGraph::onPaint() const {
                                          layout.axisMaxDb,
                                          band.frequencyHz,
                                          handleDb);
-        drawHandle(frameDc,
-                   point,
-                   band.enabled ? targetCurveBandColor(band.colorIndex) : RGB(205, 209, 214),
-                   static_cast<int>(i) == selectedBandIndex_);
+        drawRoundHandle(frameDc,
+                        point,
+                        targetCurveBandColor(band.colorIndex),
+                        static_cast<int>(i) == selectedBandIndex_);
     }
 
     if (hover_.active && PtInRect(&layout.graph, hover_.position) != FALSE) {
