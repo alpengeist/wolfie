@@ -15,6 +15,10 @@ namespace wolfie::ui {
 
 namespace {
 
+constexpr double kFrequencyWheelScalePerStep = 1.0166666667;
+constexpr double kGainWheelStepDb = 0.1;
+constexpr double kQWheelStep = 0.1;
+
 template <typename T>
 T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
@@ -39,17 +43,17 @@ const wchar_t* TargetCurvePage::pageWindowClassName() {
 void TargetCurvePage::create(HWND parent, HINSTANCE instance) {
     instance_ = instance;
     window_ = CreateWindowExW(0, kPageClassName, nullptr, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-                              0, 0, 0, 0, parent, nullptr, instance, nullptr);
+                              0, 0, 0, 0, parent, nullptr, instance, this);
     createControls();
 }
 
 void TargetCurvePage::createControls() {
-    controls_.graphLabel = CreateWindowW(L"STATIC", L"Target Curve", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.graphHint = CreateWindowW(L"STATIC", L"Drag blue anchors and band handles. Wheel pans dB, Ctrl+wheel zooms dB range.", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.bandsLabel = CreateWindowW(L"STATIC", L"EQ Bands", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.graphLabel = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.graphHint = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.bandsLabel = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonNew = CreateWindowW(L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonNew), instance_, nullptr);
     controls_.buttonDelete = CreateWindowW(L"BUTTON", L"Delete", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonDelete), instance_, nullptr);
-    controls_.buttonReset = CreateWindowW(L"BUTTON", L"Reset target", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonReset), instance_, nullptr);
+    controls_.buttonReset = CreateWindowW(L"BUTTON", L"Reset", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonReset), instance_, nullptr);
     controls_.checkboxBypassAll = CreateWindowW(L"BUTTON", L"Bypass all EQ bands", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kCheckboxBypassAll), instance_, nullptr);
     controls_.listBands = CreateWindowExW(WS_EX_CLIENTEDGE,
@@ -64,7 +68,7 @@ void TargetCurvePage::createControls() {
                                           reinterpret_cast<HMENU>(kListBands),
                                           instance_,
                                           nullptr);
-    controls_.detailLabel = CreateWindowW(L"STATIC", L"Selected Band", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.detailLabel = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxEnabled = CreateWindowW(L"BUTTON", L"Enabled", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kCheckboxBandEnabled), instance_, nullptr);
     controls_.typeValue = CreateWindowW(L"STATIC", L"Bell", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -97,6 +101,9 @@ void TargetCurvePage::createControls() {
                                                                 GWLP_WNDPROC,
                                                                 reinterpret_cast<LONG_PTR>(BandListProc)));
     SetWindowLongPtrW(controls_.listBands, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    SetWindowSubclass(controls_.frequencyValue, ValueEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(controls_.gainValue, ValueEditProc, 2, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(controls_.qValue, ValueEditProc, 3, reinterpret_cast<DWORD_PTR>(this));
 
     graph_.create(window_, instance_, kGraph);
 }
@@ -108,43 +115,40 @@ void TargetCurvePage::layout() {
     const int contentTop = 20;
     const int innerWidth = std::max(480L, pageRect.right - (contentLeft * 2));
     const int innerHeight = std::max(360L, pageRect.bottom - (contentTop * 2));
-    const int sidebarWidth = clampValue(innerWidth / 3, 300, 360);
+    const int baseSidebarWidth = clampValue(innerWidth / 3, 300, 360);
+    const int sidebarWidth = std::max(200, (baseSidebarWidth * 2) / 3);
     const int gap = 24;
     const int graphWidth = std::max(320, innerWidth - sidebarWidth - gap);
     const int sidebarLeft = contentLeft + graphWidth + gap;
 
-    MoveWindow(controls_.graphLabel, contentLeft, contentTop, graphWidth, 18, TRUE);
-    MoveWindow(controls_.graphHint, contentLeft, contentTop + 22, graphWidth, 18, TRUE);
-    const RECT graphBounds{contentLeft, contentTop + 48, contentLeft + graphWidth, contentTop + innerHeight};
+    const RECT graphBounds{contentLeft, contentTop, contentLeft + graphWidth, contentTop + innerHeight};
     graph_.layout(graphBounds);
 
-    MoveWindow(controls_.bandsLabel, sidebarLeft, contentTop, 120, 18, TRUE);
-    MoveWindow(controls_.buttonNew, sidebarLeft, contentTop + 28, 72, 28, TRUE);
-    MoveWindow(controls_.buttonDelete, sidebarLeft + 80, contentTop + 28, 72, 28, TRUE);
-    MoveWindow(controls_.buttonReset, sidebarLeft + 160, contentTop + 28, 112, 28, TRUE);
-    MoveWindow(controls_.checkboxBypassAll, sidebarLeft, contentTop + 62, sidebarWidth, 20, TRUE);
-    MoveWindow(controls_.listBands, sidebarLeft, contentTop + 90, sidebarWidth, 180, TRUE);
+    MoveWindow(controls_.buttonNew, sidebarLeft, contentTop, 72, 28, TRUE);
+    MoveWindow(controls_.buttonDelete, sidebarLeft + 80, contentTop, 72, 28, TRUE);
+    MoveWindow(controls_.buttonReset, sidebarLeft + 160, contentTop, 72, 28, TRUE);
+    MoveWindow(controls_.checkboxBypassAll, sidebarLeft, contentTop + 34, sidebarWidth, 20, TRUE);
+    MoveWindow(controls_.listBands, sidebarLeft, contentTop + 62, sidebarWidth, 180, TRUE);
 
-    const int detailTop = contentTop + 286;
-    MoveWindow(controls_.detailLabel, sidebarLeft, detailTop, 120, 18, TRUE);
-    MoveWindow(controls_.checkboxEnabled, sidebarLeft, detailTop + 26, 90, 20, TRUE);
-    MoveWindow(controls_.typeValue, sidebarLeft + 116, detailTop + 26, 80, 20, TRUE);
+    const int detailTop = contentTop + 258;
+    MoveWindow(controls_.checkboxEnabled, sidebarLeft, detailTop, 90, 20, TRUE);
+    MoveWindow(controls_.typeValue, sidebarLeft + 116, detailTop, 80, 20, TRUE);
 
     const int sliderWidth = sidebarWidth - 98;
     const int editLeft = sidebarLeft + sidebarWidth - 70;
-    MoveWindow(controls_.frequencyLabel, sidebarLeft, detailTop + 58, 80, 18, TRUE);
-    MoveWindow(controls_.frequencySlider, sidebarLeft, detailTop + 80, sliderWidth, 28, TRUE);
-    MoveWindow(controls_.frequencyValue, editLeft, detailTop + 76, 54, 26, TRUE);
-    MoveWindow(controls_.frequencyUnit, editLeft + 56, detailTop + 80, 20, 18, TRUE);
+    MoveWindow(controls_.frequencyLabel, sidebarLeft, detailTop + 32, 80, 18, TRUE);
+    MoveWindow(controls_.frequencySlider, sidebarLeft, detailTop + 54, sliderWidth, 28, TRUE);
+    MoveWindow(controls_.frequencyValue, editLeft, detailTop + 50, 54, 26, TRUE);
+    MoveWindow(controls_.frequencyUnit, editLeft + 56, detailTop + 54, 20, 18, TRUE);
 
-    MoveWindow(controls_.gainLabel, sidebarLeft, detailTop + 116, 80, 18, TRUE);
-    MoveWindow(controls_.gainSlider, sidebarLeft, detailTop + 138, sliderWidth, 28, TRUE);
-    MoveWindow(controls_.gainValue, editLeft, detailTop + 134, 54, 26, TRUE);
-    MoveWindow(controls_.gainUnit, editLeft + 56, detailTop + 138, 24, 18, TRUE);
+    MoveWindow(controls_.gainLabel, sidebarLeft, detailTop + 90, 80, 18, TRUE);
+    MoveWindow(controls_.gainSlider, sidebarLeft, detailTop + 112, sliderWidth, 28, TRUE);
+    MoveWindow(controls_.gainValue, editLeft, detailTop + 108, 54, 26, TRUE);
+    MoveWindow(controls_.gainUnit, editLeft + 56, detailTop + 112, 24, 18, TRUE);
 
-    MoveWindow(controls_.qLabel, sidebarLeft, detailTop + 174, 80, 18, TRUE);
-    MoveWindow(controls_.qSlider, sidebarLeft, detailTop + 196, sliderWidth, 28, TRUE);
-    MoveWindow(controls_.qValue, editLeft, detailTop + 192, 54, 26, TRUE);
+    MoveWindow(controls_.qLabel, sidebarLeft, detailTop + 148, 80, 18, TRUE);
+    MoveWindow(controls_.qSlider, sidebarLeft, detailTop + 170, sliderWidth, 28, TRUE);
+    MoveWindow(controls_.qValue, editLeft, detailTop + 166, 54, 26, TRUE);
 }
 
 void TargetCurvePage::setVisible(bool visible) const {
@@ -373,8 +377,19 @@ bool TargetCurvePage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
 }
 
 LRESULT CALLBACK TargetCurvePage::PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    if (message == WM_NCCREATE) {
+        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
+    }
+
+    TargetCurvePage* page = reinterpret_cast<TargetCurvePage*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     static HBRUSH pageBackgroundBrush = CreateSolidBrush(ui_theme::kBackground);
     switch (message) {
+    case WM_MOUSEWHEEL:
+        if (page != nullptr && page->handleMouseWheel(wParam, lParam)) {
+            return 0;
+        }
+        break;
     case WM_COMMAND:
     case WM_HSCROLL:
     case WM_DRAWITEM: {
@@ -404,6 +419,8 @@ LRESULT CALLBACK TargetCurvePage::PageWindowProc(HWND window, UINT message, WPAR
     default:
         return DefWindowProcW(window, message, wParam, lParam);
     }
+
+    return DefWindowProcW(window, message, wParam, lParam);
 }
 
 LRESULT CALLBACK TargetCurvePage::BandListProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -439,6 +456,23 @@ LRESULT CALLBACK TargetCurvePage::BandListProc(HWND window, UINT message, WPARAM
     return CallWindowProcW(page->bandListProc_, window, message, wParam, lParam);
 }
 
+LRESULT CALLBACK TargetCurvePage::ValueEditProc(HWND window,
+                                                UINT message,
+                                                WPARAM wParam,
+                                                LPARAM lParam,
+                                                UINT_PTR subclassId,
+                                                DWORD_PTR refData) {
+    auto* page = reinterpret_cast<TargetCurvePage*>(refData);
+    if (message == WM_MOUSEWHEEL && page != nullptr) {
+        const int wheelSteps = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+        if (page->adjustBandValueField(window, wheelSteps)) {
+            return 0;
+        }
+    }
+
+    return DefSubclassProc(window, message, wParam, lParam);
+}
+
 bool TargetCurvePage::tryParseDouble(const std::wstring& text, double& value) {
     if (text.empty()) {
         return false;
@@ -462,6 +496,63 @@ std::wstring TargetCurvePage::getWindowTextValue(HWND control) {
 
 void TargetCurvePage::setWindowTextValue(HWND control, const std::wstring& text) {
     SetWindowTextW(control, text.c_str());
+}
+
+bool TargetCurvePage::handleMouseWheel(WPARAM wParam, LPARAM lParam) {
+    POINT cursor{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    const HWND fields[] = {controls_.frequencyValue, controls_.gainValue, controls_.qValue};
+    for (HWND field : fields) {
+        if (field == nullptr) {
+            continue;
+        }
+
+        RECT rect{};
+        GetWindowRect(field, &rect);
+        if (PtInRect(&rect, cursor) == FALSE) {
+            continue;
+        }
+
+        return adjustBandValueField(field, GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA);
+    }
+
+    return false;
+}
+
+bool TargetCurvePage::adjustBandValueField(HWND control, int wheelSteps) {
+    if (control == nullptr || wheelSteps == 0 || updatingControls_ ||
+        selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(displayedBands_.size())) {
+        return wheelSteps == 0;
+    }
+
+    const TargetEqBand& band = displayedBands_[static_cast<size_t>(selectedBandIndex_)];
+    double currentValue = 0.0;
+    int decimals = 0;
+    double nextValue = 0.0;
+
+    if (control == controls_.frequencyValue) {
+        if (!tryParseDouble(getWindowTextValue(control), currentValue) || currentValue <= 0.0) {
+            currentValue = std::max(band.frequencyHz, 1.0);
+        }
+        nextValue = currentValue * std::pow(kFrequencyWheelScalePerStep, static_cast<double>(wheelSteps));
+        decimals = 0;
+    } else if (control == controls_.gainValue) {
+        if (!tryParseDouble(getWindowTextValue(control), currentValue)) {
+            currentValue = band.gainDb;
+        }
+        nextValue = currentValue + (kGainWheelStepDb * static_cast<double>(wheelSteps));
+        decimals = 1;
+    } else if (control == controls_.qValue) {
+        if (!tryParseDouble(getWindowTextValue(control), currentValue) || currentValue <= 0.0) {
+            currentValue = std::max(band.q, 0.1);
+        }
+        nextValue = std::max(0.1, currentValue + (kQWheelStep * static_cast<double>(wheelSteps)));
+        decimals = 2;
+    } else {
+        return false;
+    }
+
+    setWindowTextValue(control, formatWideDouble(nextValue, decimals));
+    return true;
 }
 
 int TargetCurvePage::frequencyToSliderPosition(double frequencyHz, double minFrequencyHz, double maxFrequencyHz) {

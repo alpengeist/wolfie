@@ -78,6 +78,12 @@ private:
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK BandListProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK ValueEditProc(HWND window,
+                                          UINT message,
+                                          WPARAM wParam,
+                                          LPARAM lParam,
+                                          UINT_PTR subclassId,
+                                          DWORD_PTR refData);
     static bool tryParseDouble(const std::wstring& text, double& value);
     static std::wstring getWindowTextValue(HWND control);
     static void setWindowTextValue(HWND control, const std::wstring& text);
@@ -89,6 +95,8 @@ private:
     static double sliderPositionToQ(int position);
 
     void createControls();
+    bool handleMouseWheel(WPARAM wParam, LPARAM lParam);
+    bool adjustBandValueField(HWND control, int wheelSteps);
     void refreshList(const WorkspaceState& workspace);
     void refreshDetailControls(const WorkspaceState& workspace);
     void refreshGraph(const WorkspaceState& workspace);
