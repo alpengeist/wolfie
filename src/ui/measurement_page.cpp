@@ -221,6 +221,7 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.outputVolumeValue, formatOutputVolumeLabel(workspace.audio.outputVolumeDb));
     SendMessageW(controls_.outputVolumeSlider, TBM_SETPOS, TRUE, outputVolumeDbToSliderPosition(workspace.audio.outputVolumeDb));
     responseGraph_.setExtraVisibleRangeDb(workspace.ui.measurementGraphExtraRangeDb);
+    responseGraph_.setVerticalOffsetDb(workspace.ui.measurementGraphVerticalOffsetDb);
     setMeasurementResult(workspace.result);
 }
 
@@ -233,6 +234,7 @@ void MeasurementPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.measurement.targetLengthSamples = std::stoi(getWindowTextValue(controls_.editTargetLength));
     workspace.measurement.leadInSamples = std::stoi(getWindowTextValue(controls_.editLeadIn));
     workspace.ui.measurementGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
+    workspace.ui.measurementGraphVerticalOffsetDb = responseGraph_.verticalOffsetDb();
     measurement::syncDerivedMeasurementSettings(workspace.measurement);
 }
 
@@ -337,6 +339,7 @@ bool MeasurementPage::handleCommand(WORD commandId,
 
     if (commandId == kResponseGraph && notificationCode == ResponseGraph::kZoomChangedNotification) {
         workspace.ui.measurementGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
+        workspace.ui.measurementGraphVerticalOffsetDb = responseGraph_.verticalOffsetDb();
         graphZoomChanged = true;
         return true;
     }

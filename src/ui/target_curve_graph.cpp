@@ -36,12 +36,13 @@ struct AxisLabel {
 struct GraphLayout {
     RECT graph{};
     int textHeight = 12;
+    double baseAxisMaxDb = 12.0;
     double axisMinDb = -12.0;
     double axisMaxDb = 12.0;
+    double dbStep = 1.0;
     double currentVisibleRangeDb = 24.0;
     double defaultVisibleRangeDb = 24.0;
     double minVisibleRangeDb = kMinVisibleRangeDb;
-    double maxVisibleRangeDb = 48.0;
     double minFrequencyHz = 20.0;
     double maxFrequencyHz = 20000.0;
     std::vector<double> yTickValues;
@@ -75,6 +76,12 @@ double frequencyFromGraphX(const RECT& graph, double minFrequencyHz, double maxF
 int graphYFromDb(const RECT& graph, double valueDb, double minDb, double maxDb) {
     const double range = std::max(maxDb - minDb, 1e-6);
     const double t = clampValue((valueDb - minDb) / range, 0.0, 1.0);
+    return graph.bottom - static_cast<int>(std::lround(t * (graph.bottom - graph.top)));
+}
+
+int unclampedGraphYFromDb(const RECT& graph, double valueDb, double minDb, double maxDb) {
+    const double range = std::max(maxDb - minDb, 1e-6);
+    const double t = (valueDb - minDb) / range;
     return graph.bottom - static_cast<int>(std::lround(t * (graph.bottom - graph.top)));
 }
 
@@ -143,7 +150,7 @@ std::vector<AxisLabel> buildFrequencyLabels(HDC hdc,
     return labels;
 }
 
-std::vector<double> buildDbTickValues(double minDb, double maxDb) {
+double preferredDbStep(double minDb, double maxDb) {
     const double range = std::max(maxDb - minDb, 1.0);
     double step = 1.0;
     if (range > 8.0) {
@@ -155,7 +162,11 @@ std::vector<double> buildDbTickValues(double minDb, double maxDb) {
     if (range > 50.0) {
         step = 10.0;
     }
+    return step;
+}
 
+std::vector<double> buildDbTickValues(double minDb, double maxDb) {
+    const double step = preferredDbStep(minDb, maxDb);
     std::vector<double> ticks;
     const double start = std::floor(minDb / step) * step;
     for (double tick = start; tick <= maxDb + 0.001; tick += step) {
@@ -166,7 +177,11 @@ std::vector<double> buildDbTickValues(double minDb, double maxDb) {
     return ticks;
 }
 
-GraphLayout buildLayout(HDC hdc, const RECT& rect, const TargetCurveGraph& graph, double extraVisibleRangeDb);
+GraphLayout buildLayout(HDC hdc,
+                        const RECT& rect,
+                        const TargetCurveGraph& graph,
+                        double extraVisibleRangeDb,
+                        double verticalOffsetDb);
 
 double sampleSeriesAtFrequency(const std::vector<double>& axis,
                                const std::vector<double>& values,
@@ -209,6 +224,19 @@ POINT pointOnCurve(const RECT& graph,
     };
 }
 
+POINT unclampedPointOnCurve(const RECT& graph,
+                            double minFrequencyHz,
+                            double maxFrequencyHz,
+                            double axisMinDb,
+                            double axisMaxDb,
+                            double frequencyHz,
+                            double valueDb) {
+    return POINT{
+        graphXFromFrequency(graph, minFrequencyHz, maxFrequencyHz, frequencyHz),
+        unclampedGraphYFromDb(graph, valueDb, axisMinDb, axisMaxDb)
+    };
+}
+
 void drawSeries(HDC hdc,
                 const RECT& graph,
                 double minFrequencyHz,
@@ -225,14 +253,18 @@ void drawSeries(HDC hdc,
 
     HPEN pen = CreatePen(PS_SOLID, penWidth, color);
     HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
+    const int savedDc = SaveDC(hdc);
+    IntersectClipRect(hdc, graph.left, graph.top, graph.right, graph.bottom);
     for (size_t i = 0; i < axis.size() && i < values.size(); ++i) {
-        const POINT point = pointOnCurve(graph, minFrequencyHz, maxFrequencyHz, axisMinDb, axisMaxDb, axis[i], values[i]);
+        const POINT point =
+            unclampedPointOnCurve(graph, minFrequencyHz, maxFrequencyHz, axisMinDb, axisMaxDb, axis[i], values[i]);
         if (i == 0) {
             MoveToEx(hdc, point.x, point.y, nullptr);
         } else {
             LineTo(hdc, point.x, point.y);
         }
     }
+    RestoreDC(hdc, savedDc);
     SelectObject(hdc, oldPen);
     DeleteObject(pen);
 }
@@ -275,7 +307,11 @@ bool pointHitsHandle(const POINT& position, const POINT& handle) {
            position.y <= handle.y + (kHandleHalfSize + 3);
 }
 
-GraphLayout buildLayout(HDC hdc, const RECT& rect, const TargetCurveGraph& graph, double extraVisibleRangeDb) {
+GraphLayout buildLayout(HDC hdc,
+                        const RECT& rect,
+                        const TargetCurveGraph& graph,
+                        double extraVisibleRangeDb,
+                        double verticalOffsetDb) {
     GraphLayout layout;
 
     TEXTMETRICW metrics{};
@@ -307,13 +343,12 @@ GraphLayout buildLayout(HDC hdc, const RECT& rect, const TargetCurveGraph& graph
 
     minDb = std::floor(minDb - 2.0);
     maxDb = std::ceil(maxDb + 2.0);
-    layout.axisMaxDb = maxDb;
-    layout.defaultVisibleRangeDb = std::max(layout.axisMaxDb - minDb, 6.0);
-    layout.currentVisibleRangeDb = clampValue(layout.defaultVisibleRangeDb + extraVisibleRangeDb,
-                                              layout.minVisibleRangeDb,
-                                              layout.defaultVisibleRangeDb + 60.0);
-    layout.maxVisibleRangeDb = layout.defaultVisibleRangeDb + 60.0;
+    layout.baseAxisMaxDb = maxDb;
+    layout.defaultVisibleRangeDb = std::max(layout.baseAxisMaxDb - minDb, 6.0);
+    layout.currentVisibleRangeDb = std::max(layout.defaultVisibleRangeDb + extraVisibleRangeDb, layout.minVisibleRangeDb);
+    layout.axisMaxDb = layout.baseAxisMaxDb + verticalOffsetDb;
     layout.axisMinDb = layout.axisMaxDb - layout.currentVisibleRangeDb;
+    layout.dbStep = preferredDbStep(layout.axisMinDb, layout.axisMaxDb);
     layout.minFrequencyHz = plotData.minFrequencyHz;
     layout.maxFrequencyHz = plotData.maxFrequencyHz;
     layout.yTickValues = buildDbTickValues(layout.axisMinDb, layout.axisMaxDb);
@@ -402,6 +437,15 @@ void TargetCurveGraph::setExtraVisibleRangeDb(double extraVisibleRangeDb) {
     invalidate();
 }
 
+void TargetCurveGraph::setVerticalOffsetDb(double verticalOffsetDb) {
+    if (std::abs(verticalOffsetDb_ - verticalOffsetDb) < 0.001) {
+        return;
+    }
+    verticalOffsetDb_ = verticalOffsetDb;
+    invalidateBackgroundCache();
+    invalidate();
+}
+
 void TargetCurveGraph::layout(const RECT& bounds) const {
     if (window_ != nullptr) {
         MoveWindow(window_, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top, TRUE);
@@ -441,7 +485,7 @@ RECT TargetCurveGraph::infoLineRect() const {
     }
 
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
     ReleaseDC(window_, hdc);
 
     rect.left = layout.graph.left;
@@ -477,7 +521,7 @@ void TargetCurveGraph::drawStaticLayer(HDC hdc, const RECT& rect, const RECT& pa
     DeleteObject(background);
 
     SetBkMode(hdc, TRANSPARENT);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
     const std::vector<double> xTicks = buildFrequencyTickValues(plot_.minFrequencyHz, plot_.maxFrequencyHz);
     const std::vector<AxisLabel> xLabels = buildFrequencyLabels(hdc, layout.graph, plot_.minFrequencyHz, plot_.maxFrequencyHz, xTicks);
 
@@ -622,7 +666,7 @@ LRESULT CALLBACK TargetCurveGraph::WindowProc(HWND window, UINT message, WPARAM 
 }
 
 bool TargetCurveGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
-    if (window_ == nullptr || (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) == 0) {
+    if (window_ == nullptr) {
         return false;
     }
 
@@ -632,7 +676,7 @@ bool TargetCurveGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
     }
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
     ReleaseDC(window_, hdc);
 
     POINT cursor{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
@@ -646,14 +690,33 @@ bool TargetCurveGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
         return true;
     }
 
-    double nextVisibleRangeDb = layout.currentVisibleRangeDb * std::pow(kWheelZoomScalePerStep, static_cast<double>(wheelSteps));
-    nextVisibleRangeDb = clampValue(nextVisibleRangeDb, layout.minVisibleRangeDb, layout.maxVisibleRangeDb);
-    const double nextExtra = nextVisibleRangeDb - layout.defaultVisibleRangeDb;
-    if (std::abs(nextExtra - extraVisibleRangeDb_) < 0.001) {
-        return true;
+    if ((GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0) {
+        const double cursorDb = dbFromGraphY(layout.graph, cursor.y, layout.axisMinDb, layout.axisMaxDb);
+        const double cursorT =
+            (cursorDb - layout.axisMinDb) / std::max(layout.currentVisibleRangeDb, layout.minVisibleRangeDb);
+        const double nextVisibleRangeDb = std::max(layout.currentVisibleRangeDb *
+                                                       std::pow(kWheelZoomScalePerStep, static_cast<double>(wheelSteps)),
+                                                   layout.minVisibleRangeDb);
+        const double nextAxisMinDb = cursorDb - (cursorT * nextVisibleRangeDb);
+        const double nextAxisMaxDb = nextAxisMinDb + nextVisibleRangeDb;
+        const double nextExtra = nextVisibleRangeDb - layout.defaultVisibleRangeDb;
+        const double nextVerticalOffsetDb = nextAxisMaxDb - layout.baseAxisMaxDb;
+        if (std::abs(nextExtra - extraVisibleRangeDb_) < 0.001 &&
+            std::abs(nextVerticalOffsetDb - verticalOffsetDb_) < 0.001) {
+            return true;
+        }
+
+        extraVisibleRangeDb_ = nextExtra;
+        verticalOffsetDb_ = nextVerticalOffsetDb;
+    } else {
+        const double nextVerticalOffsetDb = verticalOffsetDb_ + (layout.dbStep * static_cast<double>(wheelSteps));
+        if (std::abs(nextVerticalOffsetDb - verticalOffsetDb_) < 0.001) {
+            return true;
+        }
+
+        verticalOffsetDb_ = nextVerticalOffsetDb;
     }
 
-    extraVisibleRangeDb_ = nextExtra;
     invalidateBackgroundCache();
     invalidate();
     notifyParent(kZoomChangedNotification);
@@ -681,7 +744,7 @@ void TargetCurveGraph::onMouseMove(LPARAM lParam) {
     }
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
     ReleaseDC(window_, hdc);
 
     const bool insideGraph = PtInRect(&layout.graph, position) != FALSE;
@@ -750,7 +813,7 @@ void TargetCurveGraph::updateDrag(const POINT& position) {
     }
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
     ReleaseDC(window_, hdc);
 
     const double currentDb = dbFromGraphY(layout.graph, position.y, layout.axisMinDb, layout.axisMaxDb);
@@ -803,7 +866,7 @@ int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type)
     }
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
     ReleaseDC(window_, hdc);
 
     const POINT lowPoint = pointOnCurve(layout.graph,
@@ -870,7 +933,7 @@ void TargetCurveGraph::onPaint() const {
 
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
     HDC cacheSource = CreateCompatibleDC(hdc);
     if (cacheSource == nullptr) {
         EndPaint(window_, &paint);

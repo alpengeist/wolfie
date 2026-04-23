@@ -16,7 +16,6 @@ namespace {
 
 constexpr double kMinFrequencyHz = 10.0;
 constexpr double kMaxFrequencyHz = 20000.0;
-constexpr double kZoomStepDb = 10.0;
 constexpr double kMinVisibleRangeDb = 0.05;
 constexpr double kWheelZoomScalePerStep = 0.8;
 
@@ -31,13 +30,13 @@ struct AxisLabel {
 struct GraphLayout {
     RECT graph{};
     int textHeight = 12;
+    double baseAxisMaxDb = 1.0;
     double axisMinDb = 0.0;
     double axisMaxDb = 1.0;
     double dbStep = 1.0;
     double minVisibleRangeDb = 1.0;
     double defaultVisibleRangeDb = 1.0;
     double currentVisibleRangeDb = 1.0;
-    double maxVisibleRangeDb = 1.0;
     std::vector<double> yTickValues;
 };
 
@@ -105,6 +104,12 @@ int graphXFromFrequency(const RECT& graph, double frequencyHz) {
 int graphYFromDb(const RECT& graph, double valueDb, double minDb, double maxDb) {
     const double range = std::max(maxDb - minDb, 1e-6);
     const double yT = clampValue((valueDb - minDb) / range, 0.0, 1.0);
+    return graph.bottom - static_cast<int>(std::lround(yT * (graph.bottom - graph.top)));
+}
+
+int unclampedGraphYFromDb(const RECT& graph, double valueDb, double minDb, double maxDb) {
+    const double range = std::max(maxDb - minDb, 1e-6);
+    const double yT = (valueDb - minDb) / range;
     return graph.bottom - static_cast<int>(std::lround(yT * (graph.bottom - graph.top)));
 }
 
@@ -262,7 +267,11 @@ std::vector<double> buildDbTickValues(double minDb, double maxDb, double stepDb)
     return ticks;
 }
 
-GraphLayout buildGraphLayout(HDC hdc, const RECT& rect, const ResponseGraphData& data, double extraVisibleRangeDb) {
+GraphLayout buildGraphLayout(HDC hdc,
+                             const RECT& rect,
+                             const ResponseGraphData& data,
+                             double extraVisibleRangeDb,
+                             double verticalOffsetDb) {
     GraphLayout layout;
 
     TEXTMETRICW metrics{};
@@ -271,27 +280,23 @@ GraphLayout buildGraphLayout(HDC hdc, const RECT& rect, const ResponseGraphData&
 
     const double dataMinDb = data.minDb;
     double dataMaxDb = dataMinDb + 1.0;
-    double actualMinDb = dataMinDb;
     for (const auto& series : data.series) {
         for (const double value : series.values) {
             dataMaxDb = std::max(dataMaxDb, value);
-            actualMinDb = std::min(actualMinDb, value);
         }
     }
     dataMaxDb = std::ceil(dataMaxDb);
-    layout.axisMaxDb = dataMaxDb;
+    layout.baseAxisMaxDb = dataMaxDb;
 
     const int infoLineHeight = layout.textHeight + 6;
     const int estimatedGraphHeight = std::max(static_cast<int>(rect.bottom - rect.top) - (layout.textHeight + 22) -
                                                   infoLineHeight,
                                               80);
-    const double fullVisibleRangeDb = std::max(layout.axisMaxDb - dataMinDb, 1.0);
+    const double fullVisibleRangeDb = std::max(layout.baseAxisMaxDb - dataMinDb, 1.0);
     layout.defaultVisibleRangeDb = fullVisibleRangeDb;
     layout.minVisibleRangeDb = kMinVisibleRangeDb;
-    const double paddedActualMinDb = std::floor((actualMinDb - kZoomStepDb) / kZoomStepDb) * kZoomStepDb;
-    layout.maxVisibleRangeDb = std::max(layout.defaultVisibleRangeDb, layout.axisMaxDb - paddedActualMinDb);
-    layout.currentVisibleRangeDb =
-        clampValue(layout.defaultVisibleRangeDb + extraVisibleRangeDb, layout.minVisibleRangeDb, layout.maxVisibleRangeDb);
+    layout.currentVisibleRangeDb = std::max(layout.defaultVisibleRangeDb + extraVisibleRangeDb, layout.minVisibleRangeDb);
+    layout.axisMaxDb = layout.baseAxisMaxDb + verticalOffsetDb;
     layout.axisMinDb = layout.axisMaxDb - layout.currentVisibleRangeDb;
     const double rawDbStep = layout.currentVisibleRangeDb * static_cast<double>(layout.textHeight + 10) /
                              static_cast<double>(std::max(estimatedGraphHeight, 1));
@@ -342,6 +347,33 @@ std::wstring formatHoverQuarterWavelength(double wavelengthMeters) {
     return L"lambda/4: " + formatWideDouble(quarterWavelengthMeters, decimals) + L" m";
 }
 
+void drawSeries(HDC hdc,
+                const RECT& graph,
+                double axisMinDb,
+                double axisMaxDb,
+                const std::vector<double>& frequencyAxisHz,
+                const std::vector<double>& values,
+                COLORREF color) {
+    if (frequencyAxisHz.empty() || values.empty()) {
+        return;
+    }
+
+    SetDCPenColor(hdc, color);
+    const int savedDc = SaveDC(hdc);
+    IntersectClipRect(hdc, graph.left, graph.top, graph.right, graph.bottom);
+    for (size_t i = 0; i < values.size() && i < frequencyAxisHz.size(); ++i) {
+        const double xT = responseGraphXT(frequencyAxisHz[i]);
+        const int x = graph.left + static_cast<int>(xT * (graph.right - graph.left));
+        const int y = unclampedGraphYFromDb(graph, values[i], axisMinDb, axisMaxDb);
+        if (i == 0) {
+            MoveToEx(hdc, x, y, nullptr);
+        } else {
+            LineTo(hdc, x, y);
+        }
+    }
+    RestoreDC(hdc, savedDc);
+}
+
 }  // namespace
 
 void ResponseGraph::registerWindowClass(HINSTANCE instance) {
@@ -380,6 +412,15 @@ void ResponseGraph::setExtraVisibleRangeDb(double extraVisibleRangeDb) {
     }
 
     extraVisibleRangeDb_ = extraVisibleRangeDb;
+    invalidate();
+}
+
+void ResponseGraph::setVerticalOffsetDb(double verticalOffsetDb) {
+    if (std::abs(verticalOffsetDb - verticalOffsetDb_) < 0.001) {
+        return;
+    }
+
+    verticalOffsetDb_ = verticalOffsetDb;
     invalidate();
 }
 
@@ -450,7 +491,7 @@ RECT ResponseGraph::infoLineRect() const {
     }
 
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_);
+    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_, verticalOffsetDb_);
     ReleaseDC(window_, hdc);
 
     rect.left = layout.graph.left;
@@ -486,7 +527,7 @@ void ResponseGraph::notifyZoomChanged() const {
 }
 
 bool ResponseGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
-    if (window_ == nullptr || (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) == 0) {
+    if (window_ == nullptr) {
         return false;
     }
 
@@ -497,7 +538,7 @@ bool ResponseGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
 
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_);
+    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_, verticalOffsetDb_);
     ReleaseDC(window_, hdc);
 
     POINT cursor{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
@@ -512,15 +553,33 @@ bool ResponseGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
         return true;
     }
 
-    double nextVisibleRangeDb =
-        layout.currentVisibleRangeDb * std::pow(kWheelZoomScalePerStep, static_cast<double>(wheelSteps));
-    nextVisibleRangeDb = clampValue(nextVisibleRangeDb, layout.minVisibleRangeDb, layout.maxVisibleRangeDb);
-    const double nextExtraVisibleRangeDb = nextVisibleRangeDb - layout.defaultVisibleRangeDb;
-    if (std::abs(nextExtraVisibleRangeDb - extraVisibleRangeDb_) < 0.001) {
-        return true;
+    if ((GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0) {
+        const double cursorDb = dbFromGraphY(layout.graph, cursor.y, layout.axisMinDb, layout.axisMaxDb);
+        const double cursorT =
+            (cursorDb - layout.axisMinDb) / std::max(layout.currentVisibleRangeDb, layout.minVisibleRangeDb);
+        const double nextVisibleRangeDb = std::max(layout.currentVisibleRangeDb *
+                                                       std::pow(kWheelZoomScalePerStep, static_cast<double>(wheelSteps)),
+                                                   layout.minVisibleRangeDb);
+        const double nextAxisMinDb = cursorDb - (cursorT * nextVisibleRangeDb);
+        const double nextAxisMaxDb = nextAxisMinDb + nextVisibleRangeDb;
+        const double nextExtraVisibleRangeDb = nextVisibleRangeDb - layout.defaultVisibleRangeDb;
+        const double nextVerticalOffsetDb = nextAxisMaxDb - layout.baseAxisMaxDb;
+        if (std::abs(nextExtraVisibleRangeDb - extraVisibleRangeDb_) < 0.001 &&
+            std::abs(nextVerticalOffsetDb - verticalOffsetDb_) < 0.001) {
+            return true;
+        }
+
+        extraVisibleRangeDb_ = nextExtraVisibleRangeDb;
+        verticalOffsetDb_ = nextVerticalOffsetDb;
+    } else {
+        const double nextVerticalOffsetDb = verticalOffsetDb_ + (layout.dbStep * static_cast<double>(wheelSteps));
+        if (std::abs(nextVerticalOffsetDb - verticalOffsetDb_) < 0.001) {
+            return true;
+        }
+
+        verticalOffsetDb_ = nextVerticalOffsetDb;
     }
 
-    extraVisibleRangeDb_ = nextExtraVisibleRangeDb;
     invalidate();
     notifyZoomChanged();
     return true;
@@ -547,7 +606,7 @@ void ResponseGraph::onMouseMove(LPARAM lParam) {
 
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_);
+    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_, verticalOffsetDb_);
     ReleaseDC(window_, hdc);
 
     const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
@@ -582,7 +641,7 @@ void ResponseGraph::onPaint() const {
     SetBkMode(hdc, TRANSPARENT);
     SelectObject(hdc, GetStockObject(DC_PEN));
     SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
-    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_);
+    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_, verticalOffsetDb_);
     const RECT& graph = layout.graph;
     const std::vector<double> xTickValues = buildFrequencyTickValues(graph);
     const std::vector<AxisLabel> xLabels = buildFrequencyLabels(hdc, graph, xTickValues);
@@ -638,20 +697,7 @@ void ResponseGraph::onPaint() const {
 
     if (!data_.frequencyAxisHz.empty()) {
         for (const auto& series : data_.series) {
-            SetDCPenColor(hdc, series.color);
-            for (size_t i = 0; i < series.values.size() && i < data_.frequencyAxisHz.size(); ++i) {
-                const double xT = responseGraphXT(data_.frequencyAxisHz[i]);
-                const double yT = clampValue((series.values[i] - layout.axisMinDb) / (layout.axisMaxDb - layout.axisMinDb),
-                                             0.0,
-                                             1.0);
-                const int x = graph.left + static_cast<int>(xT * (graph.right - graph.left));
-                const int y = graph.bottom - static_cast<int>(yT * (graph.bottom - graph.top));
-                if (i == 0) {
-                    MoveToEx(hdc, x, y, nullptr);
-                } else {
-                    LineTo(hdc, x, y);
-                }
-            }
+            drawSeries(hdc, graph, layout.axisMinDb, layout.axisMaxDb, data_.frequencyAxisHz, series.values, series.color);
         }
     }
 

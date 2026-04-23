@@ -131,11 +131,20 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "measurementGraphExtraRangeDb")) {
         ui.measurementGraphExtraRangeDb = *value;
     }
+    if (const auto value = findJsonNumber(content, "measurementGraphVerticalOffsetDb")) {
+        ui.measurementGraphVerticalOffsetDb = *value;
+    }
     if (const auto value = findJsonNumber(content, "smoothingGraphExtraRangeDb")) {
         ui.smoothingGraphExtraRangeDb = *value;
     }
+    if (const auto value = findJsonNumber(content, "smoothingGraphVerticalOffsetDb")) {
+        ui.smoothingGraphVerticalOffsetDb = *value;
+    }
     if (const auto value = findJsonNumber(content, "targetCurveGraphExtraRangeDb")) {
         ui.targetCurveGraphExtraRangeDb = *value;
+    }
+    if (const auto value = findJsonNumber(content, "targetCurveGraphVerticalOffsetDb")) {
+        ui.targetCurveGraphVerticalOffsetDb = *value;
     }
 }
 
@@ -383,8 +392,11 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
                   << "    \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
                   << "    \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
+                  << "    \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
                   << "    \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
-                  << "    \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << "\n"
+                  << "    \"smoothingGraphVerticalOffsetDb\": " << workspace.ui.smoothingGraphVerticalOffsetDb << ",\n"
+                  << "    \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << ",\n"
+                  << "    \"targetCurveGraphVerticalOffsetDb\": " << workspace.ui.targetCurveGraphVerticalOffsetDb << "\n"
                   << "  }\n"
                   << "}\n";
     writeTextFile(workspace.rootPath / "workspace.json", workspaceJson.str());
@@ -394,8 +406,11 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << "  \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
            << "  \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
            << "  \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
+           << "  \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
            << "  \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
-           << "  \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << "\n"
+           << "  \"smoothingGraphVerticalOffsetDb\": " << workspace.ui.smoothingGraphVerticalOffsetDb << ",\n"
+           << "  \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << ",\n"
+           << "  \"targetCurveGraphVerticalOffsetDb\": " << workspace.ui.targetCurveGraphVerticalOffsetDb << "\n"
            << "}\n";
     writeTextFile(workspace.rootPath / "ui.json", uiJson.str());
 

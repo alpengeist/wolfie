@@ -36,8 +36,11 @@ struct UiSettings {
     int measurementSectionHeight = 320;
     int resultSectionHeight = 360;
     double measurementGraphExtraRangeDb = 0.0;
+    double measurementGraphVerticalOffsetDb = 0.0;
     double smoothingGraphExtraRangeDb = 0.0;
+    double smoothingGraphVerticalOffsetDb = 0.0;
     double targetCurveGraphExtraRangeDb = 0.0;
+    double targetCurveGraphVerticalOffsetDb = 0.0;
 };
 
 struct MeasurementResult {

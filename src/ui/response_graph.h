@@ -34,11 +34,13 @@ public:
     void create(HWND parent, HINSTANCE instance, int controlId = 0);
     void setData(ResponseGraphData data);
     void setExtraVisibleRangeDb(double extraVisibleRangeDb);
+    void setVerticalOffsetDb(double verticalOffsetDb);
     void layout(const RECT& bounds) const;
     void invalidate() const;
 
     [[nodiscard]] HWND window() const { return window_; }
     [[nodiscard]] double extraVisibleRangeDb() const { return extraVisibleRangeDb_; }
+    [[nodiscard]] double verticalOffsetDb() const { return verticalOffsetDb_; }
 
 private:
     struct HoverState {
@@ -61,6 +63,7 @@ private:
     ResponseGraphData data_;
     HoverState hover_;
     double extraVisibleRangeDb_ = 0.0;
+    double verticalOffsetDb_ = 0.0;
 };
 
 }  // namespace wolfie::ui

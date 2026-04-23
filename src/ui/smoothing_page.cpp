@@ -125,11 +125,13 @@ void SmoothingPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.effectiveParameter, formatEffectiveParameter(workspace.smoothing));
     setWindowTextValue(controls_.editHighFrequencyCutoff, formatWideDouble(workspace.smoothing.highFrequencySlopeCutoffHz, 0));
     responseGraph_.setExtraVisibleRangeDb(workspace.ui.smoothingGraphExtraRangeDb);
+    responseGraph_.setVerticalOffsetDb(workspace.ui.smoothingGraphVerticalOffsetDb);
     responseGraph_.setData(buildGraphData(workspace.smoothedResponse));
 }
 
 void SmoothingPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.ui.smoothingGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
+    workspace.ui.smoothingGraphVerticalOffsetDb = responseGraph_.verticalOffsetDb();
 }
 
 void SmoothingPage::invalidateGraph() const {
@@ -143,6 +145,7 @@ bool SmoothingPage::handleCommand(WORD commandId,
                                   bool& graphZoomChanged) {
     if (commandId == kResponseGraph && notificationCode == ResponseGraph::kZoomChangedNotification) {
         workspace.ui.smoothingGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
+        workspace.ui.smoothingGraphVerticalOffsetDb = responseGraph_.verticalOffsetDb();
         graphZoomChanged = true;
         return true;
     }

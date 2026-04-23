@@ -45,7 +45,7 @@ void TargetCurvePage::create(HWND parent, HINSTANCE instance) {
 
 void TargetCurvePage::createControls() {
     controls_.graphLabel = CreateWindowW(L"STATIC", L"Target Curve", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.graphHint = CreateWindowW(L"STATIC", L"Drag blue anchors and band handles. Ctrl+wheel zooms dB range.", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.graphHint = CreateWindowW(L"STATIC", L"Drag blue anchors and band handles. Wheel pans dB, Ctrl+wheel zooms dB range.", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.bandsLabel = CreateWindowW(L"STATIC", L"EQ Bands", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonNew = CreateWindowW(L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonNew), instance_, nullptr);
     controls_.buttonDelete = CreateWindowW(L"BUTTON", L"Delete", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonDelete), instance_, nullptr);
@@ -160,18 +160,21 @@ void TargetCurvePage::populate(const WorkspaceState& workspace) {
     refreshList(workspace);
     refreshDetailControls(workspace);
     graph_.setExtraVisibleRangeDb(workspace.ui.targetCurveGraphExtraRangeDb);
+    graph_.setVerticalOffsetDb(workspace.ui.targetCurveGraphVerticalOffsetDb);
     refreshGraph(workspace);
     updatingControls_ = false;
 }
 
 void TargetCurvePage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.ui.targetCurveGraphExtraRangeDb = graph_.extraVisibleRangeDb();
+    workspace.ui.targetCurveGraphVerticalOffsetDb = graph_.verticalOffsetDb();
     workspace.targetCurve = graph_.settings();
 }
 
 bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& workspaceChanged) {
     if (commandId == kGraph && notificationCode == TargetCurveGraph::kZoomChangedNotification) {
         workspace.ui.targetCurveGraphExtraRangeDb = graph_.extraVisibleRangeDb();
+        workspace.ui.targetCurveGraphVerticalOffsetDb = graph_.verticalOffsetDb();
         workspaceChanged = true;
         return true;
     }

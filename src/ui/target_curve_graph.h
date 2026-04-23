@@ -30,11 +30,13 @@ public:
                   const TargetCurveSettings& settings,
                   int selectedBandIndex);
     void setExtraVisibleRangeDb(double extraVisibleRangeDb);
+    void setVerticalOffsetDb(double verticalOffsetDb);
     void layout(const RECT& bounds) const;
     void invalidate() const;
 
     [[nodiscard]] HWND window() const { return window_; }
     [[nodiscard]] double extraVisibleRangeDb() const { return extraVisibleRangeDb_; }
+    [[nodiscard]] double verticalOffsetDb() const { return verticalOffsetDb_; }
     [[nodiscard]] const SmoothedResponse& response() const { return response_; }
     [[nodiscard]] const TargetCurveSettings& settings() const { return settings_; }
     [[nodiscard]] const measurement::TargetCurvePlotData& plot() const { return plot_; }
@@ -94,6 +96,7 @@ private:
     HoverState hover_;
     int selectedBandIndex_ = -1;
     double extraVisibleRangeDb_ = 0.0;
+    double verticalOffsetDb_ = 0.0;
     mutable HBITMAP backgroundCacheBitmap_ = nullptr;
     mutable SIZE backgroundCacheSize_{};
     mutable bool backgroundCacheValid_ = false;
