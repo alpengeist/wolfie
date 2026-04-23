@@ -22,6 +22,7 @@ public:
     void layout();
     void setVisible(bool visible) const;
     void populate(const WorkspaceState& workspace);
+    void syncToWorkspace(WorkspaceState& workspace) const;
     void invalidateGraph() const;
     bool handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& smoothingModelChanged);
     bool handleHScroll(HWND source, WorkspaceState& workspace, bool& smoothingResolutionChanged);

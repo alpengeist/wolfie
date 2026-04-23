@@ -31,10 +31,12 @@ public:
 
     void create(HWND parent, HINSTANCE instance, int controlId = 0);
     void setData(ResponseGraphData data);
+    void setExtraVisibleRangeDb(double extraVisibleRangeDb);
     void layout(const RECT& bounds) const;
     void invalidate() const;
 
     [[nodiscard]] HWND window() const { return window_; }
+    [[nodiscard]] double extraVisibleRangeDb() const { return extraVisibleRangeDb_; }
 
 private:
     struct HoverState {

@@ -356,6 +356,16 @@ void ResponseGraph::setData(ResponseGraphData data) {
     invalidate();
 }
 
+void ResponseGraph::setExtraVisibleRangeDb(double extraVisibleRangeDb) {
+    const double clamped = std::max(0.0, extraVisibleRangeDb);
+    if (std::abs(clamped - extraVisibleRangeDb_) < 0.001) {
+        return;
+    }
+
+    extraVisibleRangeDb_ = clamped;
+    invalidate();
+}
+
 void ResponseGraph::layout(const RECT& bounds) const {
     if (window_ != nullptr) {
         MoveWindow(window_, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top, TRUE);

@@ -195,6 +195,12 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonNumber(*content, "resultSectionHeight")) {
             workspace.ui.resultSectionHeight = static_cast<int>(*value);
         }
+        if (const auto value = findJsonNumber(*content, "measurementGraphExtraRangeDb")) {
+            workspace.ui.measurementGraphExtraRangeDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "smoothingGraphExtraRangeDb")) {
+            workspace.ui.smoothingGraphExtraRangeDb = *value;
+        }
         if (const auto model = findJsonString(*content, "psychoacousticModel")) {
             workspace.smoothing.psychoacousticModel = *model;
         }
@@ -253,7 +259,9 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "  },\n"
                   << "  \"ui\": {\n"
                   << "    \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
-                  << "    \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << "\n"
+                  << "    \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
+                  << "    \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
+                  << "    \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << "\n"
                   << "  }\n"
                   << "}\n";
     writeTextFile(workspace.rootPath / "workspace.json", workspaceJson.str());
@@ -261,7 +269,9 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
     std::ostringstream uiJson;
     uiJson << "{\n"
            << "  \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
-           << "  \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << "\n"
+           << "  \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
+           << "  \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
+           << "  \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << "\n"
            << "}\n";
     writeTextFile(workspace.rootPath / "ui.json", uiJson.str());
 

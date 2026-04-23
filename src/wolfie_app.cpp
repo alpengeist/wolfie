@@ -260,6 +260,7 @@ void WolfieApp::showSettingsWindow() {
     ui::SettingsDialog::show(instance_, mainWindow_, workspace_.audio, asioService_, [this](const AudioSettings& settings) {
         workspace_.audio = settings;
         populateControlsFromState();
+        syncStateFromControls();
         workspaceRepository_.save(workspace_);
         refreshMeasurementStatus();
     });
@@ -274,6 +275,7 @@ void WolfieApp::populateControlsFromState() {
 
 void WolfieApp::syncStateFromControls() {
     measurementPage_.syncToWorkspace(workspace_);
+    smoothingPage_.syncToWorkspace(workspace_);
 }
 
 void WolfieApp::refreshWindowTitle() {
@@ -321,6 +323,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     bool sampleRateChanged = false;
     if (measurementPage_.handleCommand(commandId, notificationCode, workspace_, measurePressed, sampleRateChanged)) {
         if (sampleRateChanged) {
+            syncStateFromControls();
             workspaceRepository_.save(workspace_);
             refreshMeasurementStatus();
         }
@@ -340,6 +343,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             workspace_.smoothedResponse = {};
             ensureSmoothedResponseReady();
             smoothingPage_.populate(workspace_);
+            syncStateFromControls();
             workspaceRepository_.save(workspace_);
         }
         return;
@@ -374,6 +378,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
 
 void WolfieApp::onHScroll(HWND source) {
     if (measurementPage_.handleHScroll(source, workspace_)) {
+        syncStateFromControls();
         workspaceRepository_.save(workspace_);
         return;
     }
@@ -384,6 +389,7 @@ void WolfieApp::onHScroll(HWND source) {
             workspace_.smoothedResponse = {};
             ensureSmoothedResponseReady();
             smoothingPage_.populate(workspace_);
+            syncStateFromControls();
             workspaceRepository_.save(workspace_);
         }
     }
@@ -444,6 +450,7 @@ void WolfieApp::newWorkspace() {
     populateControlsFromState();
     refreshWindowTitle();
     measurementPage_.invalidateGraph();
+    syncStateFromControls();
     workspaceRepository_.save(workspace_);
     touchRecentWorkspace(*path);
 }
@@ -545,6 +552,7 @@ void WolfieApp::finalizeMeasurement() {
     }
     measurementPage_.setMeasurementResult(workspace_.result);
     smoothingPage_.populate(workspace_);
+    syncStateFromControls();
     workspaceRepository_.save(workspace_);
     refreshMeasurementStatus();
 }

@@ -124,7 +124,12 @@ void SmoothingPage::populate(const WorkspaceState& workspace) {
     SendMessageW(controls_.resolutionSlider, TBM_SETPOS, TRUE, workspace.smoothing.resolutionPercent);
     setWindowTextValue(controls_.effectiveParameter, formatEffectiveParameter(workspace.smoothing));
     setWindowTextValue(controls_.editHighFrequencyCutoff, formatWideDouble(workspace.smoothing.highFrequencySlopeCutoffHz, 0));
+    responseGraph_.setExtraVisibleRangeDb(workspace.ui.smoothingGraphExtraRangeDb);
     responseGraph_.setData(buildGraphData(workspace.smoothedResponse));
+}
+
+void SmoothingPage::syncToWorkspace(WorkspaceState& workspace) const {
+    workspace.ui.smoothingGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
 }
 
 void SmoothingPage::invalidateGraph() const {

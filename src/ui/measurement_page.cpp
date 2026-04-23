@@ -220,6 +220,7 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
     SendMessageW(controls_.comboSampleRate, CB_SETCURSEL, comboIndexFromMeasurementSampleRate(workspace.measurement.sampleRate), 0);
     setWindowTextValue(controls_.outputVolumeValue, formatOutputVolumeLabel(workspace.audio.outputVolumeDb));
     SendMessageW(controls_.outputVolumeSlider, TBM_SETPOS, TRUE, outputVolumeDbToSliderPosition(workspace.audio.outputVolumeDb));
+    responseGraph_.setExtraVisibleRangeDb(workspace.ui.measurementGraphExtraRangeDb);
     setMeasurementResult(workspace.result);
 }
 
@@ -231,6 +232,7 @@ void MeasurementPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.measurement.startFrequencyHz = std::stod(getWindowTextValue(controls_.editStartFrequency));
     workspace.measurement.targetLengthSamples = std::stoi(getWindowTextValue(controls_.editTargetLength));
     workspace.measurement.leadInSamples = std::stoi(getWindowTextValue(controls_.editLeadIn));
+    workspace.ui.measurementGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
     measurement::syncDerivedMeasurementSettings(workspace.measurement);
 }
 
