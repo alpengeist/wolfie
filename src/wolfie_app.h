@@ -18,6 +18,7 @@
 #include "persistence/workspace_repository.h"
 #include "ui/measurement_page.h"
 #include "ui/smoothing_page.h"
+#include "ui/target_curve_page.h"
 
 namespace wolfie {
 
@@ -73,13 +74,13 @@ private:
     HWND pageTargetCurve_ = nullptr;
     HWND pageFilters_ = nullptr;
     HWND pageExport_ = nullptr;
-    HWND placeholderTargetCurve_ = nullptr;
     HWND placeholderFilters_ = nullptr;
     HWND placeholderExport_ = nullptr;
     WorkspaceState workspace_;
     AppState appState_;
     ui::MeasurementPage measurementPage_;
     ui::SmoothingPage smoothingPage_;
+    ui::TargetCurvePage targetCurvePage_;
     MeasurementController measurementController_;
     persistence::WorkspaceRepository workspaceRepository_;
     persistence::AppStateRepository appStateRepository_;

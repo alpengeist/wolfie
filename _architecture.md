@@ -42,12 +42,14 @@ Files:
 - `sweep_generator.h/.cpp`
 - `response_analyzer.h/.cpp`
 - `measurement_controller.h/.cpp`
+- `target_curve_designer.h/.cpp`
 
 Responsibilities:
 
 - `sweep_generator` creates playback sweep data and writes the generated sweep WAV file.
 - `response_analyzer` computes amplitude and frequency response data from captured audio.
 - `measurement_controller` orchestrates a single measurement run, tracks progress, and converts backend capture data into a final `MeasurementResult`.
+- `target_curve_designer` computes target-curve view data from the basic curve and bell bands without depending on Win32 UI code.
 
 Reasoning:
 
@@ -108,6 +110,8 @@ Files:
 - `response_graph.h/.cpp`
 - `measurement_page.h/.cpp`
 - `settings_dialog.h/.cpp`
+- `target_curve_graph.h/.cpp`
+- `target_curve_page.h/.cpp`
 
 Responsibilities:
 
@@ -115,6 +119,8 @@ Responsibilities:
 - `response_graph` is a reusable graph widget for response displays.
 - `measurement_page` owns the measurement tab controls, layout, and widget synchronization.
 - `settings_dialog` owns the settings window behavior and delegates ASIO-specific actions to `AsioService`.
+- `target_curve_graph` owns the interactive graph rendering and drag behavior for target-curve editing.
+- `target_curve_page` owns the target-curve tab controls, EQ band list, and widget synchronization.
 
 Reasoning:
 

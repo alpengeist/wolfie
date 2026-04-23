@@ -22,6 +22,8 @@ add_executable(wolfie WIN32
     src/measurement/response_smoother.h
     src/measurement/sweep_generator.cpp
     src/measurement/sweep_generator.h
+    src/measurement/target_curve_designer.cpp
+    src/measurement/target_curve_designer.h
     src/persistence/app_state_repository.cpp
     src/persistence/app_state_repository.h
     src/persistence/workspace_repository.cpp
@@ -34,6 +36,10 @@ add_executable(wolfie WIN32
     src/ui/settings_dialog.h
     src/ui/smoothing_page.cpp
     src/ui/smoothing_page.h
+    src/ui/target_curve_graph.cpp
+    src/ui/target_curve_graph.h
+    src/ui/target_curve_page.cpp
+    src/ui/target_curve_page.h
     src/ui/ui_theme.h
     src/wolfie_app.cpp
     src/wolfie_app.h

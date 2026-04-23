@@ -4,9 +4,11 @@
 #include <fstream>
 #include <optional>
 #include <sstream>
+#include <vector>
 
 #include "measurement/response_smoother.h"
 #include "measurement/sweep_generator.h"
+#include "measurement/target_curve_designer.h"
 
 namespace wolfie::persistence {
 
@@ -94,6 +96,31 @@ std::optional<double> findJsonNumber(const std::string& source, std::string_view
     return std::stod(source.substr(valueStart, valueEnd - valueStart));
 }
 
+std::optional<bool> findJsonBool(const std::string& source, std::string_view key) {
+    const std::string pattern = "\"" + std::string(key) + "\"";
+    const size_t keyPos = source.find(pattern);
+    if (keyPos == std::string::npos) {
+        return std::nullopt;
+    }
+
+    const size_t colonPos = source.find(':', keyPos + pattern.size());
+    if (colonPos == std::string::npos) {
+        return std::nullopt;
+    }
+
+    const size_t valueStart = source.find_first_not_of(" \t\r\n", colonPos + 1);
+    if (valueStart == std::string::npos) {
+        return std::nullopt;
+    }
+    if (source.compare(valueStart, 4, "true") == 0) {
+        return true;
+    }
+    if (source.compare(valueStart, 5, "false") == 0) {
+        return false;
+    }
+    return std::nullopt;
+}
+
 void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "measurementSectionHeight")) {
         ui.measurementSectionHeight = static_cast<int>(*value);
@@ -106,6 +133,9 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     }
     if (const auto value = findJsonNumber(content, "smoothingGraphExtraRangeDb")) {
         ui.smoothingGraphExtraRangeDb = *value;
+    }
+    if (const auto value = findJsonNumber(content, "targetCurveGraphExtraRangeDb")) {
+        ui.targetCurveGraphExtraRangeDb = *value;
     }
 }
 
@@ -142,6 +172,44 @@ void loadMeasurementResultFile(WorkspaceState& workspace) {
     }
 }
 
+void loadTargetCurveBandsFile(WorkspaceState& workspace) {
+    workspace.targetCurve.eqBands.clear();
+    if (workspace.rootPath.empty()) {
+        return;
+    }
+
+    const auto content = readTextFile(workspace.rootPath / "target-curve" / "bands.csv");
+    if (!content) {
+        return;
+    }
+
+    std::istringstream in(*content);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.starts_with("enabled") || line.empty()) {
+            continue;
+        }
+
+        std::istringstream row(line);
+        std::string cell;
+        std::vector<std::string> values;
+        while (std::getline(row, cell, ',')) {
+            values.push_back(cell);
+        }
+        if (values.size() < 5) {
+            continue;
+        }
+
+        TargetEqBand band;
+        band.enabled = values[0] == "1";
+        band.colorIndex = std::stoi(values[1]);
+        band.frequencyHz = std::stod(values[2]);
+        band.gainDb = std::stod(values[3]);
+        band.q = std::stod(values[4]);
+        workspace.targetCurve.eqBands.push_back(band);
+    }
+}
+
 void saveMeasurementResultFile(const WorkspaceState& workspace) {
     if (workspace.rootPath.empty()) {
         return;
@@ -156,6 +224,24 @@ void saveMeasurementResultFile(const WorkspaceState& workspace) {
                     << workspace.result.rightChannelDb[i] << '\n';
     }
     writeTextFile(workspace.rootPath / "measurement" / "response.csv", responseCsv.str());
+}
+
+void saveTargetCurveBandsFile(const WorkspaceState& workspace) {
+    if (workspace.rootPath.empty()) {
+        return;
+    }
+
+    std::filesystem::create_directories(workspace.rootPath / "target-curve");
+    std::ostringstream bandsCsv;
+    bandsCsv << "enabled,colorIndex,frequencyHz,gainDb,q\n";
+    for (const TargetEqBand& band : workspace.targetCurve.eqBands) {
+        bandsCsv << (band.enabled ? 1 : 0) << ','
+                 << band.colorIndex << ','
+                 << band.frequencyHz << ','
+                 << band.gainDb << ','
+                 << band.q << '\n';
+    }
+    writeTextFile(workspace.rootPath / "target-curve" / "bands.csv", bandsCsv.str());
 }
 
 }  // namespace
@@ -220,6 +306,21 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonNumber(*content, "highFrequencySlopeCutoffHz")) {
             workspace.smoothing.highFrequencySlopeCutoffHz = *value;
         }
+        if (const auto value = findJsonNumber(*content, "lowGainDb")) {
+            workspace.targetCurve.lowGainDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "midFrequencyHz")) {
+            workspace.targetCurve.midFrequencyHz = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "midGainDb")) {
+            workspace.targetCurve.midGainDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "highGainDb")) {
+            workspace.targetCurve.highGainDb = *value;
+        }
+        if (const auto value = findJsonBool(*content, "bypassEqBands")) {
+            workspace.targetCurve.bypassEqBands = *value;
+        }
     }
 
     if (const auto uiContent = readTextFile(path / "ui.json")) {
@@ -229,6 +330,12 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
     measurement::syncDerivedMeasurementSettings(workspace.measurement);
     measurement::normalizeResponseSmoothingSettings(workspace.smoothing);
     loadMeasurementResultFile(workspace);
+    loadTargetCurveBandsFile(workspace);
+    const auto targetPlot = measurement::buildTargetCurvePlotData(workspace.smoothedResponse,
+                                                                  workspace.measurement,
+                                                                  workspace.targetCurve,
+                                                                  std::nullopt);
+    measurement::normalizeTargetCurveSettings(workspace.targetCurve, targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz);
     return workspace;
 }
 
@@ -265,11 +372,19 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"highFrequencyWindowCycles\": " << workspace.smoothing.highFrequencyWindowCycles << ",\n"
                   << "    \"highFrequencySlopeCutoffHz\": " << workspace.smoothing.highFrequencySlopeCutoffHz << "\n"
                   << "  },\n"
+                  << "  \"targetCurve\": {\n"
+                  << "    \"lowGainDb\": " << workspace.targetCurve.lowGainDb << ",\n"
+                  << "    \"midFrequencyHz\": " << workspace.targetCurve.midFrequencyHz << ",\n"
+                  << "    \"midGainDb\": " << workspace.targetCurve.midGainDb << ",\n"
+                  << "    \"highGainDb\": " << workspace.targetCurve.highGainDb << ",\n"
+                  << "    \"bypassEqBands\": " << (workspace.targetCurve.bypassEqBands ? "true" : "false") << "\n"
+                  << "  },\n"
                   << "  \"ui\": {\n"
                   << "    \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
                   << "    \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
                   << "    \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
-                  << "    \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << "\n"
+                  << "    \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
+                  << "    \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << "\n"
                   << "  }\n"
                   << "}\n";
     writeTextFile(workspace.rootPath / "workspace.json", workspaceJson.str());
@@ -279,11 +394,13 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << "  \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
            << "  \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
            << "  \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
-           << "  \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << "\n"
+           << "  \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
+           << "  \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << "\n"
            << "}\n";
     writeTextFile(workspace.rootPath / "ui.json", uiJson.str());
 
     saveMeasurementResultFile(workspace);
+    saveTargetCurveBandsFile(workspace);
 }
 
 }  // namespace wolfie::persistence

@@ -8,8 +8,10 @@
 
 #include "audio/winmm_audio_backend.h"
 #include "measurement/response_smoother.h"
+#include "measurement/target_curve_designer.h"
 #include "ui/response_graph.h"
 #include "ui/settings_dialog.h"
+#include "ui/target_curve_graph.h"
 #include "ui/ui_theme.h"
 
 namespace wolfie {
@@ -113,6 +115,9 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
                                                  app->measurementController_.status().running)) {
             return TRUE;
         }
+        if (app->targetCurvePage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
+            return TRUE;
+        }
         break;
     case WM_KEYDOWN:
         if ((GetKeyState(VK_CONTROL) & 0x8000) && (wParam == 'S' || wParam == 's')) {
@@ -158,8 +163,10 @@ void WolfieApp::createMainWindow() {
     RegisterClassW(&mainClass);
 
     ui::ResponseGraph::registerWindowClass(instance_);
+    ui::TargetCurveGraph::registerWindowClass(instance_);
     ui::MeasurementPage::registerPageWindowClass(instance_);
     ui::SmoothingPage::registerPageWindowClass(instance_);
+    ui::TargetCurvePage::registerPageWindowClass(instance_);
 
     mainWindow_ = CreateWindowExW(0, kMainClassName, L"Wolfie", WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN,
                                   CW_USEDEFAULT, CW_USEDEFAULT, 1400, 920, nullptr, nullptr, instance_, this);
@@ -208,16 +215,14 @@ void WolfieApp::createLayout() {
 
     measurementPage_.create(tabControl_, instance_);
     smoothingPage_.create(tabControl_, instance_);
+    targetCurvePage_.create(tabControl_, instance_);
     pageSmoothing_ = smoothingPage_.window();
-    pageTargetCurve_ = CreateWindowExW(0, ui::MeasurementPage::pageWindowClassName(), nullptr, WS_CHILD | WS_CLIPCHILDREN,
-                                       0, 0, 0, 0, tabControl_, nullptr, instance_, nullptr);
+    pageTargetCurve_ = targetCurvePage_.window();
     pageFilters_ = CreateWindowExW(0, ui::MeasurementPage::pageWindowClassName(), nullptr, WS_CHILD | WS_CLIPCHILDREN,
                                    0, 0, 0, 0, tabControl_, nullptr, instance_, nullptr);
     pageExport_ = CreateWindowExW(0, ui::MeasurementPage::pageWindowClassName(), nullptr, WS_CHILD | WS_CLIPCHILDREN,
                                   0, 0, 0, 0, tabControl_, nullptr, instance_, nullptr);
 
-    placeholderTargetCurve_ = CreateWindowW(L"STATIC", L"Target curve design is not implemented yet.", WS_CHILD | SS_CENTER,
-                                            0, 0, 0, 0, pageTargetCurve_, nullptr, instance_, nullptr);
     placeholderFilters_ = CreateWindowW(L"STATIC", L"Filter design and simulation will live here.", WS_CHILD | SS_CENTER,
                                         0, 0, 0, 0, pageFilters_, nullptr, instance_, nullptr);
     placeholderExport_ = CreateWindowW(L"STATIC", L"ROON export will live here.", WS_CHILD | SS_CENTER,
@@ -247,14 +252,13 @@ void WolfieApp::layoutMainWindow() {
 }
 
 void WolfieApp::layoutContent() {
-    RECT targetRect = clientRect(pageTargetCurve_);
-    MoveWindow(placeholderTargetCurve_, 24, 32, std::max(200L, targetRect.right - 48), 24, TRUE);
     RECT filtersRect = clientRect(pageFilters_);
     MoveWindow(placeholderFilters_, 24, 32, std::max(200L, filtersRect.right - 48), 24, TRUE);
     RECT exportRect = clientRect(pageExport_);
     MoveWindow(placeholderExport_, 24, 32, std::max(200L, exportRect.right - 48), 24, TRUE);
     measurementPage_.layout();
     smoothingPage_.layout();
+    targetCurvePage_.layout();
 }
 
 void WolfieApp::showSettingsWindow() {
@@ -270,13 +274,20 @@ void WolfieApp::showSettingsWindow() {
 void WolfieApp::populateControlsFromState() {
     measurement::syncDerivedMeasurementSettings(workspace_.measurement);
     measurement::normalizeResponseSmoothingSettings(workspace_.smoothing);
+    const auto targetPlot = measurement::buildTargetCurvePlotData(workspace_.smoothedResponse,
+                                                                  workspace_.measurement,
+                                                                  workspace_.targetCurve,
+                                                                  std::nullopt);
+    measurement::normalizeTargetCurveSettings(workspace_.targetCurve, targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz);
     measurementPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
+    targetCurvePage_.populate(workspace_);
 }
 
 void WolfieApp::syncStateFromControls() {
     measurementPage_.syncToWorkspace(workspace_);
     smoothingPage_.syncToWorkspace(workspace_);
+    targetCurvePage_.syncToWorkspace(workspace_);
 }
 
 void WolfieApp::saveCurrentWorkspaceIfOpen() {
@@ -376,6 +387,15 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         return;
     }
 
+    bool targetCurveChanged = false;
+    if (targetCurvePage_.handleCommand(commandId, notificationCode, workspace_, targetCurveChanged)) {
+        if (targetCurveChanged) {
+            syncStateFromControls();
+            workspaceRepository_.save(workspace_);
+        }
+        return;
+    }
+
     switch (commandId) {
     case kMenuFileNew:
         newWorkspace();
@@ -416,6 +436,16 @@ void WolfieApp::onHScroll(HWND source) {
             workspace_.smoothedResponse = {};
             ensureSmoothedResponseReady();
             smoothingPage_.populate(workspace_);
+            targetCurvePage_.populate(workspace_);
+            syncStateFromControls();
+            workspaceRepository_.save(workspace_);
+        }
+        return;
+    }
+
+    bool targetCurveChanged = false;
+    if (targetCurvePage_.handleHScroll(source, workspace_, targetCurveChanged)) {
+        if (targetCurveChanged) {
             syncStateFromControls();
             workspaceRepository_.save(workspace_);
         }
@@ -454,12 +484,14 @@ void WolfieApp::updateVisibleTab() {
         ensureSmoothedResponseReady();
         if (selected == 1) {
             smoothingPage_.populate(workspace_);
+        } else {
+            targetCurvePage_.populate(workspace_);
         }
     }
 
     measurementPage_.setVisible(selected == 0);
     smoothingPage_.setVisible(selected == 1);
-    ShowWindow(pageTargetCurve_, selected == 2 ? SW_SHOW : SW_HIDE);
+    targetCurvePage_.setVisible(selected == 2);
     ShowWindow(pageFilters_, selected == 3 ? SW_SHOW : SW_HIDE);
     ShowWindow(pageExport_, selected == 4 ? SW_SHOW : SW_HIDE);
 }
@@ -475,6 +507,9 @@ void WolfieApp::newWorkspace() {
     workspace_.rootPath = *path;
     measurement::syncDerivedMeasurementSettings(workspace_.measurement);
     measurement::normalizeResponseSmoothingSettings(workspace_.smoothing);
+    measurement::normalizeTargetCurveSettings(workspace_.targetCurve,
+                                              std::max(workspace_.measurement.startFrequencyHz, 20.0),
+                                              std::min(workspace_.measurement.endFrequencyHz, 20000.0));
     populateControlsFromState();
     refreshWindowTitle();
     measurementPage_.invalidateGraph();
@@ -498,6 +533,7 @@ void WolfieApp::openWorkspace(const std::filesystem::path& path) {
     refreshWindowTitle();
     refreshMeasurementStatus();
     measurementPage_.invalidateGraph();
+    targetCurvePage_.populate(workspace_);
 }
 
 void WolfieApp::saveWorkspace(bool saveAs) {
@@ -551,6 +587,7 @@ void WolfieApp::startMeasurement() {
     workspace_.smoothedResponse = {};
     measurementPage_.setMeasurementResult(workspace_.result);
     smoothingPage_.populate(workspace_);
+    targetCurvePage_.populate(workspace_);
     SetTimer(mainWindow_, kMeasurementTimerId, 50, nullptr);
     refreshMeasurementStatus();
 }
@@ -568,6 +605,7 @@ void WolfieApp::stopMeasurement() {
         workspace_.smoothedResponse = {};
         measurementPage_.setMeasurementResult(workspace_.result);
         smoothingPage_.populate(workspace_);
+        targetCurvePage_.populate(workspace_);
     }
     refreshMeasurementStatus();
 }
@@ -581,6 +619,7 @@ void WolfieApp::finalizeMeasurement() {
     }
     measurementPage_.setMeasurementResult(workspace_.result);
     smoothingPage_.populate(workspace_);
+    targetCurvePage_.populate(workspace_);
     syncStateFromControls();
     workspaceRepository_.save(workspace_);
     refreshMeasurementStatus();

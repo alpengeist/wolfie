@@ -37,6 +37,7 @@ struct UiSettings {
     int resultSectionHeight = 360;
     double measurementGraphExtraRangeDb = 0.0;
     double smoothingGraphExtraRangeDb = 0.0;
+    double targetCurveGraphExtraRangeDb = 0.0;
 };
 
 struct MeasurementResult {
@@ -59,11 +60,29 @@ struct SmoothedResponse {
     std::vector<double> rightChannelDb;
 };
 
+struct TargetEqBand {
+    bool enabled = true;
+    int colorIndex = 0;
+    double frequencyHz = 1000.0;
+    double gainDb = 0.0;
+    double q = 1.0;
+};
+
+struct TargetCurveSettings {
+    double lowGainDb = 0.0;
+    double midFrequencyHz = 1000.0;
+    double midGainDb = 0.0;
+    double highGainDb = 0.0;
+    bool bypassEqBands = false;
+    std::vector<TargetEqBand> eqBands;
+};
+
 struct WorkspaceState {
     std::filesystem::path rootPath;
     AudioSettings audio;
     MeasurementSettings measurement;
     ResponseSmoothingSettings smoothing;
+    TargetCurveSettings targetCurve;
     UiSettings ui;
     MeasurementResult result;
     SmoothedResponse smoothedResponse;
