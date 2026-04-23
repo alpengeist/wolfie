@@ -10,7 +10,7 @@
 namespace wolfie::measurement {
 
 struct SweepPlaybackPlan {
-    std::vector<float> playedSweep;
+    std::vector<double> playedSweep;
     std::vector<int16_t> playbackPcm;
     size_t leadInFrames = 0;
     size_t sweepFrames = 0;

@@ -15,7 +15,7 @@ T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
 }
 
-std::vector<float> generateSweepSamples(const MeasurementSettings& settings, int sampleRate) {
+std::vector<double> generateSweepSamples(const MeasurementSettings& settings, int sampleRate) {
     const int totalSamples = std::max(1, static_cast<int>(std::round(settings.durationSeconds * sampleRate)));
     const double duration = std::max(0.1, settings.durationSeconds);
     const double startHz = std::max(1.0, settings.startFrequencyHz);
@@ -23,7 +23,7 @@ std::vector<float> generateSweepSamples(const MeasurementSettings& settings, int
     const double endHz = clampValue(settings.endFrequencyHz, startHz, nyquist);
     const double logSpan = std::log(endHz / startHz);
 
-    std::vector<float> samples(totalSamples, 0.0f);
+    std::vector<double> samples(totalSamples, 0.0);
     constexpr double twoPi = 2.0 * 3.14159265358979323846;
     const double growth = logSpan > 1.0e-9 ? duration / logSpan : 0.0;
     const double phaseScale = logSpan > 1.0e-9 ? twoPi * startHz * growth : 0.0;
@@ -39,40 +39,40 @@ std::vector<float> generateSweepSamples(const MeasurementSettings& settings, int
         } else if (t > duration - settings.fadeOutSeconds) {
             envelope = std::max(0.0, (duration - t) / std::max(0.01, settings.fadeOutSeconds));
         }
-        samples[i] = static_cast<float>(std::sin(phase) * envelope);
+        samples[i] = std::sin(phase) * envelope;
     }
 
-    float peak = 0.0f;
-    for (const float sample : samples) {
+    double peak = 0.0;
+    for (const double sample : samples) {
         peak = std::max(peak, std::abs(sample));
     }
-    if (peak > 0.0f) {
-        for (float& sample : samples) {
+    if (peak > 0.0) {
+        for (double& sample : samples) {
             sample /= peak;
         }
     }
     return samples;
 }
 
-std::vector<float> scaleSweepSamples(const std::vector<float>& samples, double volumeDb) {
+std::vector<double> scaleSweepSamples(const std::vector<double>& samples, double volumeDb) {
     if (volumeDb <= kMutedOutputVolumeDb) {
-        return std::vector<float>(samples.size(), 0.0f);
+        return std::vector<double>(samples.size(), 0.0);
     }
 
     const double gain = clampValue(std::pow(10.0, volumeDb / 20.0), 0.0, 1.0);
-    std::vector<float> scaled(samples.size(), 0.0f);
+    std::vector<double> scaled(samples.size(), 0.0);
     for (size_t i = 0; i < samples.size(); ++i) {
-        scaled[i] = static_cast<float>(samples[i] * gain);
+        scaled[i] = samples[i] * gain;
     }
     return scaled;
 }
 
-int16_t floatToPcm16(float sample) {
-    const float clamped = clampValue(sample, -1.0f, 1.0f);
-    return static_cast<int16_t>(std::round(clamped * 32767.0f));
+int16_t sampleToPcm16(double sample) {
+    const double clamped = clampValue(sample, -1.0, 1.0);
+    return static_cast<int16_t>(std::round(clamped * 32767.0));
 }
 
-std::vector<int16_t> buildStereoSweepPcm(const std::vector<float>& sweepSamples, int leadInSamples) {
+std::vector<int16_t> buildStereoSweepPcm(const std::vector<double>& sweepSamples, int leadInSamples) {
     const size_t safeLeadIn = static_cast<size_t>(std::max(0, leadInSamples));
     const size_t segmentFrames = safeLeadIn + sweepSamples.size();
     const size_t totalFrames = segmentFrames * 2;
@@ -81,8 +81,8 @@ std::vector<int16_t> buildStereoSweepPcm(const std::vector<float>& sweepSamples,
     for (size_t i = 0; i < sweepSamples.size(); ++i) {
         const size_t leftFrame = safeLeadIn + i;
         const size_t rightFrame = segmentFrames + safeLeadIn + i;
-        pcm[leftFrame * 2] = floatToPcm16(sweepSamples[i]);
-        pcm[rightFrame * 2 + 1] = floatToPcm16(sweepSamples[i]);
+        pcm[leftFrame * 2] = sampleToPcm16(sweepSamples[i]);
+        pcm[rightFrame * 2 + 1] = sampleToPcm16(sweepSamples[i]);
     }
 
     return pcm;

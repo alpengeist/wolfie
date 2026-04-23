@@ -14,7 +14,7 @@ double sweepFrequencyAtSample(const MeasurementSettings& settings,
                               size_t sampleIndex,
                               size_t totalSamples);
 MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& capturedSamples,
-                                                    const std::vector<float>& playedSweep,
+                                                    const std::vector<double>& playedSweep,
                                                     size_t leadInFrames,
                                                     int sampleRate,
                                                     const MeasurementSettings& settings);

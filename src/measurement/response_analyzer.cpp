@@ -17,25 +17,25 @@ double rmsFromPcm16(const int16_t* samples, size_t count) {
         return 0.0;
     }
 
-    long double energy = 0.0;
+    double energy = 0.0;
     for (size_t i = 0; i < count; ++i) {
-        const long double normalized = static_cast<long double>(samples[i]) / 32768.0L;
+        const double normalized = static_cast<double>(samples[i]) / 32768.0;
         energy += normalized * normalized;
     }
-    return std::sqrt(static_cast<double>(energy / static_cast<long double>(count)));
+    return std::sqrt(energy / static_cast<double>(count));
 }
 
-double rmsFromFloat(const float* samples, size_t count) {
+double rmsFromDouble(const double* samples, size_t count) {
     if (samples == nullptr || count == 0) {
         return 0.0;
     }
 
-    long double energy = 0.0;
+    double energy = 0.0;
     for (size_t i = 0; i < count; ++i) {
-        const long double normalized = static_cast<long double>(samples[i]);
+        const double normalized = samples[i];
         energy += normalized * normalized;
     }
-    return std::sqrt(static_cast<double>(energy / static_cast<long double>(count)));
+    return std::sqrt(energy / static_cast<double>(count));
 }
 
 double amplitudeToDb(double amplitude) {
@@ -70,7 +70,7 @@ double sweepFrequencyAtSample(const MeasurementSettings& settings,
 }
 
 MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& capturedSamples,
-                                                    const std::vector<float>& playedSweep,
+                                                    const std::vector<double>& playedSweep,
                                                     size_t leadInFrames,
                                                     int sampleRate,
                                                     const MeasurementSettings& settings) {
@@ -113,7 +113,7 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
         }
 
         const double measured = rmsFromPcm16(capturedSamples.data() + captureStart, captureEnd - captureStart);
-        const double reference = rmsFromFloat(playedSweep.data() + begin, end - begin);
+        const double reference = rmsFromDouble(playedSweep.data() + begin, end - begin);
         return amplitudeToDb(measured / std::max(reference, 1.0e-6));
     };
 
