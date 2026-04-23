@@ -22,7 +22,7 @@ struct ResponseGraphSeries {
 struct ResponseGraphData {
     std::vector<double> frequencyAxisHz;
     std::vector<ResponseGraphSeries> series;
-    double minDb = -30.0;
+    double minDb = -50.0;
 };
 
 class ResponseGraph {
@@ -37,12 +37,25 @@ public:
     [[nodiscard]] HWND window() const { return window_; }
 
 private:
+    struct HoverState {
+        bool active = false;
+        bool tracking = false;
+        POINT position{};
+    };
+
     static constexpr wchar_t kWindowClassName[] = L"WolfieResponseGraph";
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+    [[nodiscard]] RECT infoLineRect() const;
+    void invalidateInfoLine() const;
+    bool onMouseWheel(WPARAM wParam, LPARAM lParam);
+    void onMouseMove(LPARAM lParam);
+    void onMouseLeave();
     void onPaint() const;
 
     HWND window_ = nullptr;
     ResponseGraphData data_;
+    HoverState hover_;
+    double extraVisibleRangeDb_ = 0.0;
 };
 
 }  // namespace wolfie::ui
