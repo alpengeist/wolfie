@@ -24,7 +24,11 @@ public:
     void populate(const WorkspaceState& workspace);
     void syncToWorkspace(WorkspaceState& workspace) const;
     void invalidateGraph() const;
-    bool handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& smoothingModelChanged);
+    bool handleCommand(WORD commandId,
+                       WORD notificationCode,
+                       WorkspaceState& workspace,
+                       bool& smoothingModelChanged,
+                       bool& graphZoomChanged);
     bool handleHScroll(HWND source, WorkspaceState& workspace, bool& smoothingResolutionChanged);
 
     [[nodiscard]] HWND window() const { return window_; }
@@ -45,6 +49,7 @@ private:
 
     static constexpr wchar_t kPageClassName[] = L"WolfieSmoothingPage";
     static constexpr int kComboModel = 3201;
+    static constexpr int kResponseGraph = 3202;
     static constexpr int kResolutionSliderMax = 100;
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static void setWindowTextValue(HWND control, const std::wstring& text);

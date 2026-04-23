@@ -83,7 +83,7 @@ void MeasurementPage::createControls() {
     controls_.currentAmplitude = CreateWindowW(L"STATIC", L"Amp -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.peakAmplitude = CreateWindowW(L"STATIC", L"Peak -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
 
-    responseGraph_.create(window_, instance_);
+    responseGraph_.create(window_, instance_, kResponseGraph);
 
     const DWORD centeredStaticStyle = SS_CENTER | WS_CHILD | WS_VISIBLE;
     SetWindowLongPtrW(controls_.labelFadeIn, GWL_STYLE, centeredStaticStyle);
@@ -324,9 +324,20 @@ bool MeasurementPage::handleDrawItem(const DRAWITEMSTRUCT* draw, bool measuremen
     return true;
 }
 
-bool MeasurementPage::handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& measurePressed, bool& sampleRateChanged) {
+bool MeasurementPage::handleCommand(WORD commandId,
+                                    WORD notificationCode,
+                                    WorkspaceState& workspace,
+                                    bool& measurePressed,
+                                    bool& sampleRateChanged,
+                                    bool& graphZoomChanged) {
     if (commandId == kButtonMeasure) {
         measurePressed = true;
+        return true;
+    }
+
+    if (commandId == kResponseGraph && notificationCode == ResponseGraph::kZoomChangedNotification) {
+        workspace.ui.measurementGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
+        graphZoomChanged = true;
         return true;
     }
 

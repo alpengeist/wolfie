@@ -40,6 +40,7 @@ private:
     void showSettingsWindow();
     void populateControlsFromState();
     void syncStateFromControls();
+    void saveCurrentWorkspaceIfOpen();
     void refreshWindowTitle();
     void refreshMeasurementStatus();
     void refreshRecentMenu();

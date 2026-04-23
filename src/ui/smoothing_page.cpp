@@ -65,7 +65,7 @@ void SmoothingPage::createControls() {
     SendMessageW(controls_.resolutionSlider, TBM_SETRANGEMAX, FALSE, kResolutionSliderMax);
     SendMessageW(controls_.resolutionSlider, TBM_SETTICFREQ, 10, 0);
 
-    responseGraph_.create(window_, instance_);
+    responseGraph_.create(window_, instance_, kResponseGraph);
 }
 
 void SmoothingPage::layout() {
@@ -139,7 +139,14 @@ void SmoothingPage::invalidateGraph() const {
 bool SmoothingPage::handleCommand(WORD commandId,
                                   WORD notificationCode,
                                   WorkspaceState& workspace,
-                                  bool& smoothingModelChanged) {
+                                  bool& smoothingModelChanged,
+                                  bool& graphZoomChanged) {
+    if (commandId == kResponseGraph && notificationCode == ResponseGraph::kZoomChangedNotification) {
+        workspace.ui.smoothingGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
+        graphZoomChanged = true;
+        return true;
+    }
+
     if (commandId != kComboModel || notificationCode != CBN_SELCHANGE) {
         return false;
     }

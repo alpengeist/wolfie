@@ -27,7 +27,12 @@ public:
     void refreshStatus(const MeasurementStatus& status, bool hasResult);
     void invalidateGraph() const;
     bool handleDrawItem(const DRAWITEMSTRUCT* draw, bool measurementRunning) const;
-    bool handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& measurePressed, bool& sampleRateChanged);
+    bool handleCommand(WORD commandId,
+                       WORD notificationCode,
+                       WorkspaceState& workspace,
+                       bool& measurePressed,
+                       bool& sampleRateChanged,
+                       bool& graphZoomChanged);
     bool handleHScroll(HWND source, WorkspaceState& workspace);
 
     [[nodiscard]] HWND window() const { return window_; }
@@ -84,6 +89,7 @@ private:
     static constexpr int kEditLeadIn = 3010;
     static constexpr int kButtonMeasure = 3011;
     static constexpr int kComboMeasurementSampleRate = 3012;
+    static constexpr int kResponseGraph = 3014;
     static constexpr int kOutputVolumeSliderMax = 61;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);

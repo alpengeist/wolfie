@@ -94,6 +94,21 @@ std::optional<double> findJsonNumber(const std::string& source, std::string_view
     return std::stod(source.substr(valueStart, valueEnd - valueStart));
 }
 
+void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
+    if (const auto value = findJsonNumber(content, "measurementSectionHeight")) {
+        ui.measurementSectionHeight = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(content, "resultSectionHeight")) {
+        ui.resultSectionHeight = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(content, "measurementGraphExtraRangeDb")) {
+        ui.measurementGraphExtraRangeDb = *value;
+    }
+    if (const auto value = findJsonNumber(content, "smoothingGraphExtraRangeDb")) {
+        ui.smoothingGraphExtraRangeDb = *value;
+    }
+}
+
 void loadMeasurementResultFile(WorkspaceState& workspace) {
     workspace.result = {};
     if (workspace.rootPath.empty()) {
@@ -189,18 +204,7 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonNumber(*content, "leadInSamples")) {
             workspace.measurement.leadInSamples = static_cast<int>(*value);
         }
-        if (const auto value = findJsonNumber(*content, "measurementSectionHeight")) {
-            workspace.ui.measurementSectionHeight = static_cast<int>(*value);
-        }
-        if (const auto value = findJsonNumber(*content, "resultSectionHeight")) {
-            workspace.ui.resultSectionHeight = static_cast<int>(*value);
-        }
-        if (const auto value = findJsonNumber(*content, "measurementGraphExtraRangeDb")) {
-            workspace.ui.measurementGraphExtraRangeDb = *value;
-        }
-        if (const auto value = findJsonNumber(*content, "smoothingGraphExtraRangeDb")) {
-            workspace.ui.smoothingGraphExtraRangeDb = *value;
-        }
+        loadUiSettingsFromJson(*content, workspace.ui);
         if (const auto model = findJsonString(*content, "psychoacousticModel")) {
             workspace.smoothing.psychoacousticModel = *model;
         }
@@ -216,6 +220,10 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonNumber(*content, "highFrequencySlopeCutoffHz")) {
             workspace.smoothing.highFrequencySlopeCutoffHz = *value;
         }
+    }
+
+    if (const auto uiContent = readTextFile(path / "ui.json")) {
+        loadUiSettingsFromJson(*uiContent, workspace.ui);
     }
 
     measurement::syncDerivedMeasurementSettings(workspace.measurement);

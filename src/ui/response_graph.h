@@ -27,6 +27,8 @@ struct ResponseGraphData {
 
 class ResponseGraph {
 public:
+    static constexpr WORD kZoomChangedNotification = 0x7F01;
+
     static void registerWindowClass(HINSTANCE instance);
 
     void create(HWND parent, HINSTANCE instance, int controlId = 0);
@@ -49,6 +51,7 @@ private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     [[nodiscard]] RECT infoLineRect() const;
     void invalidateInfoLine() const;
+    void notifyZoomChanged() const;
     bool onMouseWheel(WPARAM wParam, LPARAM lParam);
     void onMouseMove(LPARAM lParam);
     void onMouseLeave();

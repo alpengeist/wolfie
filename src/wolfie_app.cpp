@@ -137,6 +137,7 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
             DestroyAcceleratorTable(app->acceleratorTable_);
             app->acceleratorTable_ = nullptr;
         }
+        app->saveCurrentWorkspaceIfOpen();
         app->appStateRepository_.save(app->appState_);
         PostQuitMessage(0);
         return 0;
@@ -278,6 +279,15 @@ void WolfieApp::syncStateFromControls() {
     smoothingPage_.syncToWorkspace(workspace_);
 }
 
+void WolfieApp::saveCurrentWorkspaceIfOpen() {
+    if (workspace_.rootPath.empty()) {
+        return;
+    }
+
+    syncStateFromControls();
+    workspaceRepository_.save(workspace_);
+}
+
 void WolfieApp::refreshWindowTitle() {
     std::wstring title = L"Wolfie";
     if (!workspace_.rootPath.empty()) {
@@ -321,7 +331,16 @@ void WolfieApp::ensureSmoothedResponseReady() {
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     bool measurePressed = false;
     bool sampleRateChanged = false;
-    if (measurementPage_.handleCommand(commandId, notificationCode, workspace_, measurePressed, sampleRateChanged)) {
+    bool measurementGraphZoomChanged = false;
+    if (measurementPage_.handleCommand(commandId,
+                                       notificationCode,
+                                       workspace_,
+                                       measurePressed,
+                                       sampleRateChanged,
+                                       measurementGraphZoomChanged)) {
+        if (measurementGraphZoomChanged) {
+            return;
+        }
         if (sampleRateChanged) {
             syncStateFromControls();
             workspaceRepository_.save(workspace_);
@@ -338,7 +357,15 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     }
 
     bool smoothingModelChanged = false;
-    if (smoothingPage_.handleCommand(commandId, notificationCode, workspace_, smoothingModelChanged)) {
+    bool smoothingGraphZoomChanged = false;
+    if (smoothingPage_.handleCommand(commandId,
+                                     notificationCode,
+                                     workspace_,
+                                     smoothingModelChanged,
+                                     smoothingGraphZoomChanged)) {
+        if (smoothingGraphZoomChanged) {
+            return;
+        }
         if (smoothingModelChanged) {
             workspace_.smoothedResponse = {};
             ensureSmoothedResponseReady();
@@ -443,6 +470,7 @@ void WolfieApp::newWorkspace() {
         return;
     }
 
+    saveCurrentWorkspaceIfOpen();
     workspace_ = {};
     workspace_.rootPath = *path;
     measurement::syncDerivedMeasurementSettings(workspace_.measurement);
@@ -463,6 +491,7 @@ void WolfieApp::openWorkspace() {
 }
 
 void WolfieApp::openWorkspace(const std::filesystem::path& path) {
+    saveCurrentWorkspaceIfOpen();
     workspace_ = workspaceRepository_.load(path);
     touchRecentWorkspace(path);
     populateControlsFromState();

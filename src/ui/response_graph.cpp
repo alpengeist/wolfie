@@ -17,6 +17,8 @@ namespace {
 constexpr double kMinFrequencyHz = 10.0;
 constexpr double kMaxFrequencyHz = 20000.0;
 constexpr double kZoomStepDb = 10.0;
+constexpr double kMinVisibleRangeDb = 0.05;
+constexpr double kWheelZoomScalePerStep = 0.8;
 
 struct AxisLabel {
     double value = 0.0;
@@ -32,7 +34,9 @@ struct GraphLayout {
     double axisMinDb = 0.0;
     double axisMaxDb = 1.0;
     double dbStep = 1.0;
+    double minVisibleRangeDb = 1.0;
     double defaultVisibleRangeDb = 1.0;
+    double currentVisibleRangeDb = 1.0;
     double maxVisibleRangeDb = 1.0;
     std::vector<double> yTickValues;
 };
@@ -69,8 +73,22 @@ std::wstring formatResponseTickLabel(double frequencyHz) {
 }
 
 std::wstring formatDbTickLabel(double valueDb) {
-    const double rounded = std::round(valueDb);
-    const int decimals = std::abs(valueDb - rounded) < 0.05 ? 0 : 1;
+    const double rounded0 = std::round(valueDb);
+    if (std::abs(valueDb - rounded0) < 0.005) {
+        return formatWideDouble(valueDb, 0);
+    }
+
+    const double rounded1 = std::round(valueDb * 10.0) / 10.0;
+    if (std::abs(valueDb - rounded1) < 0.0005) {
+        return formatWideDouble(valueDb, 1);
+    }
+
+    const double rounded2 = std::round(valueDb * 100.0) / 100.0;
+    if (std::abs(valueDb - rounded2) < 0.00005) {
+        return formatWideDouble(valueDb, 2);
+    }
+
+    const int decimals = 3;
     return formatWideDouble(valueDb, decimals);
 }
 
@@ -235,12 +253,11 @@ std::vector<double> buildDbTickValues(double minDb, double maxDb, double stepDb)
         return ticks;
     }
 
-    const double epsilon = stepDb * 0.001;
-    double value = minDb;
-    while (value <= maxDb + epsilon) {
-        const double rounded = std::round(value / stepDb) * stepDb;
-        ticks.push_back(rounded);
-        value += stepDb;
+    const double rangeDb = maxDb - minDb;
+    const int steps = std::max(static_cast<int>(std::floor((rangeDb / stepDb) + 0.001)), 0);
+    ticks.reserve(static_cast<size_t>(steps + 1));
+    for (int index = steps; index >= 0; --index) {
+        ticks.push_back(maxDb - (stepDb * static_cast<double>(index)));
     }
     return ticks;
 }
@@ -262,22 +279,23 @@ GraphLayout buildGraphLayout(HDC hdc, const RECT& rect, const ResponseGraphData&
         }
     }
     dataMaxDb = std::ceil(dataMaxDb);
+    layout.axisMaxDb = dataMaxDb;
 
     const int infoLineHeight = layout.textHeight + 6;
     const int estimatedGraphHeight = std::max(static_cast<int>(rect.bottom - rect.top) - (layout.textHeight + 22) -
                                                   infoLineHeight,
                                               80);
-    const double rawDbStep = (dataMaxDb - dataMinDb) * static_cast<double>(layout.textHeight + 10) /
-                             static_cast<double>(std::max(estimatedGraphHeight, 1));
-    layout.dbStep = nextNiceStep(rawDbStep);
-    layout.axisMaxDb = std::ceil(dataMaxDb / layout.dbStep) * layout.dbStep;
-    layout.defaultVisibleRangeDb = std::max(layout.axisMaxDb - dataMinDb, layout.dbStep * 2.0);
+    const double fullVisibleRangeDb = std::max(layout.axisMaxDb - dataMinDb, 1.0);
+    layout.defaultVisibleRangeDb = fullVisibleRangeDb;
+    layout.minVisibleRangeDb = kMinVisibleRangeDb;
     const double paddedActualMinDb = std::floor((actualMinDb - kZoomStepDb) / kZoomStepDb) * kZoomStepDb;
     layout.maxVisibleRangeDb = std::max(layout.defaultVisibleRangeDb, layout.axisMaxDb - paddedActualMinDb);
-    const double visibleRangeDb =
-        clampValue(layout.defaultVisibleRangeDb + std::max(extraVisibleRangeDb, 0.0), layout.defaultVisibleRangeDb,
-                   layout.maxVisibleRangeDb);
-    layout.axisMinDb = layout.axisMaxDb - visibleRangeDb;
+    layout.currentVisibleRangeDb =
+        clampValue(layout.defaultVisibleRangeDb + extraVisibleRangeDb, layout.minVisibleRangeDb, layout.maxVisibleRangeDb);
+    layout.axisMinDb = layout.axisMaxDb - layout.currentVisibleRangeDb;
+    const double rawDbStep = layout.currentVisibleRangeDb * static_cast<double>(layout.textHeight + 10) /
+                             static_cast<double>(std::max(estimatedGraphHeight, 1));
+    layout.dbStep = nextNiceStep(rawDbStep);
     layout.yTickValues = buildDbTickValues(layout.axisMinDb, layout.axisMaxDb, layout.dbStep);
 
     int widestYLabel = 0;
@@ -357,12 +375,11 @@ void ResponseGraph::setData(ResponseGraphData data) {
 }
 
 void ResponseGraph::setExtraVisibleRangeDb(double extraVisibleRangeDb) {
-    const double clamped = std::max(0.0, extraVisibleRangeDb);
-    if (std::abs(clamped - extraVisibleRangeDb_) < 0.001) {
+    if (std::abs(extraVisibleRangeDb - extraVisibleRangeDb_) < 0.001) {
         return;
     }
 
-    extraVisibleRangeDb_ = clamped;
+    extraVisibleRangeDb_ = extraVisibleRangeDb;
     invalidate();
 }
 
@@ -452,6 +469,22 @@ void ResponseGraph::invalidateInfoLine() const {
     InvalidateRect(window_, &infoRect, FALSE);
 }
 
+void ResponseGraph::notifyZoomChanged() const {
+    if (window_ == nullptr) {
+        return;
+    }
+
+    HWND parent = GetParent(window_);
+    if (parent == nullptr) {
+        return;
+    }
+
+    SendMessageW(parent,
+                 WM_COMMAND,
+                 MAKEWPARAM(GetDlgCtrlID(window_), kZoomChangedNotification),
+                 reinterpret_cast<LPARAM>(window_));
+}
+
 bool ResponseGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
     if (window_ == nullptr || (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) == 0) {
         return false;
@@ -473,24 +506,23 @@ bool ResponseGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
         return false;
     }
 
-    const double wheelStepDb = kZoomStepDb;
     const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-    double nextExtraVisibleRangeDb = extraVisibleRangeDb_;
     const int wheelSteps = delta / WHEEL_DELTA;
-    if (wheelSteps < 0) {
-        nextExtraVisibleRangeDb += wheelStepDb * static_cast<double>(-wheelSteps);
-    } else if (wheelSteps > 0) {
-        nextExtraVisibleRangeDb -= wheelStepDb * static_cast<double>(wheelSteps);
+    if (wheelSteps == 0) {
+        return true;
     }
 
-    nextExtraVisibleRangeDb =
-        clampValue(nextExtraVisibleRangeDb, 0.0, layout.maxVisibleRangeDb - layout.defaultVisibleRangeDb);
+    double nextVisibleRangeDb =
+        layout.currentVisibleRangeDb * std::pow(kWheelZoomScalePerStep, static_cast<double>(wheelSteps));
+    nextVisibleRangeDb = clampValue(nextVisibleRangeDb, layout.minVisibleRangeDb, layout.maxVisibleRangeDb);
+    const double nextExtraVisibleRangeDb = nextVisibleRangeDb - layout.defaultVisibleRangeDb;
     if (std::abs(nextExtraVisibleRangeDb - extraVisibleRangeDb_) < 0.001) {
         return true;
     }
 
     extraVisibleRangeDb_ = nextExtraVisibleRangeDb;
     invalidate();
+    notifyZoomChanged();
     return true;
 }
 
