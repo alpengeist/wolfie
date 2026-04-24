@@ -481,7 +481,7 @@ void WolfieApp::refreshWindowTitle() {
 }
 
 void WolfieApp::refreshMeasurementStatus() {
-    measurementPage_.refreshStatus(measurementController_.status(), !workspace_.result.frequencyAxisHz.empty());
+    measurementPage_.refreshStatus(measurementController_.status(), workspace_.result.hasAnyValues());
 }
 
 void WolfieApp::refreshRecentMenu() {
@@ -504,7 +504,7 @@ void WolfieApp::refreshRecentMenu() {
 
 void WolfieApp::ensureSmoothedResponseReady() {
     if (!workspace_.smoothedResponse.frequencyAxisHz.empty() ||
-        workspace_.result.frequencyAxisHz.empty()) {
+        !workspace_.result.hasAnyValues()) {
         return;
     }
 
@@ -889,7 +889,9 @@ void WolfieApp::finalizeMeasurement() {
     syncStateFromControls();
     workspaceRepository_.save(workspace_);
     appendMeasurementLog(L"Measurement finished. Generated " +
-                         std::to_wstring(workspace_.result.frequencyAxisHz.size()) +
+                         std::to_wstring(workspace_.result.preferredMagnitudeResponse() == nullptr
+                                             ? 0
+                                             : workspace_.result.preferredMagnitudeResponse()->xValues.size()) +
                          L" response points. Peak capture level " +
                          std::to_wstring(static_cast<int>(std::lround(completedStatus.peakAmplitudeDb))) +
                          L" dB.");

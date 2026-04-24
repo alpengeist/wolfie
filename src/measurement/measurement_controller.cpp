@@ -173,8 +173,7 @@ void MeasurementController::tick() {
         }
     } else {
         result_ = measurement::buildMeasurementResultFromCapture(session_->capturedSamples(),
-                                                                 playbackPlan_.playedSweep,
-                                                                 playbackPlan_.leadInFrames,
+                                                                 playbackPlan_,
                                                                  session_->sampleRate(),
                                                                  snapshot_.audio,
                                                                  snapshot_.measurement);

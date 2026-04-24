@@ -1,9 +1,10 @@
 #include "persistence/workspace_repository.h"
 
-#include <array>
+#include <cctype>
 #include <fstream>
 #include <optional>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 #include "persistence/microphone_calibration_repository.h"
@@ -152,37 +153,138 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     }
 }
 
+constexpr char kMeasurementResultFileMagic[] = "wolfie-result-values-v1";
+
+std::string trimAscii(std::string_view value) {
+    size_t begin = 0;
+    while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])) != 0) {
+        ++begin;
+    }
+
+    size_t end = value.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1])) != 0) {
+        --end;
+    }
+
+    return std::string(value.substr(begin, end - begin));
+}
+
+std::filesystem::path measurementResultFilePath(const std::filesystem::path& rootPath) {
+    return rootPath / "measurement" / "result-values.txt";
+}
+
+bool parseMeasurementDataRow(std::string line, double& xValue, double& leftValue, double& rightValue) {
+    for (char& ch : line) {
+        if (ch == ',' || ch == ';' || ch == '\t') {
+            ch = ' ';
+        }
+    }
+
+    std::istringstream row(line);
+    return static_cast<bool>(row >> xValue >> leftValue >> rightValue);
+}
+
+void appendMeasurementValueSetIfValid(MeasurementResult& result, MeasurementValueSet& valueSet) {
+    if (!valueSet.valid()) {
+        valueSet = {};
+        return;
+    }
+
+    result.valueSets.push_back(std::move(valueSet));
+    valueSet = {};
+}
+
 void loadMeasurementResultFile(WorkspaceState& workspace) {
     workspace.result = {};
     if (workspace.rootPath.empty()) {
         return;
     }
 
-    const auto response = readTextFile(workspace.rootPath / "measurement" / "response.csv");
-    if (!response) {
+    const auto content = readTextFile(measurementResultFilePath(workspace.rootPath));
+    if (!content) {
         return;
     }
 
-    std::istringstream in(*response);
+    std::istringstream in(*content);
     std::string line;
+    bool headerSeen = false;
+    bool inSeries = false;
+    bool inData = false;
+    MeasurementValueSet currentValueSet;
     while (std::getline(in, line)) {
-        if (line.starts_with("frequency")) {
+        const std::string trimmed = trimAscii(line);
+        if (trimmed.empty() || trimmed[0] == '#') {
             continue;
         }
 
-        std::istringstream row(line);
-        std::string cell;
-        std::array<double, 3> values{};
-        int index = 0;
-        while (std::getline(row, cell, ',') && index < 3) {
-            values[index++] = std::stod(cell);
+        if (!headerSeen) {
+            if (trimmed != kMeasurementResultFileMagic) {
+                return;
+            }
+            headerSeen = true;
+            continue;
         }
-        if (index == 3) {
-            workspace.result.frequencyAxisHz.push_back(values[0]);
-            workspace.result.leftChannelDb.push_back(values[1]);
-            workspace.result.rightChannelDb.push_back(values[2]);
+
+        if (inData) {
+            if (trimmed == "data_end") {
+                inData = false;
+                continue;
+            }
+
+            double xValue = 0.0;
+            double leftValue = 0.0;
+            double rightValue = 0.0;
+            if (parseMeasurementDataRow(trimmed, xValue, leftValue, rightValue)) {
+                currentValueSet.xValues.push_back(xValue);
+                currentValueSet.leftValues.push_back(leftValue);
+                currentValueSet.rightValues.push_back(rightValue);
+            }
+            continue;
+        }
+
+        if (trimmed.starts_with("[series ") && trimmed.ends_with(']')) {
+            appendMeasurementValueSetIfValid(workspace.result, currentValueSet);
+            currentValueSet = {};
+            currentValueSet.key = trimAscii(trimmed.substr(8, trimmed.size() - 9));
+            inSeries = !currentValueSet.key.empty();
+            continue;
+        }
+
+        if (trimmed == "[/series]") {
+            appendMeasurementValueSetIfValid(workspace.result, currentValueSet);
+            inSeries = false;
+            inData = false;
+            continue;
+        }
+
+        if (!inSeries) {
+            continue;
+        }
+
+        if (trimmed == "data_begin") {
+            inData = true;
+            continue;
+        }
+
+        const size_t equalsPos = trimmed.find('=');
+        if (equalsPos == std::string::npos) {
+            continue;
+        }
+
+        const std::string key = trimAscii(trimmed.substr(0, equalsPos));
+        const std::string value = trimAscii(trimmed.substr(equalsPos + 1));
+        if (key == "x_quantity") {
+            currentValueSet.xQuantity = value;
+        } else if (key == "x_unit") {
+            currentValueSet.xUnit = value;
+        } else if (key == "y_quantity") {
+            currentValueSet.yQuantity = value;
+        } else if (key == "y_unit") {
+            currentValueSet.yUnit = value;
         }
     }
+
+    appendMeasurementValueSetIfValid(workspace.result, currentValueSet);
 }
 
 void loadTargetCurveBandsFile(WorkspaceState& workspace) {
@@ -229,14 +331,30 @@ void saveMeasurementResultFile(const WorkspaceState& workspace) {
     }
 
     std::filesystem::create_directories(workspace.rootPath / "measurement");
-    std::ostringstream responseCsv;
-    responseCsv << "frequency,left,right\n";
-    for (size_t i = 0; i < workspace.result.frequencyAxisHz.size(); ++i) {
-        responseCsv << workspace.result.frequencyAxisHz[i] << ','
-                    << workspace.result.leftChannelDb[i] << ','
-                    << workspace.result.rightChannelDb[i] << '\n';
+    std::ostringstream out;
+    out << kMeasurementResultFileMagic << '\n';
+    for (const MeasurementValueSet& valueSet : workspace.result.valueSets) {
+        if (!valueSet.valid() || valueSet.key.empty()) {
+            continue;
+        }
+
+        out << '\n';
+        out << "[series " << valueSet.key << "]\n";
+        out << "x_quantity=" << valueSet.xQuantity << '\n';
+        out << "x_unit=" << valueSet.xUnit << '\n';
+        out << "y_quantity=" << valueSet.yQuantity << '\n';
+        out << "y_unit=" << valueSet.yUnit << '\n';
+        out << "data_begin\n";
+        for (size_t i = 0; i < valueSet.xValues.size(); ++i) {
+            out << valueSet.xValues[i] << ','
+                << valueSet.leftValues[i] << ','
+                << valueSet.rightValues[i] << '\n';
+        }
+        out << "data_end\n";
+        out << "[/series]\n";
     }
-    writeTextFile(workspace.rootPath / "measurement" / "response.csv", responseCsv.str());
+    writeTextFile(measurementResultFilePath(workspace.rootPath), out.str());
+    std::filesystem::remove(workspace.rootPath / "measurement" / "response.csv");
 }
 
 void saveTargetCurveBandsFile(const WorkspaceState& workspace) {

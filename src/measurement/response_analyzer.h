@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "core/models.h"
+#include "measurement/sweep_generator.h"
 
 namespace wolfie::measurement {
 
@@ -30,8 +31,7 @@ LoopbackDelayEstimate estimateLoopbackDelayFromCapture(const std::vector<int16_t
                                                        int sampleRate,
                                                        const MeasurementSettings& settings);
 MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& capturedSamples,
-                                                    const std::vector<double>& playedSweep,
-                                                    size_t leadInFrames,
+                                                    const SweepPlaybackPlan& playbackPlan,
                                                     int sampleRate,
                                                     const AudioSettings& audioSettings,
                                                     const MeasurementSettings& settings);

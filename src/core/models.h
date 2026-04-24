@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace wolfie {
@@ -49,10 +50,66 @@ struct UiSettings {
     double targetCurveGraphVerticalOffsetDb = 0.0;
 };
 
+struct MeasurementValueSet {
+    std::string key;
+    std::string xQuantity = "frequency";
+    std::string xUnit = "Hz";
+    std::string yQuantity = "level";
+    std::string yUnit = "dB";
+    std::vector<double> xValues;
+    std::vector<double> leftValues;
+    std::vector<double> rightValues;
+
+    [[nodiscard]] bool valid() const {
+        return !xValues.empty() &&
+               leftValues.size() == xValues.size() &&
+               rightValues.size() == xValues.size();
+    }
+};
+
 struct MeasurementResult {
-    std::vector<double> frequencyAxisHz;
-    std::vector<double> leftChannelDb;
-    std::vector<double> rightChannelDb;
+    std::vector<MeasurementValueSet> valueSets;
+
+    [[nodiscard]] const MeasurementValueSet* findValueSet(std::string_view key) const {
+        for (const MeasurementValueSet& valueSet : valueSets) {
+            if (valueSet.key == key) {
+                return &valueSet;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] MeasurementValueSet* findValueSet(std::string_view key) {
+        for (MeasurementValueSet& valueSet : valueSets) {
+            if (valueSet.key == key) {
+                return &valueSet;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] const MeasurementValueSet* preferredMagnitudeResponse() const {
+        if (const MeasurementValueSet* calibrated = findValueSet("measurement.calibrated_magnitude_response")) {
+            if (calibrated->valid()) {
+                return calibrated;
+            }
+        }
+        if (const MeasurementValueSet* raw = findValueSet("measurement.raw_magnitude_response")) {
+            if (raw->valid()) {
+                return raw;
+            }
+        }
+        for (const MeasurementValueSet& valueSet : valueSets) {
+            if (valueSet.valid()) {
+                return &valueSet;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] bool hasAnyValues() const {
+        return preferredMagnitudeResponse() != nullptr;
+    }
 };
 
 struct ResponseSmoothingSettings {

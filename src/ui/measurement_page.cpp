@@ -469,10 +469,11 @@ void MeasurementPage::setWindowTextValue(HWND control, const std::wstring& text)
 
 ResponseGraphData MeasurementPage::buildGraphData(const MeasurementResult& result) const {
     ResponseGraphData data;
-    data.frequencyAxisHz = result.frequencyAxisHz;
-    if (!result.frequencyAxisHz.empty()) {
-        data.series.push_back({L"Left", ui_theme::kGreen, result.leftChannelDb});
-        data.series.push_back({L"Right", ui_theme::kRed, result.rightChannelDb});
+    const MeasurementValueSet* magnitudeResponse = result.preferredMagnitudeResponse();
+    if (magnitudeResponse != nullptr && magnitudeResponse->valid()) {
+        data.frequencyAxisHz = magnitudeResponse->xValues;
+        data.series.push_back({L"Left", ui_theme::kGreen, magnitudeResponse->leftValues});
+        data.series.push_back({L"Right", ui_theme::kRed, magnitudeResponse->rightValues});
     }
     return data;
 }

@@ -89,9 +89,11 @@ int16_t sampleToPcm16(double sample) {
     return static_cast<int16_t>(std::round(clamped * 32767.0));
 }
 
-std::vector<int16_t> buildStereoSweepPcm(const std::vector<double>& sweepSamples, int leadInSamples) {
+std::vector<int16_t> buildStereoSweepPcm(const std::vector<double>& sweepSamples,
+                                         int leadInSamples,
+                                         size_t postRollFrames) {
     const size_t safeLeadIn = static_cast<size_t>(std::max(0, leadInSamples));
-    const size_t segmentFrames = safeLeadIn + sweepSamples.size();
+    const size_t segmentFrames = safeLeadIn + sweepSamples.size() + postRollFrames;
     const size_t totalFrames = segmentFrames * 2;
     std::vector<int16_t> pcm(totalFrames * 2, 0);
 
@@ -122,9 +124,10 @@ SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings, do
     plan.leadInFrames = static_cast<size_t>(std::max(0, settings.leadInSamples));
     plan.playedSweep = scaleSweepSamples(generateSweepSamples(settings, sampleRate), outputVolumeDb);
     plan.sweepFrames = plan.playedSweep.size();
-    plan.segmentFrames = plan.leadInFrames + plan.sweepFrames;
+    plan.postRollFrames = static_cast<size_t>(std::max(settings.targetLengthSamples, sampleRate / 5));
+    plan.segmentFrames = plan.leadInFrames + plan.sweepFrames + plan.postRollFrames;
     plan.totalFrames = plan.segmentFrames * 2;
-    plan.playbackPcm = buildStereoSweepPcm(plan.playedSweep, settings.leadInSamples);
+    plan.playbackPcm = buildStereoSweepPcm(plan.playedSweep, settings.leadInSamples, plan.postRollFrames);
     return plan;
 }
 
@@ -135,9 +138,10 @@ SweepPlaybackPlan buildLoopbackCalibrationPlaybackPlan(const MeasurementSettings
     plan.leadInFrames = static_cast<size_t>(std::max(settings.leadInSamples, sampleRate / 10));
     plan.playedSweep = scaleSweepSamples(generateLoopbackPulseTrain(sampleRate), outputVolumeDb);
     plan.sweepFrames = plan.playedSweep.size();
+    plan.postRollFrames = 0;
     plan.segmentFrames = plan.leadInFrames + plan.sweepFrames;
     plan.totalFrames = plan.segmentFrames * 2;
-    plan.playbackPcm = buildStereoSweepPcm(plan.playedSweep, static_cast<int>(plan.leadInFrames));
+    plan.playbackPcm = buildStereoSweepPcm(plan.playedSweep, static_cast<int>(plan.leadInFrames), plan.postRollFrames);
     return plan;
 }
 

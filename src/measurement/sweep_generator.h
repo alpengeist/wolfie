@@ -14,6 +14,7 @@ struct SweepPlaybackPlan {
     std::vector<int16_t> playbackPcm;
     size_t leadInFrames = 0;
     size_t sweepFrames = 0;
+    size_t postRollFrames = 0;
     size_t segmentFrames = 0;
     size_t totalFrames = 0;
 };
