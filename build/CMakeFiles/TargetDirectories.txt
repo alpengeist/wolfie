@@ -1,0 +1,3 @@
+C:/proj/wolfie/build/CMakeFiles/wolfie.dir
+C:/proj/wolfie/build/CMakeFiles/edit_cache.dir
+C:/proj/wolfie/build/CMakeFiles/rebuild_cache.dir

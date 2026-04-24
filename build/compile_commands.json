@@ -1,0 +1,110 @@
+[
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\main.cpp.obj -c C:\\proj\\wolfie\\src\\main.cpp",
+  "file": "C:/proj/wolfie/src/main.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/main.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\core\\text_utils.cpp.obj -c C:\\proj\\wolfie\\src\\core\\text_utils.cpp",
+  "file": "C:/proj/wolfie/src/core/text_utils.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/core/text_utils.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\audio\\asio_service.cpp.obj -c C:\\proj\\wolfie\\src\\audio\\asio_service.cpp",
+  "file": "C:/proj/wolfie/src/audio/asio_service.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/audio/asio_service.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\audio\\winmm_audio_backend.cpp.obj -c C:\\proj\\wolfie\\src\\audio\\winmm_audio_backend.cpp",
+  "file": "C:/proj/wolfie/src/audio/winmm_audio_backend.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/audio/winmm_audio_backend.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\measurement\\measurement_controller.cpp.obj -c C:\\proj\\wolfie\\src\\measurement\\measurement_controller.cpp",
+  "file": "C:/proj/wolfie/src/measurement/measurement_controller.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/measurement/measurement_controller.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\measurement\\response_analyzer.cpp.obj -c C:\\proj\\wolfie\\src\\measurement\\response_analyzer.cpp",
+  "file": "C:/proj/wolfie/src/measurement/response_analyzer.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/measurement/response_analyzer.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\measurement\\response_smoother.cpp.obj -c C:\\proj\\wolfie\\src\\measurement\\response_smoother.cpp",
+  "file": "C:/proj/wolfie/src/measurement/response_smoother.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/measurement/response_smoother.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\measurement\\sweep_generator.cpp.obj -c C:\\proj\\wolfie\\src\\measurement\\sweep_generator.cpp",
+  "file": "C:/proj/wolfie/src/measurement/sweep_generator.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/measurement/sweep_generator.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\measurement\\target_curve_designer.cpp.obj -c C:\\proj\\wolfie\\src\\measurement\\target_curve_designer.cpp",
+  "file": "C:/proj/wolfie/src/measurement/target_curve_designer.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/measurement/target_curve_designer.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\persistence\\app_state_repository.cpp.obj -c C:\\proj\\wolfie\\src\\persistence\\app_state_repository.cpp",
+  "file": "C:/proj/wolfie/src/persistence/app_state_repository.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/persistence/app_state_repository.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\persistence\\workspace_repository.cpp.obj -c C:\\proj\\wolfie\\src\\persistence\\workspace_repository.cpp",
+  "file": "C:/proj/wolfie/src/persistence/workspace_repository.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/persistence/workspace_repository.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\ui\\measurement_page.cpp.obj -c C:\\proj\\wolfie\\src\\ui\\measurement_page.cpp",
+  "file": "C:/proj/wolfie/src/ui/measurement_page.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/ui/measurement_page.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\ui\\response_graph.cpp.obj -c C:\\proj\\wolfie\\src\\ui\\response_graph.cpp",
+  "file": "C:/proj/wolfie/src/ui/response_graph.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/ui/response_graph.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\ui\\settings_dialog.cpp.obj -c C:\\proj\\wolfie\\src\\ui\\settings_dialog.cpp",
+  "file": "C:/proj/wolfie/src/ui/settings_dialog.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/ui/settings_dialog.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\ui\\smoothing_page.cpp.obj -c C:\\proj\\wolfie\\src\\ui\\smoothing_page.cpp",
+  "file": "C:/proj/wolfie/src/ui/smoothing_page.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/ui/smoothing_page.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\ui\\target_curve_graph.cpp.obj -c C:\\proj\\wolfie\\src\\ui\\target_curve_graph.cpp",
+  "file": "C:/proj/wolfie/src/ui/target_curve_graph.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/ui/target_curve_graph.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\ui\\target_curve_page.cpp.obj -c C:\\proj\\wolfie\\src\\ui\\target_curve_page.cpp",
+  "file": "C:/proj/wolfie/src/ui/target_curve_page.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/ui/target_curve_page.cpp.obj"
+},
+{
+  "directory": "C:/proj/wolfie/build",
+  "command": "C:\\Users\\alpen\\AppData\\Local\\Programs\\CLion\\bin\\mingw\\bin\\g++.exe -DNOMINMAX -DUNICODE -DWIN32_LEAN_AND_MEAN -D_UNICODE @CMakeFiles/wolfie.dir/includes_CXX.rsp -g -std=gnu++20 -o CMakeFiles\\wolfie.dir\\src\\wolfie_app.cpp.obj -c C:\\proj\\wolfie\\src\\wolfie_app.cpp",
+  "file": "C:/proj/wolfie/src/wolfie_app.cpp",
+  "output": "CMakeFiles/wolfie.dir/src/wolfie_app.cpp.obj"
+}
+]

@@ -1,0 +1,1 @@
+ -lcomctl32 -lcomdlg32 -lole32 -lshell32 -lshlwapi -lwinmm -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 
