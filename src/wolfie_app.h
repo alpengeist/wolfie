@@ -28,6 +28,11 @@ public:
     int run();
 
 private:
+    enum class LogSeverity {
+        Normal,
+        Error
+    };
+
     static constexpr UINT_PTR kMeasurementTimerId = 101;
     static constexpr int kContentMargin = 20;
 
@@ -38,8 +43,8 @@ private:
     void createLayout();
     void layoutMainWindow();
     void layoutContent();
-    void appendLog(const std::wstring& message);
-    void appendMeasurementLog(const std::wstring& message);
+    void appendLog(const std::wstring& message, LogSeverity severity = LogSeverity::Normal);
+    void appendMeasurementLog(const std::wstring& message, LogSeverity severity = LogSeverity::Normal);
     void beginLogResize(int y);
     void updateLogResize(int y);
     void endLogResize();

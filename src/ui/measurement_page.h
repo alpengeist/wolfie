@@ -70,7 +70,6 @@ private:
         HWND outputVolumeMaxLabel = nullptr;
         HWND buttonMeasure = nullptr;
         HWND buttonLoopback = nullptr;
-        HWND loopbackLatency = nullptr;
         HWND leftChannelLabel = nullptr;
         HWND leftProgressBar = nullptr;
         HWND leftProgressText = nullptr;

@@ -6,6 +6,7 @@
 #include <sstream>
 
 #include <commctrl.h>
+#include <richedit.h>
 #include <shobjidl.h>
 #include <windowsx.h>
 
@@ -37,6 +38,8 @@ constexpr int kLogLabelHeight = 20;
 constexpr int kMinLogHeight = 86;
 constexpr int kMaxLogHeight = 420;
 constexpr int kMinTabHeight = 360;
+constexpr COLORREF kLogNormalColor = RGB(0, 0, 0);
+constexpr COLORREF kLogErrorColor = RGB(190, 0, 0);
 
 std::filesystem::path appStatePath() {
     const std::filesystem::path legacyPath = std::filesystem::current_path() / "wolfie-app-state.json";
@@ -279,8 +282,9 @@ void WolfieApp::createLayout() {
                                  0, 0, 0, 0, mainWindow_, reinterpret_cast<HMENU>(kProcessLogSplitter), instance_, nullptr);
     logLabel_ = CreateWindowW(L"STATIC", L"Process Log", WS_CHILD | WS_VISIBLE,
                               0, 0, 0, 0, mainWindow_, nullptr, instance_, nullptr);
+    LoadLibraryW(L"Msftedit.dll");
     logEdit_ = CreateWindowExW(WS_EX_CLIENTEDGE,
-                               L"EDIT",
+                               MSFTEDIT_CLASS,
                                L"",
                                WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                                0,
@@ -351,7 +355,7 @@ void WolfieApp::layoutContent() {
     targetCurvePage_.layout();
 }
 
-void WolfieApp::appendLog(const std::wstring& message) {
+void WolfieApp::appendLog(const std::wstring& message, LogSeverity severity) {
     if (logEdit_ == nullptr) {
         return;
     }
@@ -367,12 +371,19 @@ void WolfieApp::appendLog(const std::wstring& message) {
 
     const int length = GetWindowTextLengthW(logEdit_);
     SendMessageW(logEdit_, EM_SETSEL, length, length);
+
+    CHARFORMATW format{};
+    format.cbSize = sizeof(format);
+    format.dwMask = CFM_COLOR;
+    format.crTextColor = severity == LogSeverity::Error ? kLogErrorColor : kLogNormalColor;
+    SendMessageW(logEdit_, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&format));
+
     SendMessageW(logEdit_, EM_REPLACESEL, FALSE, reinterpret_cast<LPARAM>(line.str().c_str()));
     SendMessageW(logEdit_, EM_SCROLLCARET, 0, 0);
 }
 
-void WolfieApp::appendMeasurementLog(const std::wstring& message) {
-    appendLog(L"Measurement: " + message);
+void WolfieApp::appendMeasurementLog(const std::wstring& message, LogSeverity severity) {
+    appendLog(L"Measurement: " + message, severity);
 }
 
 bool WolfieApp::isPointOnLogSplitter(int y) const {
@@ -733,7 +744,7 @@ void WolfieApp::touchRecentWorkspace(const std::filesystem::path& path) {
 
 void WolfieApp::startMeasurement() {
     if (workspace_.rootPath.empty()) {
-        appendMeasurementLog(L"Cannot start measurement because no workspace is open.");
+        appendMeasurementLog(L"Cannot start measurement because no workspace is open.", LogSeverity::Error);
         return;
     }
 
@@ -747,7 +758,7 @@ void WolfieApp::startMeasurement() {
     if (!measurementController_.start(workspace_)) {
         refreshMeasurementStatus();
         if (!measurementController_.status().lastErrorMessage.empty()) {
-            appendMeasurementLog(L"Start failed: " + measurementController_.status().lastErrorMessage);
+            appendMeasurementLog(L"Start failed: " + measurementController_.status().lastErrorMessage, LogSeverity::Error);
         }
         return;
     }
@@ -766,7 +777,7 @@ void WolfieApp::startMeasurement() {
 
 void WolfieApp::startLoopbackCalibration() {
     if (workspace_.rootPath.empty()) {
-        appendMeasurementLog(L"Cannot start loopback calibration because no workspace is open.");
+        appendMeasurementLog(L"Cannot start loopback calibration because no workspace is open.", LogSeverity::Error);
         return;
     }
 
@@ -777,7 +788,8 @@ void WolfieApp::startLoopbackCalibration() {
     if (!measurementController_.startLoopbackCalibration(workspace_)) {
         refreshMeasurementStatus();
         if (!measurementController_.status().lastErrorMessage.empty()) {
-            appendMeasurementLog(L"Loopback calibration start failed: " + measurementController_.status().lastErrorMessage);
+            appendMeasurementLog(L"Loopback calibration start failed: " + measurementController_.status().lastErrorMessage,
+                                 LogSeverity::Error);
         }
         return;
     }
@@ -828,9 +840,10 @@ void WolfieApp::finalizeMeasurement() {
                 appendMeasurementLog(L"Warning: clipping was detected during loopback capture.");
             }
         } else {
-            appendMeasurementLog(L"Loopback calibration failed: " + completedStatus.lastErrorMessage);
+            appendMeasurementLog(L"Loopback calibration failed: " + completedStatus.lastErrorMessage, LogSeverity::Error);
             if (completedStatus.loopbackTooQuiet) {
-                appendMeasurementLog(L"Loopback input was too low. Raise the interface output/input level or check the cable path.");
+                appendMeasurementLog(L"Loopback input was too low. Raise the interface output/input level or check the cable path.",
+                                     LogSeverity::Error);
             }
         }
         refreshMeasurementStatus();
