@@ -42,6 +42,9 @@ struct UiSettings {
     int processLogHeight = 190;
     double measurementGraphExtraRangeDb = 0.0;
     double measurementGraphVerticalOffsetDb = 0.0;
+    std::string measurementPlotMode = "magnitude";
+    std::string measurementWaterfallChannel = "left";
+    bool measurementMetadataCollapsed = false;
     double smoothingGraphExtraRangeDb = 0.0;
     double smoothingGraphVerticalOffsetDb = 0.0;
     double targetCurveGraphExtraRangeDb = 0.0;

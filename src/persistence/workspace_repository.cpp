@@ -139,6 +139,15 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "measurementGraphVerticalOffsetDb")) {
         ui.measurementGraphVerticalOffsetDb = *value;
     }
+    if (const auto value = findJsonString(content, "measurementPlotMode")) {
+        ui.measurementPlotMode = *value;
+    }
+    if (const auto value = findJsonString(content, "measurementWaterfallChannel")) {
+        ui.measurementWaterfallChannel = *value;
+    }
+    if (const auto value = findJsonBool(content, "measurementMetadataCollapsed")) {
+        ui.measurementMetadataCollapsed = *value;
+    }
     if (const auto value = findJsonNumber(content, "smoothingGraphExtraRangeDb")) {
         ui.smoothingGraphExtraRangeDb = *value;
     }
@@ -811,6 +820,11 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"processLogHeight\": " << workspace.ui.processLogHeight << ",\n"
                   << "    \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
                   << "    \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
+                  << "    \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
+                  << "    \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
+                  << "\",\n"
+                  << "    \"measurementMetadataCollapsed\": "
+                  << (workspace.ui.measurementMetadataCollapsed ? "true" : "false") << ",\n"
                   << "    \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
                   << "    \"smoothingGraphVerticalOffsetDb\": " << workspace.ui.smoothingGraphVerticalOffsetDb << ",\n"
                   << "    \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << ",\n"
@@ -826,6 +840,11 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << "  \"processLogHeight\": " << workspace.ui.processLogHeight << ",\n"
            << "  \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
            << "  \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
+           << "  \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
+           << "  \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
+           << "\",\n"
+           << "  \"measurementMetadataCollapsed\": "
+           << (workspace.ui.measurementMetadataCollapsed ? "true" : "false") << ",\n"
            << "  \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
            << "  \"smoothingGraphVerticalOffsetDb\": " << workspace.ui.smoothingGraphVerticalOffsetDb << ",\n"
            << "  \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << ",\n"

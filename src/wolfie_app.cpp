@@ -19,6 +19,7 @@
 #include "ui/settings_dialog.h"
 #include "ui/target_curve_graph.h"
 #include "ui/ui_theme.h"
+#include "ui/waterfall_graph.h"
 
 namespace wolfie {
 
@@ -215,6 +216,7 @@ void WolfieApp::createMainWindow() {
     RegisterClassW(&mainClass);
 
     ui::ResponseGraph::registerWindowClass(instance_);
+    ui::WaterfallGraph::registerWindowClass(instance_);
     ui::TargetCurveGraph::registerWindowClass(instance_);
     ui::MeasurementPage::registerPageWindowClass(instance_);
     ui::SmoothingPage::registerPageWindowClass(instance_);
@@ -516,13 +518,19 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     bool measurePressed = false;
     bool sampleRateChanged = false;
     bool measurementGraphZoomChanged = false;
+    bool measurementPlotChanged = false;
     if (measurementPage_.handleCommand(commandId,
                                        notificationCode,
                                        workspace_,
                                        measurePressed,
                                        sampleRateChanged,
-                                       measurementGraphZoomChanged)) {
+                                       measurementGraphZoomChanged,
+                                       measurementPlotChanged)) {
         if (measurementGraphZoomChanged) {
+            return;
+        }
+        if (measurementPlotChanged) {
+            workspaceRepository_.save(workspace_);
             return;
         }
         if (sampleRateChanged) {

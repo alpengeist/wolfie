@@ -43,6 +43,7 @@ Files:
 - `response_analyzer.h/.cpp`
 - `measurement_controller.h/.cpp`
 - `target_curve_designer.h/.cpp`
+- `waterfall_builder.h/.cpp`
 
 Responsibilities:
 
@@ -50,6 +51,7 @@ Responsibilities:
 - `response_analyzer` computes amplitude and frequency response data from captured audio.
 - `measurement_controller` orchestrates a single measurement run, tracks progress, and converts backend capture data into a final `MeasurementResult`.
 - `target_curve_designer` computes target-curve view data from the basic curve and bell bands without depending on Win32 UI code.
+- `waterfall_builder` derives waterfall-plot view data from measured impulse responses without depending on Win32 UI code.
 
 Reasoning:
 
@@ -116,6 +118,7 @@ Files:
 - `settings_dialog.h/.cpp`
 - `target_curve_graph.h/.cpp`
 - `target_curve_page.h/.cpp`
+- `waterfall_graph.h/.cpp`
 
 Responsibilities:
 
@@ -125,6 +128,7 @@ Responsibilities:
 - `settings_dialog` owns the settings window behavior and delegates ASIO-specific actions to `AsioService`.
 - `target_curve_graph` owns the interactive graph rendering and drag behavior for target-curve editing.
 - `target_curve_page` owns the target-curve tab controls, EQ band list, and widget synchronization.
+- `waterfall_graph` renders the dedicated waterfall-decay view used by the measurement page.
 
 Reasoning:
 
@@ -214,7 +218,7 @@ The goal is not maximum abstraction. The goal is local changeability.
 
 This layout supports several likely future changes:
 
-- additional response graphs can reuse `ResponseGraph`
+- additional response graphs can reuse `ResponseGraph`, while specialized time-frequency views can follow the `waterfall_builder` + `waterfall_graph` split
 - a future ASIO or WASAPI measurement backend can implement `IAudioBackend`
 - target-curve, filter, and export tabs can each become their own UI modules
 - persistence can move to a real JSON library later without touching UI code

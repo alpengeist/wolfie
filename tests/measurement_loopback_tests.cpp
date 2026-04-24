@@ -7,6 +7,7 @@
 #include "core/models.h"
 #include "measurement/response_analyzer.h"
 #include "measurement/sweep_generator.h"
+#include "measurement/waterfall_builder.h"
 
 namespace {
 
@@ -98,8 +99,48 @@ bool expectMeasurementResultValueSets() {
     return true;
 }
 
+bool expectWaterfallPlotData() {
+    wolfie::MeasurementSettings settings;
+    settings.sampleRate = 48000;
+    settings.durationSeconds = 1.0;
+    settings.fadeInSeconds = 0.05;
+    settings.fadeOutSeconds = 0.05;
+    settings.leadInSamples = 1024;
+    settings.targetLengthSamples = 8192;
+
+    const int delaySamples = 120;
+    const wolfie::measurement::SweepPlaybackPlan plan =
+        wolfie::measurement::buildSweepPlaybackPlan(settings, -12.0);
+    const std::vector<int16_t> capture = synthesizeMeasurementCapture(plan,
+                                                                      delaySamples,
+                                                                      0.8,
+                                                                      0.6);
+    const wolfie::MeasurementResult result =
+        wolfie::measurement::buildMeasurementResultFromCapture(capture,
+                                                               plan,
+                                                               settings.sampleRate,
+                                                               wolfie::AudioSettings{},
+                                                               settings);
+    const wolfie::measurement::WaterfallPlotData plot =
+        wolfie::measurement::buildWaterfallPlotData(result, wolfie::MeasurementChannel::Left);
+    if (!plot.valid()) {
+        std::cerr << "waterfall plot data was not generated\n";
+        return false;
+    }
+    if (plot.slices.size() < 6 || plot.frequencyAxisHz.size() < 64) {
+        std::cerr << "waterfall plot data is too sparse\n";
+        return false;
+    }
+    if (plot.slices.front().timeMilliseconds != 0.0) {
+        std::cerr << "waterfall did not start at zero milliseconds\n";
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int main() {
-    return expectMeasurementResultValueSets() ? 0 : 1;
+    return expectMeasurementResultValueSets() && expectWaterfallPlotData() ? 0 : 1;
 }

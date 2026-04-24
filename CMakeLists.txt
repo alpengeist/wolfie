@@ -28,6 +28,8 @@ add_executable(wolfie WIN32
     src/measurement/sweep_generator.h
     src/measurement/target_curve_designer.cpp
     src/measurement/target_curve_designer.h
+    src/measurement/waterfall_builder.cpp
+    src/measurement/waterfall_builder.h
     src/persistence/app_state_repository.cpp
     src/persistence/app_state_repository.h
     src/persistence/microphone_calibration_repository.cpp
@@ -47,6 +49,8 @@ add_executable(wolfie WIN32
     src/ui/target_curve_page.cpp
     src/ui/target_curve_page.h
     src/ui/ui_theme.h
+    src/ui/waterfall_graph.cpp
+    src/ui/waterfall_graph.h
     src/wolfie_app.cpp
     src/wolfie_app.h
 )
@@ -62,6 +66,8 @@ if(WOLFIE_BUILD_TESTS)
         tests/measurement_loopback_tests.cpp
         src/measurement/response_analyzer.cpp
         src/measurement/response_analyzer.h
+        src/measurement/waterfall_builder.cpp
+        src/measurement/waterfall_builder.h
         src/measurement/sweep_generator.cpp
         src/measurement/sweep_generator.h
         src/core/models.h

@@ -13,6 +13,7 @@
 
 #include "core/models.h"
 #include "ui/response_graph.h"
+#include "ui/waterfall_graph.h"
 
 namespace wolfie::ui {
 
@@ -35,7 +36,8 @@ public:
                        WorkspaceState& workspace,
                        bool& measurePressed,
                        bool& sampleRateChanged,
-                       bool& graphZoomChanged);
+                       bool& graphZoomChanged,
+                       bool& plotSelectionChanged);
     bool handleHScroll(HWND source, WorkspaceState& workspace);
 
     [[nodiscard]] HWND window() const { return window_; }
@@ -80,7 +82,12 @@ private:
         HWND currentFrequency = nullptr;
         HWND currentAmplitude = nullptr;
         HWND peakAmplitude = nullptr;
+        HWND labelPlot = nullptr;
+        HWND comboPlot = nullptr;
+        HWND labelWaterfallChannel = nullptr;
+        HWND comboWaterfallChannel = nullptr;
         HWND metadataLabel = nullptr;
+        HWND metadataToggle = nullptr;
         HWND metadataTable = nullptr;
     };
 
@@ -101,13 +108,22 @@ private:
     static constexpr int kButtonMeasure = 3011;
     static constexpr int kComboMeasurementSampleRate = 3012;
     static constexpr int kResponseGraph = 3014;
+    static constexpr int kComboPlot = 3018;
+    static constexpr int kComboWaterfallChannel = 3019;
     static constexpr int kMetadataTable = 3017;
+    static constexpr int kButtonMetadataToggle = 3020;
     static constexpr int kOutputVolumeSliderMax = 61;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static int measurementSampleRateFromComboIndex(int index);
     static int comboIndexFromMeasurementSampleRate(int sampleRate);
     static void populateMeasurementSampleRateCombo(HWND combo);
+    static void populatePlotCombo(HWND combo);
+    static int comboIndexFromPlotMode(const std::string& plotMode);
+    static std::string plotModeFromComboIndex(int index);
+    static void populateWaterfallChannelCombo(HWND combo);
+    static int comboIndexFromWaterfallChannel(const std::string& channel);
+    static std::string waterfallChannelFromComboIndex(int index);
     static double sliderPositionToOutputVolumeDb(int position);
     static int outputVolumeDbToSliderPosition(double outputVolumeDb);
     static std::wstring formatOutputVolumeLabel(double outputVolumeDb);
@@ -116,6 +132,9 @@ private:
     static void setListViewText(HWND listView, int row, int column, const std::wstring& text);
 
     ResponseGraphData buildGraphData(const MeasurementResult& result) const;
+    void refreshPlots();
+    void updatePlotControlVisibility() const;
+    void updateMetadataVisibility() const;
     std::vector<MetadataRow> buildMetadataRows(const MeasurementResult& result) const;
     void populateMetadataTable(const MeasurementResult& result) const;
     void createControls();
@@ -123,7 +142,10 @@ private:
     HINSTANCE instance_ = nullptr;
     HWND window_ = nullptr;
     Controls controls_;
+    MeasurementResult result_;
+    bool metadataCollapsed_ = false;
     ResponseGraph responseGraph_;
+    WaterfallGraph waterfallGraph_;
 };
 
 }  // namespace wolfie::ui
