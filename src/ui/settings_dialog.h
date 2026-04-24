@@ -35,8 +35,8 @@ private:
                    SaveCallback onSave);
 
     static std::wstring getWindowTextValue(HWND control);
-    static bool tryParseInt(const std::wstring& text, int& value);
     void createControls();
+    void populateChannelCombos();
     void applyAndNotify();
 
     HINSTANCE instance_;

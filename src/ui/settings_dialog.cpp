@@ -9,6 +9,12 @@ namespace {
 
 constexpr wchar_t kWindowClassName[] = L"WolfieSettingsWindow";
 constexpr wchar_t kNoAsioDrivers[] = L"(No ASIO drivers found)";
+constexpr int kDriverControlId = 1;
+constexpr int kMicControlId = 2;
+constexpr int kLeftControlId = 3;
+constexpr int kRightControlId = 4;
+constexpr int kOpenControlPanelId = 7;
+constexpr int kCloseControlId = 8;
 
 void registerSettingsWindowClass(HINSTANCE instance) {
     WNDCLASSW settingsClass{};
@@ -27,6 +33,42 @@ void selectComboBoxString(HWND combo, const std::wstring& value) {
     } else if (SendMessageW(combo, CB_GETCOUNT, 0, 0) > 0) {
         SendMessageW(combo, CB_SETCURSEL, 0, 0);
     }
+}
+
+std::wstring formatSavedChannelLabel(int channelNumber) {
+    return L"Channel " + std::to_wstring(channelNumber);
+}
+
+void addChannelComboItem(HWND combo, int channelNumber, const std::wstring& label) {
+    const LRESULT index = SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+    if (index != CB_ERR) {
+        SendMessageW(combo, CB_SETITEMDATA, static_cast<WPARAM>(index), static_cast<LPARAM>(channelNumber));
+    }
+}
+
+void selectComboBoxItemData(HWND combo, int channelNumber) {
+    const LRESULT count = SendMessageW(combo, CB_GETCOUNT, 0, 0);
+    for (LRESULT index = 0; index < count; ++index) {
+        const LRESULT itemData = SendMessageW(combo, CB_GETITEMDATA, static_cast<WPARAM>(index), 0);
+        if (itemData == channelNumber) {
+            SendMessageW(combo, CB_SETCURSEL, static_cast<WPARAM>(index), 0);
+            return;
+        }
+    }
+
+    if (count > 0) {
+        SendMessageW(combo, CB_SETCURSEL, 0, 0);
+    }
+}
+
+int selectedChannelNumber(HWND combo, int fallback) {
+    const LRESULT index = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+    if (index == CB_ERR) {
+        return fallback;
+    }
+
+    const LRESULT itemData = SendMessageW(combo, CB_GETITEMDATA, static_cast<WPARAM>(index), 0);
+    return itemData > 0 ? static_cast<int>(itemData) : fallback;
 }
 
 }  // namespace
@@ -89,22 +131,24 @@ LRESULT CALLBACK SettingsDialog::WindowProc(HWND window, UINT message, WPARAM wP
     case WM_COMMAND: {
         const WORD commandId = LOWORD(wParam);
         const WORD notificationCode = HIWORD(wParam);
-        if (commandId == 1 && notificationCode == CBN_SELCHANGE) {
+        if (commandId == kDriverControlId && notificationCode == CBN_SELCHANGE) {
+            dialog->populateChannelCombos();
             dialog->applyAndNotify();
             return 0;
         }
-        if ((commandId == 2 || commandId == 3 || commandId == 4) && notificationCode == EN_KILLFOCUS) {
+        if ((commandId == kMicControlId || commandId == kLeftControlId || commandId == kRightControlId) &&
+            notificationCode == CBN_SELCHANGE) {
             dialog->applyAndNotify();
             return 0;
         }
-        if (commandId == 7) {
+        if (commandId == kOpenControlPanelId) {
             const std::wstring driverText = getWindowTextValue(dialog->driver_);
             if (const auto error = dialog->asioService_.openControlPanel(window, driverText == kNoAsioDrivers ? L"" : driverText)) {
                 MessageBoxW(window, error->c_str(), L"ASIO Control Panel", MB_OK | MB_ICONERROR);
             }
             return 0;
         }
-        if (commandId == 8) {
+        if (commandId == kCloseControlId) {
             dialog->applyAndNotify();
             DestroyWindow(window);
             return 0;
@@ -134,26 +178,12 @@ std::wstring SettingsDialog::getWindowTextValue(HWND control) {
     return value;
 }
 
-bool SettingsDialog::tryParseInt(const std::wstring& text, int& value) {
-    try {
-        size_t cursor = 0;
-        const int parsed = std::stoi(text, &cursor);
-        if (cursor != text.size()) {
-            return false;
-        }
-        value = parsed;
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
 void SettingsDialog::createControls() {
     const auto drivers = asioService_.enumerateDrivers();
 
-    CreateWindowW(L"STATIC", L"ASIO driver", WS_CHILD | WS_VISIBLE, 20, 20, 140, 20, window_, nullptr, nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"ASIO device", WS_CHILD | WS_VISIBLE, 20, 20, 140, 20, window_, nullptr, nullptr, nullptr);
     driver_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                            170, 16, 240, 240, window_, reinterpret_cast<HMENU>(1), nullptr, nullptr);
+                            170, 16, 240, 240, window_, reinterpret_cast<HMENU>(kDriverControlId), nullptr, nullptr);
     for (const auto& driverName : drivers) {
         SendMessageW(driver_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(driverName.c_str()));
     }
@@ -161,20 +191,52 @@ void SettingsDialog::createControls() {
         SendMessageW(driver_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kNoAsioDrivers));
     }
     selectComboBoxString(driver_, toWide(settings_.driver));
+    SendMessageW(driver_, CB_SETDROPPEDWIDTH, 320, 0);
 
     CreateWindowW(L"STATIC", L"Mic input channel", WS_CHILD | WS_VISIBLE, 20, 56, 140, 20, window_, nullptr, nullptr, nullptr);
-    mic_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", formatWideDouble(settings_.micInputChannel, 0).c_str(),
-                           WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 170, 52, 80, 24, window_, reinterpret_cast<HMENU>(2), nullptr, nullptr);
+    mic_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                         170, 52, 240, 220, window_, reinterpret_cast<HMENU>(kMicControlId), nullptr, nullptr);
     CreateWindowW(L"STATIC", L"Left output channel", WS_CHILD | WS_VISIBLE, 20, 92, 140, 20, window_, nullptr, nullptr, nullptr);
-    left_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", formatWideDouble(settings_.leftOutputChannel, 0).c_str(),
-                            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 170, 88, 80, 24, window_, reinterpret_cast<HMENU>(3), nullptr, nullptr);
+    left_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                          170, 88, 240, 220, window_, reinterpret_cast<HMENU>(kLeftControlId), nullptr, nullptr);
     CreateWindowW(L"STATIC", L"Right output channel", WS_CHILD | WS_VISIBLE, 20, 128, 140, 20, window_, nullptr, nullptr, nullptr);
-    right_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", formatWideDouble(settings_.rightOutputChannel, 0).c_str(),
-                             WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 170, 124, 80, 24, window_, reinterpret_cast<HMENU>(4), nullptr, nullptr);
+    right_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                           170, 124, 240, 220, window_, reinterpret_cast<HMENU>(kRightControlId), nullptr, nullptr);
+    SendMessageW(mic_, CB_SETDROPPEDWIDTH, 320, 0);
+    SendMessageW(left_, CB_SETDROPPEDWIDTH, 320, 0);
+    SendMessageW(right_, CB_SETDROPPEDWIDTH, 320, 0);
+    populateChannelCombos();
+
     CreateWindowW(L"BUTTON", L"Open ASIO Control Panel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 164, 180, 28, window_,
-                  reinterpret_cast<HMENU>(7), nullptr, nullptr);
+                  reinterpret_cast<HMENU>(kOpenControlPanelId), nullptr, nullptr);
     CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 340, 164, 80, 28, window_,
-                  reinterpret_cast<HMENU>(8), nullptr, nullptr);
+                  reinterpret_cast<HMENU>(kCloseControlId), nullptr, nullptr);
+}
+
+void SettingsDialog::populateChannelCombos() {
+    const std::wstring driverText = getWindowTextValue(driver_);
+    SendMessageW(mic_, CB_RESETCONTENT, 0, 0);
+    SendMessageW(left_, CB_RESETCONTENT, 0, 0);
+    SendMessageW(right_, CB_RESETCONTENT, 0, 0);
+
+    audio::AsioChannelListing channels;
+    if (!driverText.empty() && driverText != kNoAsioDrivers) {
+        channels = asioService_.enumerateChannels(window_, driverText);
+    }
+
+    auto populateCombo = [](HWND combo, const std::vector<audio::AsioChannel>& options, int currentChannel) {
+        for (const auto& channel : options) {
+            addChannelComboItem(combo, channel.number, channel.name);
+        }
+        if (SendMessageW(combo, CB_GETCOUNT, 0, 0) == 0) {
+            addChannelComboItem(combo, currentChannel, formatSavedChannelLabel(currentChannel));
+        }
+        selectComboBoxItemData(combo, currentChannel);
+    };
+
+    populateCombo(mic_, channels.inputs, settings_.micInputChannel);
+    populateCombo(left_, channels.outputs, settings_.leftOutputChannel);
+    populateCombo(right_, channels.outputs, settings_.rightOutputChannel);
 }
 
 void SettingsDialog::applyAndNotify() {
@@ -183,16 +245,9 @@ void SettingsDialog::applyAndNotify() {
         settings_.driver = toUtf8(driverText);
     }
 
-    int parsedValue = 0;
-    if (tryParseInt(getWindowTextValue(mic_), parsedValue)) {
-        settings_.micInputChannel = parsedValue;
-    }
-    if (tryParseInt(getWindowTextValue(left_), parsedValue)) {
-        settings_.leftOutputChannel = parsedValue;
-    }
-    if (tryParseInt(getWindowTextValue(right_), parsedValue)) {
-        settings_.rightOutputChannel = parsedValue;
-    }
+    settings_.micInputChannel = selectedChannelNumber(mic_, settings_.micInputChannel);
+    settings_.leftOutputChannel = selectedChannelNumber(left_, settings_.leftOutputChannel);
+    settings_.rightOutputChannel = selectedChannelNumber(right_, settings_.rightOutputChannel);
 
     if (onSave_) {
         onSave_(settings_);
