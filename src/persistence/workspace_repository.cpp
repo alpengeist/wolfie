@@ -173,6 +173,10 @@ std::filesystem::path measurementResultFilePath(const std::filesystem::path& roo
     return rootPath / "measurement" / "result-values.txt";
 }
 
+std::filesystem::path measurementAnalysisFilePath(const std::filesystem::path& rootPath) {
+    return rootPath / "measurement" / "analysis.json";
+}
+
 bool parseMeasurementDataRow(std::string line, double& xValue, double& leftValue, double& rightValue) {
     for (char& ch : line) {
         if (ch == ',' || ch == ';' || ch == '\t') {
@@ -287,6 +291,205 @@ void loadMeasurementResultFile(WorkspaceState& workspace) {
     appendMeasurementValueSetIfValid(workspace.result, currentValueSet);
 }
 
+void loadMeasurementArtifact(const std::string& content,
+                             MeasurementAnalysis& analysis,
+                             const char* jsonKey,
+                             const char* artifactKey) {
+    if (const auto value = findJsonString(content, jsonKey)) {
+        if (value->empty()) {
+            return;
+        }
+        analysis.artifacts.push_back({artifactKey, std::filesystem::path(*value)});
+    }
+}
+
+void loadMeasurementAnalysisFile(WorkspaceState& workspace) {
+    workspace.result.analysis = {};
+    if (workspace.rootPath.empty()) {
+        return;
+    }
+
+    const auto content = readTextFile(measurementAnalysisFilePath(workspace.rootPath));
+    if (!content) {
+        return;
+    }
+
+    MeasurementAnalysis& analysis = workspace.result.analysis;
+    if (const auto value = findJsonString(*content, "analyzerVersion")) {
+        analysis.analyzerVersion = *value;
+    }
+    if (const auto value = findJsonString(*content, "measurementTimestampUtc")) {
+        analysis.measurementTimestampUtc = *value;
+    }
+    if (const auto value = findJsonString(*content, "backendName")) {
+        analysis.backendName = *value;
+    }
+    if (const auto value = findJsonString(*content, "backendInputDevice")) {
+        analysis.backendInputDevice = *value;
+    }
+    if (const auto value = findJsonString(*content, "backendOutputDevice")) {
+        analysis.backendOutputDevice = *value;
+    }
+    if (const auto value = findJsonString(*content, "requestedDriver")) {
+        analysis.requestedDriver = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "requestedMicInputChannel")) {
+        analysis.requestedMicInputChannel = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "requestedLeftOutputChannel")) {
+        analysis.requestedLeftOutputChannel = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "requestedRightOutputChannel")) {
+        analysis.requestedRightOutputChannel = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonBool(*content, "routingSelectionHonored")) {
+        analysis.routingSelectionHonored = *value;
+    }
+    if (const auto value = findJsonString(*content, "routingNotes")) {
+        analysis.routingNotes = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "sampleRate")) {
+        analysis.sampleRate = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "sweepDurationSeconds")) {
+        analysis.sweepDurationSeconds = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "fadeInSeconds")) {
+        analysis.fadeInSeconds = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "fadeOutSeconds")) {
+        analysis.fadeOutSeconds = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "startFrequencyHz")) {
+        analysis.startFrequencyHz = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "endFrequencyHz")) {
+        analysis.endFrequencyHz = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "targetLengthSamples")) {
+        analysis.targetLengthSamples = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "leadInSamples")) {
+        analysis.leadInSamples = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "outputVolumeDb")) {
+        analysis.outputVolumeDb = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "configuredLoopbackLatencySamples")) {
+        analysis.configuredLoopbackLatencySamples = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "configuredLoopbackLatencySampleRate")) {
+        analysis.configuredLoopbackLatencySampleRate = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "playedSweepSamples")) {
+        analysis.playedSweepSamples = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "capturedSamples")) {
+        analysis.capturedSamples = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "alignmentSearchSamples")) {
+        analysis.alignmentSearchSamples = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonString(*content, "alignmentMethod")) {
+        analysis.alignmentMethod = *value;
+    }
+    if (const auto value = findJsonString(*content, "windowType")) {
+        analysis.windowType = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "inverseFilterLengthSamples")) {
+        analysis.inverseFilterLengthSamples = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "inverseFilterPeakIndex")) {
+        analysis.inverseFilterPeakIndex = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "fftSize")) {
+        analysis.fftSize = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonNumber(*content, "displayPointCount")) {
+        analysis.displayPointCount = static_cast<int>(*value);
+    }
+    if (const auto value = findJsonBool(*content, "captureClippingDetected")) {
+        analysis.captureClippingDetected = *value;
+    }
+    if (const auto value = findJsonBool(*content, "captureTooQuiet")) {
+        analysis.captureTooQuiet = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "capturePeakDb")) {
+        analysis.capturePeakDb = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "captureRmsDb")) {
+        analysis.captureRmsDb = *value;
+    }
+    if (const auto value = findJsonNumber(*content, "captureNoiseFloorDb")) {
+        analysis.captureNoiseFloorDb = *value;
+    }
+
+    auto loadChannel = [&](MeasurementChannelMetrics& channel, std::string_view prefix) {
+        const std::string stem(prefix);
+        if (const auto value = findJsonBool(*content, stem + "Available")) {
+            channel.available = *value;
+        }
+        if (const auto value = findJsonNumber(*content, stem + "DetectedLatencySamples")) {
+            channel.detectedLatencySamples = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, stem + "OnsetSampleIndex")) {
+            channel.onsetSampleIndex = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, stem + "OnsetTimeSeconds")) {
+            channel.onsetTimeSeconds = *value;
+        }
+        if (const auto value = findJsonNumber(*content, stem + "PeakSampleIndex")) {
+            channel.peakSampleIndex = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, stem + "ImpulseStartSample")) {
+            channel.impulseStartSample = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, stem + "ImpulseLengthSamples")) {
+            channel.impulseLengthSamples = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, stem + "PreRollSamples")) {
+            channel.preRollSamples = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, stem + "AnalysisWindowStartSample")) {
+            channel.analysisWindowStartSample = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, stem + "AnalysisWindowLengthSamples")) {
+            channel.analysisWindowLengthSamples = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, stem + "AnalysisWindowFadeSamples")) {
+            channel.analysisWindowFadeSamples = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, stem + "CapturePeakDb")) {
+            channel.capturePeakDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, stem + "CaptureRmsDb")) {
+            channel.captureRmsDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, stem + "NoiseFloorDb")) {
+            channel.noiseFloorDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, stem + "ImpulsePeakAmplitude")) {
+            channel.impulsePeakAmplitude = *value;
+        }
+        if (const auto value = findJsonNumber(*content, stem + "ImpulsePeakDb")) {
+            channel.impulsePeakDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, stem + "ImpulseRmsDb")) {
+            channel.impulseRmsDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, stem + "ImpulsePeakToNoiseDb")) {
+            channel.impulsePeakToNoiseDb = *value;
+        }
+    };
+
+    loadChannel(analysis.left, "left");
+    loadChannel(analysis.right, "right");
+    loadMeasurementArtifact(*content, analysis, "artifactGeneratedSweepWav", "generated_sweep_wav");
+    loadMeasurementArtifact(*content, analysis, "artifactRawCaptureWav", "raw_capture_wav");
+    loadMeasurementArtifact(*content, analysis, "artifactResultValuesTxt", "result_values_txt");
+    loadMeasurementArtifact(*content, analysis, "artifactAnalysisJson", "analysis_json");
+}
+
 void loadTargetCurveBandsFile(WorkspaceState& workspace) {
     workspace.targetCurve.eqBands.clear();
     if (workspace.rootPath.empty()) {
@@ -355,6 +558,96 @@ void saveMeasurementResultFile(const WorkspaceState& workspace) {
     }
     writeTextFile(measurementResultFilePath(workspace.rootPath), out.str());
     std::filesystem::remove(workspace.rootPath / "measurement" / "response.csv");
+}
+
+void saveMeasurementAnalysisFile(const WorkspaceState& workspace) {
+    if (workspace.rootPath.empty()) {
+        return;
+    }
+
+    const MeasurementAnalysis& analysis = workspace.result.analysis;
+    if (!workspace.result.hasAnyValues() &&
+        analysis.measurementTimestampUtc.empty() &&
+        analysis.artifacts.empty()) {
+        std::filesystem::remove(measurementAnalysisFilePath(workspace.rootPath));
+        return;
+    }
+
+    auto artifactPath = [&](std::string_view key) -> std::string {
+        if (const MeasurementArtifact* artifact = analysis.findArtifact(key)) {
+            const auto utf8 = artifact->path.generic_u8string();
+            return std::string(utf8.begin(), utf8.end());
+        }
+        return {};
+    };
+
+    auto writeChannel = [](std::ostringstream& out, const MeasurementChannelMetrics& channel, std::string_view prefix) {
+        out << "  \"" << prefix << "Available\": " << (channel.available ? "true" : "false") << ",\n"
+            << "  \"" << prefix << "DetectedLatencySamples\": " << channel.detectedLatencySamples << ",\n"
+            << "  \"" << prefix << "OnsetSampleIndex\": " << channel.onsetSampleIndex << ",\n"
+            << "  \"" << prefix << "OnsetTimeSeconds\": " << channel.onsetTimeSeconds << ",\n"
+            << "  \"" << prefix << "PeakSampleIndex\": " << channel.peakSampleIndex << ",\n"
+            << "  \"" << prefix << "ImpulseStartSample\": " << channel.impulseStartSample << ",\n"
+            << "  \"" << prefix << "ImpulseLengthSamples\": " << channel.impulseLengthSamples << ",\n"
+            << "  \"" << prefix << "PreRollSamples\": " << channel.preRollSamples << ",\n"
+            << "  \"" << prefix << "AnalysisWindowStartSample\": " << channel.analysisWindowStartSample << ",\n"
+            << "  \"" << prefix << "AnalysisWindowLengthSamples\": " << channel.analysisWindowLengthSamples << ",\n"
+            << "  \"" << prefix << "AnalysisWindowFadeSamples\": " << channel.analysisWindowFadeSamples << ",\n"
+            << "  \"" << prefix << "CapturePeakDb\": " << channel.capturePeakDb << ",\n"
+            << "  \"" << prefix << "CaptureRmsDb\": " << channel.captureRmsDb << ",\n"
+            << "  \"" << prefix << "NoiseFloorDb\": " << channel.noiseFloorDb << ",\n"
+            << "  \"" << prefix << "ImpulsePeakAmplitude\": " << channel.impulsePeakAmplitude << ",\n"
+            << "  \"" << prefix << "ImpulsePeakDb\": " << channel.impulsePeakDb << ",\n"
+            << "  \"" << prefix << "ImpulseRmsDb\": " << channel.impulseRmsDb << ",\n"
+            << "  \"" << prefix << "ImpulsePeakToNoiseDb\": " << channel.impulsePeakToNoiseDb << ",\n";
+    };
+
+    std::ostringstream out;
+    out << "{\n"
+        << "  \"analyzerVersion\": \"" << escapeJson(analysis.analyzerVersion) << "\",\n"
+        << "  \"measurementTimestampUtc\": \"" << escapeJson(analysis.measurementTimestampUtc) << "\",\n"
+        << "  \"backendName\": \"" << escapeJson(analysis.backendName) << "\",\n"
+        << "  \"backendInputDevice\": \"" << escapeJson(analysis.backendInputDevice) << "\",\n"
+        << "  \"backendOutputDevice\": \"" << escapeJson(analysis.backendOutputDevice) << "\",\n"
+        << "  \"requestedDriver\": \"" << escapeJson(analysis.requestedDriver) << "\",\n"
+        << "  \"requestedMicInputChannel\": " << analysis.requestedMicInputChannel << ",\n"
+        << "  \"requestedLeftOutputChannel\": " << analysis.requestedLeftOutputChannel << ",\n"
+        << "  \"requestedRightOutputChannel\": " << analysis.requestedRightOutputChannel << ",\n"
+        << "  \"routingSelectionHonored\": " << (analysis.routingSelectionHonored ? "true" : "false") << ",\n"
+        << "  \"routingNotes\": \"" << escapeJson(analysis.routingNotes) << "\",\n"
+        << "  \"sampleRate\": " << analysis.sampleRate << ",\n"
+        << "  \"sweepDurationSeconds\": " << analysis.sweepDurationSeconds << ",\n"
+        << "  \"fadeInSeconds\": " << analysis.fadeInSeconds << ",\n"
+        << "  \"fadeOutSeconds\": " << analysis.fadeOutSeconds << ",\n"
+        << "  \"startFrequencyHz\": " << analysis.startFrequencyHz << ",\n"
+        << "  \"endFrequencyHz\": " << analysis.endFrequencyHz << ",\n"
+        << "  \"targetLengthSamples\": " << analysis.targetLengthSamples << ",\n"
+        << "  \"leadInSamples\": " << analysis.leadInSamples << ",\n"
+        << "  \"outputVolumeDb\": " << analysis.outputVolumeDb << ",\n"
+        << "  \"configuredLoopbackLatencySamples\": " << analysis.configuredLoopbackLatencySamples << ",\n"
+        << "  \"configuredLoopbackLatencySampleRate\": " << analysis.configuredLoopbackLatencySampleRate << ",\n"
+        << "  \"playedSweepSamples\": " << analysis.playedSweepSamples << ",\n"
+        << "  \"capturedSamples\": " << analysis.capturedSamples << ",\n"
+        << "  \"alignmentSearchSamples\": " << analysis.alignmentSearchSamples << ",\n"
+        << "  \"alignmentMethod\": \"" << escapeJson(analysis.alignmentMethod) << "\",\n"
+        << "  \"windowType\": \"" << escapeJson(analysis.windowType) << "\",\n"
+        << "  \"inverseFilterLengthSamples\": " << analysis.inverseFilterLengthSamples << ",\n"
+        << "  \"inverseFilterPeakIndex\": " << analysis.inverseFilterPeakIndex << ",\n"
+        << "  \"fftSize\": " << analysis.fftSize << ",\n"
+        << "  \"displayPointCount\": " << analysis.displayPointCount << ",\n"
+        << "  \"captureClippingDetected\": " << (analysis.captureClippingDetected ? "true" : "false") << ",\n"
+        << "  \"captureTooQuiet\": " << (analysis.captureTooQuiet ? "true" : "false") << ",\n"
+        << "  \"capturePeakDb\": " << analysis.capturePeakDb << ",\n"
+        << "  \"captureRmsDb\": " << analysis.captureRmsDb << ",\n"
+        << "  \"captureNoiseFloorDb\": " << analysis.captureNoiseFloorDb << ",\n";
+    writeChannel(out, analysis.left, "left");
+    writeChannel(out, analysis.right, "right");
+    out << "  \"artifactGeneratedSweepWav\": \"" << escapeJson(artifactPath("generated_sweep_wav")) << "\",\n"
+        << "  \"artifactRawCaptureWav\": \"" << escapeJson(artifactPath("raw_capture_wav")) << "\",\n"
+        << "  \"artifactResultValuesTxt\": \"" << escapeJson(artifactPath("result_values_txt")) << "\",\n"
+        << "  \"artifactAnalysisJson\": \"" << escapeJson(artifactPath("analysis_json")) << "\"\n"
+        << "}\n";
+    writeTextFile(measurementAnalysisFilePath(workspace.rootPath), out.str());
 }
 
 void saveTargetCurveBandsFile(const WorkspaceState& workspace) {
@@ -472,6 +765,7 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
     std::wstring calibrationError;
     loadMicrophoneCalibration(workspace.audio, calibrationError);
     loadMeasurementResultFile(workspace);
+    loadMeasurementAnalysisFile(workspace);
     loadTargetCurveBandsFile(workspace);
     const auto targetPlot = measurement::buildTargetCurvePlotData(workspace.smoothedResponse,
                                                                   workspace.measurement,
@@ -556,6 +850,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
     writeTextFile(workspace.rootPath / "ui.json", uiJson.str());
 
     saveMeasurementResultFile(workspace);
+    saveMeasurementAnalysisFile(workspace);
     saveTargetCurveBandsFile(workspace);
 }
 

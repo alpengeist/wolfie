@@ -67,8 +67,86 @@ struct MeasurementValueSet {
     }
 };
 
+struct MeasurementArtifact {
+    std::string key;
+    std::filesystem::path path;
+};
+
+struct MeasurementChannelMetrics {
+    bool available = false;
+    int detectedLatencySamples = 0;
+    int onsetSampleIndex = 0;
+    double onsetTimeSeconds = 0.0;
+    int peakSampleIndex = 0;
+    int impulseStartSample = 0;
+    int impulseLengthSamples = 0;
+    int preRollSamples = 0;
+    int analysisWindowStartSample = 0;
+    int analysisWindowLengthSamples = 0;
+    int analysisWindowFadeSamples = 0;
+    double capturePeakDb = -90.0;
+    double captureRmsDb = -90.0;
+    double noiseFloorDb = -90.0;
+    double impulsePeakAmplitude = 0.0;
+    double impulsePeakDb = -90.0;
+    double impulseRmsDb = -90.0;
+    double impulsePeakToNoiseDb = 0.0;
+};
+
+struct MeasurementAnalysis {
+    std::string analyzerVersion = "ir-v2";
+    std::string measurementTimestampUtc;
+    std::string backendName;
+    std::string backendInputDevice;
+    std::string backendOutputDevice;
+    std::string requestedDriver;
+    int requestedMicInputChannel = 0;
+    int requestedLeftOutputChannel = 0;
+    int requestedRightOutputChannel = 0;
+    bool routingSelectionHonored = false;
+    std::string routingNotes;
+    int sampleRate = 0;
+    double sweepDurationSeconds = 0.0;
+    double fadeInSeconds = 0.0;
+    double fadeOutSeconds = 0.0;
+    double startFrequencyHz = 0.0;
+    double endFrequencyHz = 0.0;
+    int targetLengthSamples = 0;
+    int leadInSamples = 0;
+    double outputVolumeDb = 0.0;
+    int configuredLoopbackLatencySamples = 0;
+    int configuredLoopbackLatencySampleRate = 0;
+    int playedSweepSamples = 0;
+    int capturedSamples = 0;
+    int alignmentSearchSamples = 0;
+    std::string alignmentMethod;
+    std::string windowType;
+    int inverseFilterLengthSamples = 0;
+    int inverseFilterPeakIndex = 0;
+    int fftSize = 0;
+    int displayPointCount = 0;
+    bool captureClippingDetected = false;
+    bool captureTooQuiet = false;
+    double capturePeakDb = -90.0;
+    double captureRmsDb = -90.0;
+    double captureNoiseFloorDb = -90.0;
+    MeasurementChannelMetrics left;
+    MeasurementChannelMetrics right;
+    std::vector<MeasurementArtifact> artifacts;
+
+    [[nodiscard]] const MeasurementArtifact* findArtifact(std::string_view key) const {
+        for (const MeasurementArtifact& artifact : artifacts) {
+            if (artifact.key == key) {
+                return &artifact;
+            }
+        }
+        return nullptr;
+    }
+};
+
 struct MeasurementResult {
     std::vector<MeasurementValueSet> valueSets;
+    MeasurementAnalysis analysis;
 
     [[nodiscard]] const MeasurementValueSet* findValueSet(std::string_view key) const {
         for (const MeasurementValueSet& valueSet : valueSets) {

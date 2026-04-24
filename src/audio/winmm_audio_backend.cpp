@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <string>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -31,6 +32,40 @@ std::wstring formatMmError(MMRESULT result, std::wstring_view operation) {
         message += L"Unknown multimedia error";
     }
     return message;
+}
+
+std::wstring outputDeviceName(HWAVEOUT waveOut) {
+    if (waveOut == nullptr) {
+        return {};
+    }
+
+    UINT deviceId = 0;
+    if (waveOutGetID(waveOut, &deviceId) != MMSYSERR_NOERROR) {
+        return {};
+    }
+
+    WAVEOUTCAPSW caps{};
+    if (waveOutGetDevCapsW(deviceId, &caps, sizeof(caps)) != MMSYSERR_NOERROR) {
+        return {};
+    }
+    return caps.szPname;
+}
+
+std::wstring inputDeviceName(HWAVEIN waveIn) {
+    if (waveIn == nullptr) {
+        return {};
+    }
+
+    UINT deviceId = 0;
+    if (waveInGetID(waveIn, &deviceId) != MMSYSERR_NOERROR) {
+        return {};
+    }
+
+    WAVEINCAPSW caps{};
+    if (waveInGetDevCapsW(deviceId, &caps, sizeof(caps)) != MMSYSERR_NOERROR) {
+        return {};
+    }
+    return caps.szPname;
 }
 
 class WinMmMeasurementSession final : public IAudioMeasurementSession {
@@ -80,6 +115,17 @@ public:
 
     int sampleRate() const override {
         return sampleRate_;
+    }
+
+    SessionDetails details() const override {
+        SessionDetails sessionDetails;
+        sessionDetails.backendName = "WinMM";
+        sessionDetails.inputDeviceName = inputDeviceName(waveIn_);
+        sessionDetails.outputDeviceName = outputDeviceName(waveOut_);
+        sessionDetails.routingSelectionHonored = false;
+        sessionDetails.routingNotes = L"WinMM measurement uses the current default stereo output and mono input. "
+                                      L"The selected ASIO driver and channel numbers are recorded as requested routing only.";
+        return sessionDetails;
     }
 
     void stop(AudioLevels& levels) override {

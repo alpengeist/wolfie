@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "audio/audio_backend.h"
 #include "core/models.h"
@@ -34,6 +35,7 @@ private:
     uint64_t startTickMs_ = 0;
     uint64_t durationMs_ = 0;
     bool loopbackCalibration_ = false;
+    std::string measurementTimestampUtc_;
 };
 
 }  // namespace wolfie

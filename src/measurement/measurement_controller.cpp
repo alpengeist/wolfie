@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
+#include <sstream>
 
 #include <windows.h>
 
+#include "core/text_utils.h"
 #include "measurement/response_analyzer.h"
 
 namespace wolfie {
@@ -18,6 +21,20 @@ T clampValue(T value, T low, T high) {
 
 uint64_t tickMillis() {
     return GetTickCount64();
+}
+
+std::string currentUtcTimestamp() {
+    SYSTEMTIME time{};
+    GetSystemTime(&time);
+    std::ostringstream out;
+    out << std::setfill('0')
+        << std::setw(4) << time.wYear << '-'
+        << std::setw(2) << time.wMonth << '-'
+        << std::setw(2) << time.wDay << 'T'
+        << std::setw(2) << time.wHour << ':'
+        << std::setw(2) << time.wMinute << ':'
+        << std::setw(2) << time.wSecond << 'Z';
+    return out.str();
 }
 
 }  // namespace
@@ -36,6 +53,7 @@ void MeasurementController::resetState() {
     durationMs_ = 0;
     playbackPlan_ = {};
     loopbackCalibration_ = false;
+    measurementTimestampUtc_.clear();
 }
 
 bool MeasurementController::start(const WorkspaceState& workspace) {
@@ -55,6 +73,7 @@ bool MeasurementController::startInternal(const WorkspaceState& workspace, bool 
     measurement::syncDerivedMeasurementSettings(snapshot_.measurement);
 
     const int sampleRate = std::max(8000, snapshot_.measurement.sampleRate);
+    measurementTimestampUtc_ = currentUtcTimestamp();
     playbackPlan_ = loopbackCalibration_
                         ? measurement::buildLoopbackCalibrationPlaybackPlan(snapshot_.measurement,
                                                                             snapshot_.audio.outputVolumeDb)
@@ -147,9 +166,16 @@ void MeasurementController::tick() {
         return;
     }
 
+    const audio::SessionDetails sessionDetails = session_->details();
     session_->stop(levels);
     status_.currentAmplitudeDb = levels.currentAmplitudeDb;
     status_.peakAmplitudeDb = levels.peakAmplitudeDb;
+
+    const std::filesystem::path measurementDir = snapshot_.rootPath / "measurement";
+    std::filesystem::create_directories(measurementDir);
+    const std::filesystem::path rawCapturePath =
+        measurementDir / (loopbackCalibration_ ? "loopback-capture.wav" : "raw-capture.wav");
+    measurement::writeMonoWaveFile(rawCapturePath, session_->capturedSamples(), session_->sampleRate());
 
     if (loopbackCalibration_) {
         const measurement::LoopbackDelayEstimate estimate =
@@ -177,6 +203,16 @@ void MeasurementController::tick() {
                                                                  session_->sampleRate(),
                                                                  snapshot_.audio,
                                                                  snapshot_.measurement);
+        result_.analysis.measurementTimestampUtc = measurementTimestampUtc_;
+        result_.analysis.backendName = sessionDetails.backendName;
+        result_.analysis.backendInputDevice = toUtf8(sessionDetails.inputDeviceName);
+        result_.analysis.backendOutputDevice = toUtf8(sessionDetails.outputDeviceName);
+        result_.analysis.routingSelectionHonored = sessionDetails.routingSelectionHonored;
+        result_.analysis.routingNotes = toUtf8(sessionDetails.routingNotes);
+        result_.analysis.artifacts.push_back({"generated_sweep_wav", status_.generatedSweepPath});
+        result_.analysis.artifacts.push_back({"raw_capture_wav", rawCapturePath});
+        result_.analysis.artifacts.push_back({"result_values_txt", measurementDir / "result-values.txt"});
+        result_.analysis.artifacts.push_back({"analysis_json", measurementDir / "analysis.json"});
     }
 
     session_.reset();

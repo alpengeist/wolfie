@@ -180,4 +180,39 @@ bool writeStereoWaveFile(const std::filesystem::path& path,
     return static_cast<bool>(out);
 }
 
+bool writeMonoWaveFile(const std::filesystem::path& path,
+                       const std::vector<int16_t>& samples,
+                       int sampleRate) {
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        return false;
+    }
+
+    const uint16_t channels = 1;
+    const uint16_t bitsPerSample = 16;
+    const uint32_t byteRate = sampleRate * channels * bitsPerSample / 8;
+    const uint16_t blockAlign = channels * bitsPerSample / 8;
+    const uint32_t dataSize = static_cast<uint32_t>(samples.size() * sizeof(int16_t));
+    const uint32_t riffSize = 36 + dataSize;
+
+    out.write("RIFF", 4);
+    out.write(reinterpret_cast<const char*>(&riffSize), sizeof(riffSize));
+    out.write("WAVE", 4);
+    out.write("fmt ", 4);
+    const uint32_t fmtSize = 16;
+    const uint16_t formatTag = 1;
+    out.write(reinterpret_cast<const char*>(&fmtSize), sizeof(fmtSize));
+    out.write(reinterpret_cast<const char*>(&formatTag), sizeof(formatTag));
+    out.write(reinterpret_cast<const char*>(&channels), sizeof(channels));
+    out.write(reinterpret_cast<const char*>(&sampleRate), sizeof(sampleRate));
+    out.write(reinterpret_cast<const char*>(&byteRate), sizeof(byteRate));
+    out.write(reinterpret_cast<const char*>(&blockAlign), sizeof(blockAlign));
+    out.write(reinterpret_cast<const char*>(&bitsPerSample), sizeof(bitsPerSample));
+    out.write("data", 4);
+    out.write(reinterpret_cast<const char*>(&dataSize), sizeof(dataSize));
+    out.write(reinterpret_cast<const char*>(samples.data()), static_cast<std::streamsize>(dataSize));
+
+    return static_cast<bool>(out);
+}
+
 }  // namespace wolfie::measurement

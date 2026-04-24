@@ -77,7 +77,7 @@ WolfieApp::WolfieApp(HINSTANCE instance)
 int WolfieApp::run() {
     INITCOMMONCONTROLSEX initCommonControls{};
     initCommonControls.dwSize = sizeof(initCommonControls);
-    initCommonControls.dwICC = ICC_STANDARD_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES;
+    initCommonControls.dwICC = ICC_STANDARD_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_LISTVIEW_CLASSES;
     InitCommonControlsEx(&initCommonControls);
 
     appState_ = appStateRepository_.load();
@@ -895,6 +895,17 @@ void WolfieApp::finalizeMeasurement() {
                          L" response points. Peak capture level " +
                          std::to_wstring(static_cast<int>(std::lround(completedStatus.peakAmplitudeDb))) +
                          L" dB.");
+    appendMeasurementLog(L"Detected alignment: left " +
+                         std::to_wstring(workspace_.result.analysis.left.detectedLatencySamples) +
+                         L" samples, right " +
+                         std::to_wstring(workspace_.result.analysis.right.detectedLatencySamples) +
+                         L" samples.");
+    if (workspace_.result.analysis.captureClippingDetected) {
+        appendMeasurementLog(L"Warning: clipping was detected during the sweep capture.", LogSeverity::Error);
+    }
+    if (workspace_.result.analysis.captureTooQuiet) {
+        appendMeasurementLog(L"Warning: sweep capture level was very low.", LogSeverity::Error);
+    }
     refreshMeasurementStatus();
 }
 

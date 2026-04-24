@@ -14,6 +14,14 @@ struct AudioLevels {
     double peakAmplitudeDb = -90.0;
 };
 
+struct SessionDetails {
+    std::string backendName;
+    std::wstring inputDeviceName;
+    std::wstring outputDeviceName;
+    bool routingSelectionHonored = false;
+    std::wstring routingNotes;
+};
+
 class IAudioMeasurementSession {
 public:
     virtual ~IAudioMeasurementSession() = default;
@@ -22,6 +30,7 @@ public:
     virtual bool playbackDone() const = 0;
     virtual const std::vector<int16_t>& capturedSamples() const = 0;
     virtual int sampleRate() const = 0;
+    virtual SessionDetails details() const = 0;
     virtual void stop(AudioLevels& levels) = 0;
 };
 

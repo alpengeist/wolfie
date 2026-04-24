@@ -79,6 +79,11 @@ struct CorrelationPeak {
     double peakToNoiseDb = 0.0;
 };
 
+struct InverseSweepFilter {
+    std::vector<double> samples;
+    size_t referencePeakIndex = 0;
+};
+
 std::vector<ReferencePulse> findReferencePulses(const std::vector<double>& reference) {
     std::vector<ReferencePulse> pulses;
     for (size_t i = 0; i < reference.size(); ++i) {
@@ -155,6 +160,41 @@ CorrelationPeak correlatePulseTrainAtSegment(const std::vector<double>& captured
     peak.score = *best;
     peak.peakToNoiseDb = noiseRms <= 1.0e-12 ? 120.0 : 20.0 * std::log10(*best / noiseRms);
     return peak;
+}
+
+double absolutePeakDb(const std::vector<double>& samples) {
+    return amplitudeToDb(maxAbsSample(samples));
+}
+
+double rmsDbFromSamples(const std::vector<double>& samples) {
+    return amplitudeToDb(rmsFromDouble(samples.data(), samples.size()));
+}
+
+double rmsDbFromPcmVector(const std::vector<int16_t>& samples) {
+    return amplitudeToDb(rmsFromPcm16(samples.data(), samples.size()));
+}
+
+double rmsExcludingRange(const std::vector<double>& samples, size_t excludedCenter, size_t excludedRadius) {
+    if (samples.empty()) {
+        return 0.0;
+    }
+
+    const size_t excludeBegin = excludedCenter > excludedRadius ? excludedCenter - excludedRadius : 0;
+    const size_t excludeEnd = std::min(samples.size(), excludedCenter + excludedRadius + 1);
+    double energy = 0.0;
+    size_t count = 0;
+    for (size_t i = 0; i < samples.size(); ++i) {
+        if (i >= excludeBegin && i < excludeEnd) {
+            continue;
+        }
+        energy += samples[i] * samples[i];
+        ++count;
+    }
+    return count == 0 ? 0.0 : std::sqrt(energy / static_cast<double>(count));
+}
+
+double noiseFloorDb(const std::vector<double>& samples, size_t excludedCenter = 0, size_t excludedRadius = 0) {
+    return amplitudeToDb(rmsExcludingRange(samples, excludedCenter, excludedRadius));
 }
 
 double interpolateMicrophoneCalibrationDb(const AudioSettings& audioSettings, double frequencyHz) {
@@ -312,11 +352,12 @@ size_t maxAbsIndex(const std::vector<double>& samples) {
     return bestIndex;
 }
 
-std::vector<double> buildInverseSweepFilter(const std::vector<double>& sweepSamples,
-                                            const MeasurementSettings& settings,
-                                            int sampleRate) {
+InverseSweepFilter buildInverseSweepFilter(const std::vector<double>& sweepSamples,
+                                           const MeasurementSettings& settings,
+                                           int sampleRate) {
+    InverseSweepFilter filter;
     if (sweepSamples.empty()) {
-        return {};
+        return filter;
     }
 
     const double durationSeconds = static_cast<double>(sweepSamples.size()) / static_cast<double>(std::max(sampleRate, 1));
@@ -325,35 +366,36 @@ std::vector<double> buildInverseSweepFilter(const std::vector<double>& sweepSamp
     const double logSpan = std::log(endHz / startHz);
     const double growth = logSpan > 1.0e-9 ? durationSeconds / logSpan : 0.0;
 
-    std::vector<double> inverseFilter(sweepSamples.size(), 0.0);
+    filter.samples.assign(sweepSamples.size(), 0.0);
     for (size_t i = 0; i < sweepSamples.size(); ++i) {
         const double t = static_cast<double>(i) / static_cast<double>(std::max(sampleRate, 1));
         const double weight = growth > 0.0 ? std::exp(-t / growth) : 1.0;
-        inverseFilter[i] = sweepSamples[sweepSamples.size() - 1 - i] * weight;
+        filter.samples[i] = sweepSamples[sweepSamples.size() - 1 - i] * weight;
     }
 
-    const std::vector<double> selfDeconvolved = convolveReal(sweepSamples, inverseFilter);
-    const size_t peakIndex = maxAbsIndex(selfDeconvolved);
-    const double peakValue = peakIndex < selfDeconvolved.size() ? selfDeconvolved[peakIndex] : 0.0;
+    const std::vector<double> selfDeconvolved = convolveReal(sweepSamples, filter.samples);
+    filter.referencePeakIndex = maxAbsIndex(selfDeconvolved);
+    const double peakValue =
+        filter.referencePeakIndex < selfDeconvolved.size() ? selfDeconvolved[filter.referencePeakIndex] : 0.0;
     if (std::abs(peakValue) > 1.0e-9) {
         const double scale = 1.0 / peakValue;
-        for (double& sample : inverseFilter) {
+        for (double& sample : filter.samples) {
             sample *= scale;
         }
     }
-    return inverseFilter;
+    return filter;
 }
 
 std::vector<double> extractCaptureSegment(const std::vector<int16_t>& capturedSamples,
                                           size_t segmentOffset,
                                           const SweepPlaybackPlan& playbackPlan,
-                                          size_t loopbackLatencyFrames) {
-    const size_t captureStart = segmentOffset + playbackPlan.leadInFrames + loopbackLatencyFrames;
+                                          size_t extraTailFrames) {
+    const size_t captureStart = segmentOffset;
     if (captureStart >= capturedSamples.size()) {
         return {};
     }
 
-    const size_t availableFrames = std::min(playbackPlan.sweepFrames + playbackPlan.postRollFrames,
+    const size_t availableFrames = std::min(playbackPlan.segmentFrames + extraTailFrames,
                                             capturedSamples.size() - captureStart);
     if (availableFrames == 0) {
         return {};
@@ -376,17 +418,29 @@ std::vector<double> makeTimeAxisSeconds(size_t sampleCount, size_t preRollFrames
     return axis;
 }
 
-void applyTailFade(std::vector<double>& samples) {
+size_t applyAnalysisWindow(std::vector<double>& samples, size_t preRollFrames) {
     if (samples.size() < 64) {
-        return;
+        return 0;
     }
 
     const size_t fadeFrames = std::clamp(samples.size() / 16, size_t{32}, size_t{2048});
-    for (size_t i = 0; i < fadeFrames; ++i) {
-        const double t = static_cast<double>(i) / static_cast<double>(std::max<size_t>(1, fadeFrames - 1));
-        const double weight = 0.5 * (1.0 + std::cos(kPi * t));
-        samples[samples.size() - fadeFrames + i] *= weight;
+    const size_t leadingFade = std::min(preRollFrames, fadeFrames);
+    if (leadingFade > 1) {
+        for (size_t i = 0; i < leadingFade; ++i) {
+            const double t = static_cast<double>(i) / static_cast<double>(leadingFade - 1);
+            const double weight = 0.5 - (0.5 * std::cos(kPi * t));
+            samples[i] *= weight;
+        }
     }
+
+    if (fadeFrames > 1) {
+        for (size_t i = 0; i < fadeFrames; ++i) {
+            const double t = static_cast<double>(i) / static_cast<double>(fadeFrames - 1);
+            const double weight = 0.5 * (1.0 + std::cos(kPi * t));
+            samples[samples.size() - fadeFrames + i] *= weight;
+        }
+    }
+    return fadeFrames;
 }
 
 std::vector<double> unwrapPhaseRadians(const std::vector<double>& phaseRadians) {
@@ -528,32 +582,59 @@ MeasurementValueSet buildFullSpectrumValueSet(const std::string& key,
 }
 
 struct ChannelAnalysis {
+    std::vector<double> captureSegment;
     std::vector<double> impulseResponse;
+    int detectedLatencySamples = 0;
+    size_t peakSampleIndex = 0;
+    size_t impulseStartSample = 0;
     size_t preRollFrames = 0;
+    size_t analysisWindowLengthFrames = 0;
+    size_t analysisWindowFadeFrames = 0;
+    double capturePeakDb = -90.0;
+    double captureRmsDb = -90.0;
+    double noiseFloorDb = -90.0;
+    double impulsePeakAmplitude = 0.0;
+    double impulsePeakDb = -90.0;
+    double impulseRmsDb = -90.0;
+    double impulsePeakToNoiseDb = 0.0;
 };
 
 ChannelAnalysis analyzeSweepSegment(const std::vector<int16_t>& capturedSamples,
                                     size_t segmentOffset,
                                     const SweepPlaybackPlan& playbackPlan,
-                                    size_t loopbackLatencyFrames,
-                                    const std::vector<double>& inverseFilter,
+                                    size_t alignmentSearchFrames,
+                                    const InverseSweepFilter& inverseFilter,
                                     int sampleRate,
                                     const MeasurementSettings& settings) {
     ChannelAnalysis analysis;
-    const std::vector<double> captureSegment = extractCaptureSegment(capturedSamples,
-                                                                     segmentOffset,
-                                                                     playbackPlan,
-                                                                     loopbackLatencyFrames);
-    if (captureSegment.empty() || inverseFilter.empty()) {
+    analysis.captureSegment = extractCaptureSegment(capturedSamples,
+                                                    segmentOffset,
+                                                    playbackPlan,
+                                                    alignmentSearchFrames);
+    if (analysis.captureSegment.empty() || inverseFilter.samples.empty()) {
         return analysis;
     }
 
-    const std::vector<double> deconvolved = convolveReal(captureSegment, inverseFilter);
+    analysis.capturePeakDb = absolutePeakDb(analysis.captureSegment);
+    analysis.captureRmsDb = rmsDbFromSamples(analysis.captureSegment);
+    const size_t noiseFrames = std::min<size_t>(std::max<size_t>(playbackPlan.leadInFrames, 64),
+                                                analysis.captureSegment.size());
+    if (noiseFrames > 0) {
+        const std::vector<double> leadingNoise(analysis.captureSegment.begin(),
+                                               analysis.captureSegment.begin() + static_cast<std::ptrdiff_t>(noiseFrames));
+        analysis.noiseFloorDb = rmsDbFromSamples(leadingNoise);
+    }
+
+    const std::vector<double> deconvolved = convolveReal(analysis.captureSegment, inverseFilter.samples);
     if (deconvolved.empty()) {
         return analysis;
     }
 
     const size_t peakIndex = maxAbsIndex(deconvolved);
+    analysis.peakSampleIndex = peakIndex;
+    const int latency = static_cast<int>(peakIndex) - static_cast<int>(inverseFilter.referencePeakIndex) -
+                        static_cast<int>(playbackPlan.leadInFrames);
+    analysis.detectedLatencySamples = std::max(0, latency);
     const size_t requestedTargetLength = static_cast<size_t>(std::max(settings.targetLengthSamples, 512));
     const size_t targetLength = std::min(requestedTargetLength, deconvolved.size());
     if (targetLength == 0) {
@@ -561,9 +642,19 @@ ChannelAnalysis analyzeSweepSegment(const std::vector<int16_t>& capturedSamples,
     }
     analysis.preRollFrames = std::min<size_t>(std::min(targetLength / 8, size_t{512}), peakIndex);
     const size_t impulseStart = peakIndex - analysis.preRollFrames;
+    analysis.impulseStartSample = impulseStart;
     const size_t availableLength = std::min(targetLength, deconvolved.size() - impulseStart);
     analysis.impulseResponse.assign(deconvolved.begin() + static_cast<std::ptrdiff_t>(impulseStart),
                                     deconvolved.begin() + static_cast<std::ptrdiff_t>(impulseStart + availableLength));
+    analysis.analysisWindowLengthFrames = analysis.impulseResponse.size();
+    analysis.impulsePeakAmplitude = maxAbsSample(analysis.impulseResponse);
+    analysis.impulsePeakDb = absolutePeakDb(analysis.impulseResponse);
+    analysis.impulseRmsDb = rmsDbFromSamples(analysis.impulseResponse);
+    const size_t excludeRadius = std::clamp(analysis.impulseResponse.size() / 64, size_t{16}, size_t{2048});
+    const size_t impulsePeakIndex = maxAbsIndex(analysis.impulseResponse);
+    const double noiseRms = rmsExcludingRange(analysis.impulseResponse, impulsePeakIndex, excludeRadius);
+    analysis.impulsePeakToNoiseDb =
+        noiseRms <= 1.0e-12 ? 120.0 : 20.0 * std::log10(std::max(analysis.impulsePeakAmplitude, 1.0e-12) / noiseRms);
     return analysis;
 }
 
@@ -578,6 +669,18 @@ void trimImpulseToPreRoll(std::vector<double>& impulseResponse,
     impulseResponse.erase(impulseResponse.begin(),
                           impulseResponse.begin() + static_cast<std::ptrdiff_t>(trimFrames));
     preRollFrames -= trimFrames;
+}
+
+void trimChannelAnalysisToPreRoll(ChannelAnalysis& analysis, size_t targetPreRollFrames) {
+    if (analysis.preRollFrames <= targetPreRollFrames || analysis.impulseResponse.empty()) {
+        return;
+    }
+
+    const size_t trimFrames = std::min(analysis.preRollFrames - targetPreRollFrames, analysis.impulseResponse.size());
+    analysis.impulseResponse.erase(analysis.impulseResponse.begin(),
+                                   analysis.impulseResponse.begin() + static_cast<std::ptrdiff_t>(trimFrames));
+    analysis.preRollFrames -= trimFrames;
+    analysis.impulseStartSample += trimFrames;
 }
 
 void appendValueSetIfValid(MeasurementResult& result, MeasurementValueSet valueSet) {
@@ -676,30 +779,63 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                     const AudioSettings& audioSettings,
                                                     const MeasurementSettings& settings) {
     MeasurementResult result;
+    result.analysis.requestedDriver = audioSettings.driver;
+    result.analysis.requestedMicInputChannel = audioSettings.micInputChannel;
+    result.analysis.requestedLeftOutputChannel = audioSettings.leftOutputChannel;
+    result.analysis.requestedRightOutputChannel = audioSettings.rightOutputChannel;
+    result.analysis.sampleRate = sampleRate;
+    result.analysis.sweepDurationSeconds = settings.durationSeconds;
+    result.analysis.fadeInSeconds = settings.fadeInSeconds;
+    result.analysis.fadeOutSeconds = settings.fadeOutSeconds;
+    result.analysis.startFrequencyHz = settings.startFrequencyHz;
+    result.analysis.endFrequencyHz = settings.endFrequencyHz;
+    result.analysis.targetLengthSamples = settings.targetLengthSamples;
+    result.analysis.leadInSamples = settings.leadInSamples;
+    result.analysis.outputVolumeDb = audioSettings.outputVolumeDb;
+    result.analysis.configuredLoopbackLatencySamples = configuredLoopbackLatencySamples(settings, sampleRate);
+    result.analysis.configuredLoopbackLatencySampleRate = settings.loopbackLatencySampleRate;
+    result.analysis.playedSweepSamples = static_cast<int>(playbackPlan.playedSweep.size());
+    result.analysis.capturedSamples = static_cast<int>(capturedSamples.size());
+    result.analysis.alignmentMethod = "Deconvolved impulse peak per sweep segment";
+    result.analysis.windowType = "Cosine-tapered analysis window";
     if (playbackPlan.playedSweep.empty()) {
         return result;
     }
 
-    const std::vector<double> inverseFilter = buildInverseSweepFilter(playbackPlan.playedSweep,
-                                                                      settings,
-                                                                      sampleRate);
-    if (inverseFilter.empty()) {
+    const std::vector<double> captured = pcm16ToDouble(capturedSamples);
+    result.analysis.captureClippingDetected = containsClipping(capturedSamples);
+    result.analysis.captureTooQuiet = maxAbsSample(captured) < 1.0e-4;
+    result.analysis.capturePeakDb = absolutePeakDb(captured);
+    result.analysis.captureRmsDb = rmsDbFromPcmVector(capturedSamples);
+    const size_t captureNoiseFrames = std::min<size_t>(std::max<size_t>(playbackPlan.leadInFrames, 64), captured.size());
+    if (captureNoiseFrames > 0) {
+        const std::vector<double> leadingNoise(captured.begin(), captured.begin() + static_cast<std::ptrdiff_t>(captureNoiseFrames));
+        result.analysis.captureNoiseFloorDb = rmsDbFromSamples(leadingNoise);
+    }
+
+    const InverseSweepFilter inverseFilter = buildInverseSweepFilter(playbackPlan.playedSweep,
+                                                                     settings,
+                                                                     sampleRate);
+    result.analysis.inverseFilterLengthSamples = static_cast<int>(inverseFilter.samples.size());
+    result.analysis.inverseFilterPeakIndex = static_cast<int>(inverseFilter.referencePeakIndex);
+    if (inverseFilter.samples.empty()) {
         return result;
     }
 
-    const size_t loopbackLatencyFrames = static_cast<size_t>(std::max(0, configuredLoopbackLatencySamples(settings,
-                                                                                                            sampleRate)));
+    const size_t alignmentSearchFrames =
+        static_cast<size_t>(std::max(sampleRate / 4, result.analysis.configuredLoopbackLatencySamples + (sampleRate / 20)));
+    result.analysis.alignmentSearchSamples = static_cast<int>(alignmentSearchFrames);
     ChannelAnalysis leftAnalysis = analyzeSweepSegment(capturedSamples,
                                                        0,
                                                        playbackPlan,
-                                                       loopbackLatencyFrames,
+                                                       alignmentSearchFrames,
                                                        inverseFilter,
                                                        sampleRate,
                                                        settings);
     ChannelAnalysis rightAnalysis = analyzeSweepSegment(capturedSamples,
                                                         playbackPlan.segmentFrames,
                                                         playbackPlan,
-                                                        loopbackLatencyFrames,
+                                                        alignmentSearchFrames,
                                                         inverseFilter,
                                                         sampleRate,
                                                         settings);
@@ -708,8 +844,8 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
     }
 
     const size_t commonPreRollFrames = std::min(leftAnalysis.preRollFrames, rightAnalysis.preRollFrames);
-    trimImpulseToPreRoll(leftAnalysis.impulseResponse, leftAnalysis.preRollFrames, commonPreRollFrames);
-    trimImpulseToPreRoll(rightAnalysis.impulseResponse, rightAnalysis.preRollFrames, commonPreRollFrames);
+    trimChannelAnalysisToPreRoll(leftAnalysis, commonPreRollFrames);
+    trimChannelAnalysisToPreRoll(rightAnalysis, commonPreRollFrames);
 
     const size_t impulseLength = std::min(leftAnalysis.impulseResponse.size(), rightAnalysis.impulseResponse.size());
     if (impulseLength == 0) {
@@ -732,8 +868,10 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
 
     std::vector<double> leftWindowedImpulse = leftAnalysis.impulseResponse;
     std::vector<double> rightWindowedImpulse = rightAnalysis.impulseResponse;
-    applyTailFade(leftWindowedImpulse);
-    applyTailFade(rightWindowedImpulse);
+    leftAnalysis.analysisWindowFadeFrames = applyAnalysisWindow(leftWindowedImpulse, commonPreRollFrames);
+    rightAnalysis.analysisWindowFadeFrames = applyAnalysisWindow(rightWindowedImpulse, commonPreRollFrames);
+    leftAnalysis.analysisWindowLengthFrames = leftWindowedImpulse.size();
+    rightAnalysis.analysisWindowLengthFrames = rightWindowedImpulse.size();
 
     const size_t fftSize = nextPowerOfTwo(std::max({leftWindowedImpulse.size(), rightWindowedImpulse.size(), size_t{4096}}));
     const std::vector<std::complex<double>> leftSpectrum = fftOfRealSignal(leftWindowedImpulse, fftSize);
@@ -767,6 +905,8 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
     const size_t displayPointCount = std::min(positiveBinCount,
                                               std::max<size_t>(256,
                                                                std::min<size_t>(2048, positiveBinCount / 4)));
+    result.analysis.fftSize = static_cast<int>(fftSize);
+    result.analysis.displayPointCount = static_cast<int>(displayPointCount);
     const std::vector<double> displayFrequencyAxisHz = buildLogFrequencyAxis(settings,
                                                                              sampleRate,
                                                                              displayPointCount);
@@ -804,6 +944,31 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
         applyMicrophoneCalibration(audioSettings, calibratedMagnitudeResponse);
         appendValueSetIfValid(result, std::move(calibratedMagnitudeResponse));
     }
+
+    auto fillChannelMetrics = [&](MeasurementChannelMetrics& metrics, const ChannelAnalysis& analysis) {
+        metrics.available = !analysis.impulseResponse.empty();
+        metrics.detectedLatencySamples = analysis.detectedLatencySamples;
+        metrics.onsetSampleIndex = static_cast<int>(playbackPlan.leadInFrames) + analysis.detectedLatencySamples;
+        metrics.onsetTimeSeconds =
+            static_cast<double>(metrics.onsetSampleIndex) / static_cast<double>(std::max(sampleRate, 1));
+        metrics.peakSampleIndex = static_cast<int>(analysis.peakSampleIndex);
+        metrics.impulseStartSample = static_cast<int>(analysis.impulseStartSample);
+        metrics.impulseLengthSamples = static_cast<int>(analysis.impulseResponse.size());
+        metrics.preRollSamples = static_cast<int>(analysis.preRollFrames);
+        metrics.analysisWindowStartSample = static_cast<int>(analysis.impulseStartSample);
+        metrics.analysisWindowLengthSamples = static_cast<int>(analysis.analysisWindowLengthFrames);
+        metrics.analysisWindowFadeSamples = static_cast<int>(analysis.analysisWindowFadeFrames);
+        metrics.capturePeakDb = analysis.capturePeakDb;
+        metrics.captureRmsDb = analysis.captureRmsDb;
+        metrics.noiseFloorDb = analysis.noiseFloorDb;
+        metrics.impulsePeakAmplitude = analysis.impulsePeakAmplitude;
+        metrics.impulsePeakDb = analysis.impulsePeakDb;
+        metrics.impulseRmsDb = analysis.impulseRmsDb;
+        metrics.impulsePeakToNoiseDb = analysis.impulsePeakToNoiseDb;
+    };
+
+    fillChannelMetrics(result.analysis.left, leftAnalysis);
+    fillChannelMetrics(result.analysis.right, rightAnalysis);
 
     return result;
 }

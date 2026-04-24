@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cwchar>
 
 #include <commctrl.h>
 
@@ -20,6 +21,27 @@ T clampValue(T value, T low, T high) {
 }
 
 constexpr double kMutedOutputVolumeDb = -100.0;
+
+std::wstring formatBool(bool value) {
+    return value ? L"Yes" : L"No";
+}
+
+std::wstring formatSamples(int sampleCount) {
+    return std::to_wstring(sampleCount) + L" samples";
+}
+
+std::wstring formatSamplesAndMs(int sampleCount, int sampleRate) {
+    std::wstring text = formatSamples(sampleCount);
+    if (sampleRate > 0) {
+        const double milliseconds = static_cast<double>(sampleCount) * 1000.0 / static_cast<double>(sampleRate);
+        text += L" (" + formatWideDouble(milliseconds, 2) + L" ms)";
+    }
+    return text;
+}
+
+std::wstring formatPathValue(const std::filesystem::path& path) {
+    return path.empty() ? L"-" : path.wstring();
+}
 
 }  // namespace
 
@@ -84,6 +106,19 @@ void MeasurementPage::createControls() {
     controls_.currentAmplitude = CreateWindowW(L"STATIC", L"Amp -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.peakAmplitude = CreateWindowW(L"STATIC", L"Peak -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonLoopback = CreateWindowW(L"BUTTON", L"LOOPBACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonLoopback), instance_, nullptr);
+    controls_.metadataLabel = CreateWindowW(L"STATIC", L"Measurement Metadata", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.metadataTable = CreateWindowExW(WS_EX_CLIENTEDGE,
+                                              WC_LISTVIEWW,
+                                              nullptr,
+                                              WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
+                                              0,
+                                              0,
+                                              0,
+                                              0,
+                                              window_,
+                                              reinterpret_cast<HMENU>(kMetadataTable),
+                                              instance_,
+                                              nullptr);
 
     responseGraph_.create(window_, instance_, kResponseGraph);
 
@@ -110,6 +145,21 @@ void MeasurementPage::createControls() {
     SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMIN, FALSE, 0);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMAX, FALSE, kOutputVolumeSliderMax);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETTICFREQ, 10, 0);
+    ListView_SetExtendedListViewStyle(controls_.metadataTable,
+                                      LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
+    LVCOLUMNW column{};
+    column.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+    column.pszText = const_cast<LPWSTR>(L"Section");
+    column.cx = 132;
+    ListView_InsertColumn(controls_.metadataTable, 0, &column);
+    column.pszText = const_cast<LPWSTR>(L"Metric");
+    column.cx = 220;
+    column.iSubItem = 1;
+    ListView_InsertColumn(controls_.metadataTable, 1, &column);
+    column.pszText = const_cast<LPWSTR>(L"Value");
+    column.cx = 560;
+    column.iSubItem = 2;
+    ListView_InsertColumn(controls_.metadataTable, 2, &column);
     populateMeasurementSampleRateCombo(controls_.comboSampleRate);
 }
 
@@ -205,8 +255,24 @@ void MeasurementPage::layout() {
     MoveWindow(controls_.rightProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
 
     const int graphTop = progressRowTop + 48;
-    const RECT graphBounds{contentLeft, graphTop, contentLeft + innerWidth, graphTop + std::max(200, innerHeight - graphTop - 12)};
+    const int availableBottom = contentTop + innerHeight;
+    const int metadataLabelTop = std::max(graphTop + 220, graphTop + ((availableBottom - graphTop) * 11 / 20));
+    const int graphBottom = std::max(graphTop + 200, metadataLabelTop - 28);
+    const RECT graphBounds{contentLeft, graphTop, contentLeft + innerWidth, graphBottom};
     responseGraph_.layout(graphBounds);
+    MoveWindow(controls_.metadataLabel, contentLeft, metadataLabelTop, innerWidth, 20, TRUE);
+    MoveWindow(controls_.metadataTable,
+               contentLeft,
+               metadataLabelTop + 24,
+               innerWidth,
+               std::max(120, availableBottom - (metadataLabelTop + 24)),
+               TRUE);
+    const int sectionWidth = std::clamp(innerWidth / 7, 120, 180);
+    const int metricWidth = std::clamp(innerWidth / 4, 180, 260);
+    const int valueWidth = std::max(240, innerWidth - sectionWidth - metricWidth - 28);
+    ListView_SetColumnWidth(controls_.metadataTable, 0, sectionWidth);
+    ListView_SetColumnWidth(controls_.metadataTable, 1, metricWidth);
+    ListView_SetColumnWidth(controls_.metadataTable, 2, valueWidth);
 }
 
 void MeasurementPage::setVisible(bool visible) const {
@@ -244,6 +310,7 @@ void MeasurementPage::syncToWorkspace(WorkspaceState& workspace) const {
 
 void MeasurementPage::setMeasurementResult(const MeasurementResult& result) {
     responseGraph_.setData(buildGraphData(result));
+    populateMetadataTable(result);
 }
 
 void MeasurementPage::refreshStatus(const MeasurementStatus& status, bool hasResult) {
@@ -467,6 +534,19 @@ void MeasurementPage::setWindowTextValue(HWND control, const std::wstring& text)
     SetWindowTextW(control, text.c_str());
 }
 
+void MeasurementPage::setListViewText(HWND listView, int row, int column, const std::wstring& text) {
+    LVITEMW item{};
+    item.iItem = row;
+    item.iSubItem = column;
+    item.mask = LVIF_TEXT;
+    item.pszText = const_cast<LPWSTR>(text.c_str());
+    if (column == 0) {
+        ListView_InsertItem(listView, &item);
+    } else {
+        ListView_SetItem(listView, &item);
+    }
+}
+
 ResponseGraphData MeasurementPage::buildGraphData(const MeasurementResult& result) const {
     ResponseGraphData data;
     const MeasurementValueSet* magnitudeResponse = result.preferredMagnitudeResponse();
@@ -476,6 +556,114 @@ ResponseGraphData MeasurementPage::buildGraphData(const MeasurementResult& resul
         data.series.push_back({L"Right", ui_theme::kRed, magnitudeResponse->rightValues});
     }
     return data;
+}
+
+std::vector<MeasurementPage::MetadataRow> MeasurementPage::buildMetadataRows(const MeasurementResult& result) const {
+    std::vector<MetadataRow> rows;
+    const MeasurementAnalysis& analysis = result.analysis;
+    if (!result.hasAnyValues() &&
+        analysis.measurementTimestampUtc.empty() &&
+        analysis.artifacts.empty()) {
+        rows.push_back({L"Result", L"Status", L"No measurement result saved."});
+        return rows;
+    }
+
+    auto add = [&](std::wstring section, std::wstring metric, std::wstring value) {
+        rows.push_back({std::move(section), std::move(metric), std::move(value)});
+    };
+
+    add(L"Result", L"Value Sets", std::to_wstring(result.valueSets.size()));
+    if (const MeasurementValueSet* preferred = result.preferredMagnitudeResponse(); preferred != nullptr) {
+        add(L"Result", L"Preferred Magnitude Key", toWide(preferred->key));
+        add(L"Result", L"Preferred Magnitude Points", std::to_wstring(preferred->xValues.size()));
+    } else {
+        add(L"Result", L"Preferred Magnitude Key", L"-");
+        add(L"Result", L"Preferred Magnitude Points", L"0");
+    }
+
+    add(L"Run", L"Analyzer Version", toWide(analysis.analyzerVersion));
+    add(L"Run", L"Measured At (UTC)", toWide(analysis.measurementTimestampUtc.empty() ? std::string("-") : analysis.measurementTimestampUtc));
+    add(L"Run", L"Backend", toWide(analysis.backendName.empty() ? std::string("-") : analysis.backendName));
+    add(L"Run", L"Input Device", toWide(analysis.backendInputDevice.empty() ? std::string("-") : analysis.backendInputDevice));
+    add(L"Run", L"Output Device", toWide(analysis.backendOutputDevice.empty() ? std::string("-") : analysis.backendOutputDevice));
+    add(L"Run", L"Requested Driver", toWide(analysis.requestedDriver.empty() ? std::string("-") : analysis.requestedDriver));
+    add(L"Run", L"Routing Honored", formatBool(analysis.routingSelectionHonored));
+    add(L"Run", L"Routing Notes", toWide(analysis.routingNotes.empty() ? std::string("-") : analysis.routingNotes));
+
+    add(L"Sweep", L"Sample Rate", std::to_wstring(analysis.sampleRate) + L" Hz");
+    add(L"Sweep", L"Duration", formatWideDouble(analysis.sweepDurationSeconds, 1) + L" s");
+    add(L"Sweep", L"Fade In", formatWideDouble(analysis.fadeInSeconds, 2) + L" s");
+    add(L"Sweep", L"Fade Out", formatWideDouble(analysis.fadeOutSeconds, 2) + L" s");
+    add(L"Sweep", L"Start Frequency", formatWideDouble(analysis.startFrequencyHz, 1) + L" Hz");
+    add(L"Sweep", L"End Frequency", formatWideDouble(analysis.endFrequencyHz, 1) + L" Hz");
+    add(L"Sweep", L"Target Length", formatSamples(analysis.targetLengthSamples));
+    add(L"Sweep", L"Lead-In", formatSamples(analysis.leadInSamples));
+    add(L"Sweep", L"Output Volume", formatWideDouble(analysis.outputVolumeDb, 1) + L" dB");
+    add(L"Sweep", L"Played Sweep Samples", formatSamples(analysis.playedSweepSamples));
+
+    add(L"Capture", L"Captured Samples", formatSamples(analysis.capturedSamples));
+    add(L"Capture", L"Configured Loopback Latency",
+        formatSamplesAndMs(analysis.configuredLoopbackLatencySamples, analysis.configuredLoopbackLatencySampleRate));
+    add(L"Capture", L"Capture Clipping", formatBool(analysis.captureClippingDetected));
+    add(L"Capture", L"Capture Too Quiet", formatBool(analysis.captureTooQuiet));
+    add(L"Capture", L"Capture Peak", formatWideDouble(analysis.capturePeakDb, 1) + L" dB");
+    add(L"Capture", L"Capture RMS", formatWideDouble(analysis.captureRmsDb, 1) + L" dB");
+    add(L"Capture", L"Capture Noise Floor", formatWideDouble(analysis.captureNoiseFloorDb, 1) + L" dB");
+    add(L"Capture", L"Alignment Search", formatSamplesAndMs(analysis.alignmentSearchSamples, analysis.sampleRate));
+    add(L"Capture", L"Alignment Method", toWide(analysis.alignmentMethod.empty() ? std::string("-") : analysis.alignmentMethod));
+    add(L"Capture", L"Window Type", toWide(analysis.windowType.empty() ? std::string("-") : analysis.windowType));
+    add(L"Capture", L"Inverse Filter Length", formatSamples(analysis.inverseFilterLengthSamples));
+    add(L"Capture", L"Inverse Filter Peak Index", std::to_wstring(analysis.inverseFilterPeakIndex));
+    add(L"Capture", L"FFT Size", formatSamples(analysis.fftSize));
+    add(L"Capture", L"Display Points", std::to_wstring(analysis.displayPointCount));
+
+    auto addChannel = [&](const wchar_t* section, const MeasurementChannelMetrics& channel) {
+        add(section, L"Available", formatBool(channel.available));
+        add(section, L"Detected Latency", formatSamplesAndMs(channel.detectedLatencySamples, analysis.sampleRate));
+        add(section, L"Onset Sample", std::to_wstring(channel.onsetSampleIndex));
+        add(section, L"Onset Time", formatWideDouble(channel.onsetTimeSeconds * 1000.0, 2) + L" ms");
+        add(section, L"Deconvolution Peak Index", std::to_wstring(channel.peakSampleIndex));
+        add(section, L"Impulse Start Sample", std::to_wstring(channel.impulseStartSample));
+        add(section, L"Impulse Length", formatSamples(channel.impulseLengthSamples));
+        add(section, L"Pre-Roll", formatSamples(channel.preRollSamples));
+        add(section, L"Window Start Sample", std::to_wstring(channel.analysisWindowStartSample));
+        add(section, L"Window Length", formatSamples(channel.analysisWindowLengthSamples));
+        add(section, L"Window Fade", formatSamples(channel.analysisWindowFadeSamples));
+        add(section, L"Capture Peak", formatWideDouble(channel.capturePeakDb, 1) + L" dB");
+        add(section, L"Capture RMS", formatWideDouble(channel.captureRmsDb, 1) + L" dB");
+        add(section, L"Noise Floor", formatWideDouble(channel.noiseFloorDb, 1) + L" dB");
+        add(section, L"Impulse Peak Amplitude", formatWideDouble(channel.impulsePeakAmplitude, 6));
+        add(section, L"Impulse Peak", formatWideDouble(channel.impulsePeakDb, 1) + L" dB");
+        add(section, L"Impulse RMS", formatWideDouble(channel.impulseRmsDb, 1) + L" dB");
+        add(section, L"Impulse Peak/Noise", formatWideDouble(channel.impulsePeakToNoiseDb, 1) + L" dB");
+    };
+
+    addChannel(L"Left", analysis.left);
+    addChannel(L"Right", analysis.right);
+
+    for (const MeasurementArtifact& artifact : analysis.artifacts) {
+        add(L"Artifacts", toWide(artifact.key), formatPathValue(artifact.path));
+    }
+
+    for (const MeasurementValueSet& valueSet : result.valueSets) {
+        add(L"Series", toWide(valueSet.key), std::to_wstring(valueSet.xValues.size()) + L" pts");
+    }
+
+    return rows;
+}
+
+void MeasurementPage::populateMetadataTable(const MeasurementResult& result) const {
+    if (controls_.metadataTable == nullptr) {
+        return;
+    }
+
+    const std::vector<MetadataRow> rows = buildMetadataRows(result);
+    ListView_DeleteAllItems(controls_.metadataTable);
+    for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
+        setListViewText(controls_.metadataTable, i, 0, rows[i].section);
+        setListViewText(controls_.metadataTable, i, 1, rows[i].metric);
+        setListViewText(controls_.metadataTable, i, 2, rows[i].value);
+    }
 }
 
 }  // namespace wolfie::ui

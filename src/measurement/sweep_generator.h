@@ -26,5 +26,8 @@ SweepPlaybackPlan buildLoopbackCalibrationPlaybackPlan(const MeasurementSettings
 bool writeStereoWaveFile(const std::filesystem::path& path,
                          const std::vector<int16_t>& interleavedSamples,
                          int sampleRate);
+bool writeMonoWaveFile(const std::filesystem::path& path,
+                       const std::vector<int16_t>& samples,
+                       int sampleRate);
 
 }  // namespace wolfie::measurement

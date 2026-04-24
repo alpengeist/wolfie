@@ -8,6 +8,9 @@
 #endif
 #include <windows.h>
 
+#include <string>
+#include <vector>
+
 #include "core/models.h"
 #include "ui/response_graph.h"
 
@@ -79,6 +82,14 @@ private:
         HWND currentFrequency = nullptr;
         HWND currentAmplitude = nullptr;
         HWND peakAmplitude = nullptr;
+        HWND metadataLabel = nullptr;
+        HWND metadataTable = nullptr;
+    };
+
+    struct MetadataRow {
+        std::wstring section;
+        std::wstring metric;
+        std::wstring value;
     };
 
     static constexpr wchar_t kPageClassName[] = L"WolfiePageWindow";
@@ -93,6 +104,7 @@ private:
     static constexpr int kComboMeasurementSampleRate = 3012;
     static constexpr int kButtonLoopback = 3013;
     static constexpr int kResponseGraph = 3014;
+    static constexpr int kMetadataTable = 3017;
     static constexpr int kOutputVolumeSliderMax = 61;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -104,8 +116,11 @@ private:
     static std::wstring formatOutputVolumeLabel(double outputVolumeDb);
     static std::wstring getWindowTextValue(HWND control);
     static void setWindowTextValue(HWND control, const std::wstring& text);
+    static void setListViewText(HWND listView, int row, int column, const std::wstring& text);
 
     ResponseGraphData buildGraphData(const MeasurementResult& result) const;
+    std::vector<MetadataRow> buildMetadataRows(const MeasurementResult& result) const;
+    void populateMetadataTable(const MeasurementResult& result) const;
     void createControls();
 
     HINSTANCE instance_ = nullptr;
