@@ -63,12 +63,16 @@ Purpose: audio I/O and driver-related platform services.
 Files:
 
 - `audio_backend.h`
+- `asio_sdk.h/.cpp`
+- `asio_audio_backend.h/.cpp`
 - `winmm_audio_backend.h/.cpp`
 - `asio_service.h/.cpp`
 
 Responsibilities:
 
 - `audio_backend.h` defines the abstraction for a measurement session and audio backend.
+- `asio_sdk` owns the shared COM/driver interop definitions used by ASIO-facing modules.
+- `asio_audio_backend` implements routed playback/capture using the selected ASIO driver and channels.
 - `winmm_audio_backend` implements playback/capture using WinMM.
 - `asio_service` handles ASIO driver enumeration and opening a driver control panel.
 

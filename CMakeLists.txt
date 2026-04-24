@@ -11,6 +11,10 @@ add_executable(wolfie WIN32
     src/core/text_utils.h
     src/audio/asio_service.cpp
     src/audio/asio_service.h
+    src/audio/asio_audio_backend.cpp
+    src/audio/asio_audio_backend.h
+    src/audio/asio_sdk.cpp
+    src/audio/asio_sdk.h
     src/audio/audio_backend.h
     src/audio/winmm_audio_backend.cpp
     src/audio/winmm_audio_backend.h

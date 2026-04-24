@@ -375,12 +375,6 @@ void loadMeasurementAnalysisFile(WorkspaceState& workspace) {
     if (const auto value = findJsonNumber(*content, "outputVolumeDb")) {
         analysis.outputVolumeDb = *value;
     }
-    if (const auto value = findJsonNumber(*content, "configuredLoopbackLatencySamples")) {
-        analysis.configuredLoopbackLatencySamples = static_cast<int>(*value);
-    }
-    if (const auto value = findJsonNumber(*content, "configuredLoopbackLatencySampleRate")) {
-        analysis.configuredLoopbackLatencySampleRate = static_cast<int>(*value);
-    }
     if (const auto value = findJsonNumber(*content, "playedSweepSamples")) {
         analysis.playedSweepSamples = static_cast<int>(*value);
     }
@@ -624,8 +618,6 @@ void saveMeasurementAnalysisFile(const WorkspaceState& workspace) {
         << "  \"targetLengthSamples\": " << analysis.targetLengthSamples << ",\n"
         << "  \"leadInSamples\": " << analysis.leadInSamples << ",\n"
         << "  \"outputVolumeDb\": " << analysis.outputVolumeDb << ",\n"
-        << "  \"configuredLoopbackLatencySamples\": " << analysis.configuredLoopbackLatencySamples << ",\n"
-        << "  \"configuredLoopbackLatencySampleRate\": " << analysis.configuredLoopbackLatencySampleRate << ",\n"
         << "  \"playedSweepSamples\": " << analysis.playedSweepSamples << ",\n"
         << "  \"capturedSamples\": " << analysis.capturedSamples << ",\n"
         << "  \"alignmentSearchSamples\": " << analysis.alignmentSearchSamples << ",\n"
@@ -717,12 +709,6 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonNumber(*content, "leadInSamples")) {
             workspace.measurement.leadInSamples = static_cast<int>(*value);
         }
-        if (const auto value = findJsonNumber(*content, "loopbackLatencySamples")) {
-            workspace.measurement.loopbackLatencySamples = static_cast<int>(*value);
-        }
-        if (const auto value = findJsonNumber(*content, "loopbackLatencySampleRate")) {
-            workspace.measurement.loopbackLatencySampleRate = static_cast<int>(*value);
-        }
         loadUiSettingsFromJson(*content, workspace.ui);
         if (const auto model = findJsonString(*content, "psychoacousticModel")) {
             workspace.smoothing.psychoacousticModel = *model;
@@ -803,9 +789,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"startFrequencyHz\": " << workspace.measurement.startFrequencyHz << ",\n"
                   << "    \"endFrequencyHz\": " << workspace.measurement.endFrequencyHz << ",\n"
                   << "    \"targetLengthSamples\": " << workspace.measurement.targetLengthSamples << ",\n"
-                  << "    \"leadInSamples\": " << workspace.measurement.leadInSamples << ",\n"
-                  << "    \"loopbackLatencySamples\": " << workspace.measurement.loopbackLatencySamples << ",\n"
-                  << "    \"loopbackLatencySampleRate\": " << workspace.measurement.loopbackLatencySampleRate << "\n"
+                  << "    \"leadInSamples\": " << workspace.measurement.leadInSamples << "\n"
                   << "  },\n"
                   << "  \"smoothing\": {\n"
                   << "    \"psychoacousticModel\": \"" << escapeJson(workspace.smoothing.psychoacousticModel) << "\",\n"

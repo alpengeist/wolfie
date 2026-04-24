@@ -52,37 +52,24 @@ void MeasurementController::resetState() {
     startTickMs_ = 0;
     durationMs_ = 0;
     playbackPlan_ = {};
-    loopbackCalibration_ = false;
     measurementTimestampUtc_.clear();
 }
 
 bool MeasurementController::start(const WorkspaceState& workspace) {
-    return startInternal(workspace, false);
-}
-
-bool MeasurementController::startLoopbackCalibration(const WorkspaceState& workspace) {
-    return startInternal(workspace, true);
-}
-
-bool MeasurementController::startInternal(const WorkspaceState& workspace, bool loopbackCalibration) {
     cancel();
     resetState();
 
-    loopbackCalibration_ = loopbackCalibration;
     snapshot_ = workspace;
     measurement::syncDerivedMeasurementSettings(snapshot_.measurement);
 
     const int sampleRate = std::max(8000, snapshot_.measurement.sampleRate);
     measurementTimestampUtc_ = currentUtcTimestamp();
-    playbackPlan_ = loopbackCalibration_
-                        ? measurement::buildLoopbackCalibrationPlaybackPlan(snapshot_.measurement,
-                                                                            snapshot_.audio.outputVolumeDb)
-                        : measurement::buildSweepPlaybackPlan(snapshot_.measurement,
-                                                              snapshot_.audio.outputVolumeDb);
+    playbackPlan_ = measurement::buildSweepPlaybackPlan(snapshot_.measurement,
+                                                        snapshot_.audio.outputVolumeDb);
 
     const std::filesystem::path measurementDir = snapshot_.rootPath / "measurement";
     std::filesystem::create_directories(measurementDir);
-    status_.generatedSweepPath = measurementDir / (loopbackCalibration_ ? "loopback-pulses.wav" : "logsweep.wav");
+    status_.generatedSweepPath = measurementDir / "logsweep.wav";
     measurement::writeStereoWaveFile(status_.generatedSweepPath, playbackPlan_.playbackPcm, sampleRate);
 
     std::wstring errorMessage;
@@ -96,7 +83,6 @@ bool MeasurementController::startInternal(const WorkspaceState& workspace, bool 
         std::ceil((static_cast<double>(playbackPlan_.totalFrames) * 1000.0) / static_cast<double>(sampleRate)));
     startTickMs_ = tickMillis();
     status_.running = true;
-    status_.loopbackCalibration = loopbackCalibration_;
     status_.currentChannel = MeasurementChannel::Left;
     return true;
 }
@@ -173,52 +159,28 @@ void MeasurementController::tick() {
 
     const std::filesystem::path measurementDir = snapshot_.rootPath / "measurement";
     std::filesystem::create_directories(measurementDir);
-    const std::filesystem::path rawCapturePath =
-        measurementDir / (loopbackCalibration_ ? "loopback-capture.wav" : "raw-capture.wav");
+    const std::filesystem::path rawCapturePath = measurementDir / "raw-capture.wav";
     measurement::writeMonoWaveFile(rawCapturePath, session_->capturedSamples(), session_->sampleRate());
 
-    if (loopbackCalibration_) {
-        const measurement::LoopbackDelayEstimate estimate =
-            measurement::estimateLoopbackDelayFromCapture(session_->capturedSamples(),
-                                                          playbackPlan_.playedSweep,
-                                                          playbackPlan_.leadInFrames,
-                                                          session_->sampleRate(),
-                                                          snapshot_.measurement);
-        status_.measuredLoopbackLatencySamples = estimate.latencySamples;
-        status_.loopbackClippingDetected = estimate.clippingDetected;
-        status_.loopbackTooQuiet = estimate.tooQuiet;
-        status_.loopbackPeakToNoiseDb = estimate.peakToNoiseDb;
-        if (!estimate.success) {
-            if (estimate.clippingDetected) {
-                status_.lastErrorMessage = L"Loopback calibration failed because the input clipped. Lower the output level and run loopback again.";
-            } else if (estimate.tooQuiet) {
-                status_.lastErrorMessage = L"Loopback calibration failed because the input level was too low.";
-            } else {
-                status_.lastErrorMessage = L"Loopback calibration did not find a clean pulse-train timing peak.";
-            }
-        }
-    } else {
-        result_ = measurement::buildMeasurementResultFromCapture(session_->capturedSamples(),
-                                                                 playbackPlan_,
-                                                                 session_->sampleRate(),
-                                                                 snapshot_.audio,
-                                                                 snapshot_.measurement);
-        result_.analysis.measurementTimestampUtc = measurementTimestampUtc_;
-        result_.analysis.backendName = sessionDetails.backendName;
-        result_.analysis.backendInputDevice = toUtf8(sessionDetails.inputDeviceName);
-        result_.analysis.backendOutputDevice = toUtf8(sessionDetails.outputDeviceName);
-        result_.analysis.routingSelectionHonored = sessionDetails.routingSelectionHonored;
-        result_.analysis.routingNotes = toUtf8(sessionDetails.routingNotes);
-        result_.analysis.artifacts.push_back({"generated_sweep_wav", status_.generatedSweepPath});
-        result_.analysis.artifacts.push_back({"raw_capture_wav", rawCapturePath});
-        result_.analysis.artifacts.push_back({"result_values_txt", measurementDir / "result-values.txt"});
-        result_.analysis.artifacts.push_back({"analysis_json", measurementDir / "analysis.json"});
-    }
+    result_ = measurement::buildMeasurementResultFromCapture(session_->capturedSamples(),
+                                                             playbackPlan_,
+                                                             session_->sampleRate(),
+                                                             snapshot_.audio,
+                                                             snapshot_.measurement);
+    result_.analysis.measurementTimestampUtc = measurementTimestampUtc_;
+    result_.analysis.backendName = sessionDetails.backendName;
+    result_.analysis.backendInputDevice = toUtf8(sessionDetails.inputDeviceName);
+    result_.analysis.backendOutputDevice = toUtf8(sessionDetails.outputDeviceName);
+    result_.analysis.routingSelectionHonored = sessionDetails.routingSelectionHonored;
+    result_.analysis.routingNotes = toUtf8(sessionDetails.routingNotes);
+    result_.analysis.artifacts.push_back({"generated_sweep_wav", status_.generatedSweepPath});
+    result_.analysis.artifacts.push_back({"raw_capture_wav", rawCapturePath});
+    result_.analysis.artifacts.push_back({"result_values_txt", measurementDir / "result-values.txt"});
+    result_.analysis.artifacts.push_back({"analysis_json", measurementDir / "analysis.json"});
 
     session_.reset();
     status_.running = false;
     status_.finished = true;
-    status_.loopbackCalibration = loopbackCalibration_;
     status_.progress = 1.0;
     status_.currentChannel = MeasurementChannel::None;
     status_.currentFrequencyHz = snapshot_.measurement.endFrequencyHz;

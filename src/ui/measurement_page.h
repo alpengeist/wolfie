@@ -34,7 +34,6 @@ public:
                        WORD notificationCode,
                        WorkspaceState& workspace,
                        bool& measurePressed,
-                       bool& loopbackPressed,
                        bool& sampleRateChanged,
                        bool& graphZoomChanged);
     bool handleHScroll(HWND source, WorkspaceState& workspace);
@@ -72,7 +71,6 @@ private:
         HWND outputVolumeMuteLabel = nullptr;
         HWND outputVolumeMaxLabel = nullptr;
         HWND buttonMeasure = nullptr;
-        HWND buttonLoopback = nullptr;
         HWND leftChannelLabel = nullptr;
         HWND leftProgressBar = nullptr;
         HWND leftProgressText = nullptr;
@@ -102,7 +100,6 @@ private:
     static constexpr int kEditLeadIn = 3010;
     static constexpr int kButtonMeasure = 3011;
     static constexpr int kComboMeasurementSampleRate = 3012;
-    static constexpr int kButtonLoopback = 3013;
     static constexpr int kResponseGraph = 3014;
     static constexpr int kMetadataTable = 3017;
     static constexpr int kOutputVolumeSliderMax = 61;

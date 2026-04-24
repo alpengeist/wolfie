@@ -71,7 +71,6 @@ private:
     void loadLastWorkspaceIfPossible();
     void touchRecentWorkspace(const std::filesystem::path& path);
     void startMeasurement();
-    void startLoopbackCalibration();
     void stopMeasurement();
     void finalizeMeasurement();
 

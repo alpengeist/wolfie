@@ -10,7 +10,7 @@
 #include <shobjidl.h>
 #include <windowsx.h>
 
-#include "audio/winmm_audio_backend.h"
+#include "audio/asio_audio_backend.h"
 #include "measurement/response_analyzer.h"
 #include "measurement/response_smoother.h"
 #include "measurement/target_curve_designer.h"
@@ -71,7 +71,7 @@ std::filesystem::path appStatePath() {
 
 WolfieApp::WolfieApp(HINSTANCE instance)
     : instance_(instance),
-      measurementController_(audio::createWinMmAudioBackend()),
+      measurementController_(audio::createDefaultAudioBackend()),
       appStateRepository_(appStatePath()) {}
 
 int WolfieApp::run() {
@@ -514,14 +514,12 @@ void WolfieApp::ensureSmoothedResponseReady() {
 
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     bool measurePressed = false;
-    bool loopbackPressed = false;
     bool sampleRateChanged = false;
     bool measurementGraphZoomChanged = false;
     if (measurementPage_.handleCommand(commandId,
                                        notificationCode,
                                        workspace_,
                                        measurePressed,
-                                       loopbackPressed,
                                        sampleRateChanged,
                                        measurementGraphZoomChanged)) {
         if (measurementGraphZoomChanged) {
@@ -537,13 +535,6 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
                 stopMeasurement();
             } else {
                 startMeasurement();
-            }
-        }
-        if (loopbackPressed) {
-            if (measurementController_.status().running) {
-                stopMeasurement();
-            } else {
-                startLoopbackCalibration();
             }
         }
         return;
@@ -769,10 +760,7 @@ void WolfieApp::startMeasurement() {
     syncStateFromControls();
     appendMeasurementLog(L"Starting sweep measurement at " +
                          std::to_wstring(workspace_.measurement.sampleRate) +
-                         L" Hz, stored loopback latency " +
-                         std::to_wstring(measurement::configuredLoopbackLatencySamples(workspace_.measurement,
-                                                                                       workspace_.measurement.sampleRate)) +
-                         L" samples.");
+                         L" Hz.");
     if (!workspace_.audio.microphoneCalibrationPath.empty()) {
         if (workspace_.audio.microphoneCalibrationFrequencyHz.size() >= 2) {
             appendMeasurementLog(L"Using microphone calibration: " + workspace_.audio.microphoneCalibrationPath.wstring());
@@ -802,40 +790,12 @@ void WolfieApp::startMeasurement() {
     refreshMeasurementStatus();
 }
 
-void WolfieApp::startLoopbackCalibration() {
-    if (workspace_.rootPath.empty()) {
-        appendMeasurementLog(L"Cannot start loopback calibration because no workspace is open.", LogSeverity::Error);
-        return;
-    }
-
-    syncStateFromControls();
-    appendMeasurementLog(L"Starting loopback latency calibration at " +
-                         std::to_wstring(workspace_.measurement.sampleRate) +
-                         L" Hz.");
-    if (!measurementController_.startLoopbackCalibration(workspace_)) {
-        refreshMeasurementStatus();
-        if (!measurementController_.status().lastErrorMessage.empty()) {
-            appendMeasurementLog(L"Loopback calibration start failed: " + measurementController_.status().lastErrorMessage,
-                                 LogSeverity::Error);
-        }
-        return;
-    }
-
-    measurementCompletionHandled_ = false;
-    appendMeasurementLog(L"Loopback pulse file written to " + measurementController_.status().generatedSweepPath.wstring());
-
-    SetTimer(mainWindow_, kMeasurementTimerId, 50, nullptr);
-    refreshMeasurementStatus();
-}
-
 void WolfieApp::stopMeasurement() {
     if (!measurementController_.status().running) {
         return;
     }
 
-    appendMeasurementLog(measurementController_.status().loopbackCalibration
-                             ? L"Loopback calibration stopped by user."
-                             : L"Measurement stopped by user.");
+    appendMeasurementLog(L"Measurement stopped by user.");
     measurementCompletionHandled_ = true;
     measurementController_.cancel();
     KillTimer(mainWindow_, kMeasurementTimerId);
@@ -852,31 +812,6 @@ void WolfieApp::stopMeasurement() {
 
 void WolfieApp::finalizeMeasurement() {
     const MeasurementStatus completedStatus = measurementController_.status();
-    if (completedStatus.loopbackCalibration) {
-        if (completedStatus.lastErrorMessage.empty()) {
-            workspace_.measurement.loopbackLatencySamples = completedStatus.measuredLoopbackLatencySamples;
-            workspace_.measurement.loopbackLatencySampleRate = workspace_.measurement.sampleRate;
-            workspaceRepository_.save(workspace_);
-            measurementPage_.populate(workspace_);
-            appendMeasurementLog(L"Loopback latency stored: " +
-                                 std::to_wstring(completedStatus.measuredLoopbackLatencySamples) +
-                                 L" samples, peak-to-noise " +
-                                 std::to_wstring(static_cast<int>(std::lround(completedStatus.loopbackPeakToNoiseDb))) +
-                                 L" dB.");
-            if (completedStatus.loopbackClippingDetected) {
-                appendMeasurementLog(L"Warning: clipping was detected during loopback capture.");
-            }
-        } else {
-            appendMeasurementLog(L"Loopback calibration failed: " + completedStatus.lastErrorMessage, LogSeverity::Error);
-            if (completedStatus.loopbackTooQuiet) {
-                appendMeasurementLog(L"Loopback input was too low. Raise the interface output/input level or check the cable path.",
-                                     LogSeverity::Error);
-            }
-        }
-        refreshMeasurementStatus();
-        return;
-    }
-
     workspace_.result = measurementController_.result();
     workspace_.smoothedResponse = {};
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);

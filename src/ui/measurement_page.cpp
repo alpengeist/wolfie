@@ -105,7 +105,6 @@ void MeasurementPage::createControls() {
     controls_.currentFrequency = CreateWindowW(L"STATIC", L"Freq 0 Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.currentAmplitude = CreateWindowW(L"STATIC", L"Amp -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.peakAmplitude = CreateWindowW(L"STATIC", L"Peak -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.buttonLoopback = CreateWindowW(L"BUTTON", L"LOOPBACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonLoopback), instance_, nullptr);
     controls_.metadataLabel = CreateWindowW(L"STATIC", L"Measurement Metadata", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.metadataTable = CreateWindowExW(WS_EX_CLIENTEDGE,
                                               WC_LISTVIEWW,
@@ -183,7 +182,6 @@ void MeasurementPage::layout() {
     constexpr int kUnitHeight = 16;
     constexpr int kUnitTopOffset = 52;
     constexpr int kButtonWidth = 184;
-    constexpr int kLoopbackButtonWidth = 104;
     constexpr int kProgressLabelWidth = 42;
     constexpr int kProgressBarWidth = 180;
     constexpr int kProgressTextWidth = 44;
@@ -237,15 +235,14 @@ void MeasurementPage::layout() {
     const int buttonTop = dataRowTop - 4;
     const int buttonHeight = (progressRowTop + 20) - buttonTop;
     MoveWindow(controls_.buttonMeasure, contentLeft, buttonTop, kButtonWidth, buttonHeight, TRUE);
-    MoveWindow(controls_.buttonLoopback, contentLeft + kButtonWidth + kMetricGap, buttonTop, kLoopbackButtonWidth, buttonHeight, TRUE);
-    int metricLeft = contentLeft + kButtonWidth + kMetricGap + kLoopbackButtonWidth + kMetricGap;
+    int metricLeft = contentLeft + kButtonWidth + kMetricGap;
     MoveWindow(controls_.currentFrequency, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
     metricLeft += kMetricWidth + kMetricGap;
     MoveWindow(controls_.currentAmplitude, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
     metricLeft += kMetricWidth + kMetricGap;
     MoveWindow(controls_.peakAmplitude, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
 
-    metricLeft = contentLeft + kButtonWidth + kMetricGap + kLoopbackButtonWidth + kMetricGap;
+    metricLeft = contentLeft + kButtonWidth + kMetricGap;
     MoveWindow(controls_.leftChannelLabel, metricLeft, progressRowTop + 2, kProgressLabelWidth, 18, TRUE);
     MoveWindow(controls_.leftProgressBar, metricLeft + kProgressLabelWidth + 8, progressRowTop + 4, kProgressBarWidth, 16, TRUE);
     MoveWindow(controls_.leftProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
@@ -401,16 +398,10 @@ bool MeasurementPage::handleCommand(WORD commandId,
                                     WORD notificationCode,
                                     WorkspaceState& workspace,
                                     bool& measurePressed,
-                                    bool& loopbackPressed,
                                     bool& sampleRateChanged,
                                     bool& graphZoomChanged) {
     if (commandId == kButtonMeasure) {
         measurePressed = true;
-        return true;
-    }
-
-    if (commandId == kButtonLoopback) {
-        loopbackPressed = true;
         return true;
     }
 
@@ -602,8 +593,6 @@ std::vector<MeasurementPage::MetadataRow> MeasurementPage::buildMetadataRows(con
     add(L"Sweep", L"Played Sweep Samples", formatSamples(analysis.playedSweepSamples));
 
     add(L"Capture", L"Captured Samples", formatSamples(analysis.capturedSamples));
-    add(L"Capture", L"Configured Loopback Latency",
-        formatSamplesAndMs(analysis.configuredLoopbackLatencySamples, analysis.configuredLoopbackLatencySampleRate));
     add(L"Capture", L"Capture Clipping", formatBool(analysis.captureClippingDetected));
     add(L"Capture", L"Capture Too Quiet", formatBool(analysis.captureTooQuiet));
     add(L"Capture", L"Capture Peak", formatWideDouble(analysis.capturePeakDb, 1) + L" dB");

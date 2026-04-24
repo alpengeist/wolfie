@@ -67,23 +67,6 @@ std::vector<double> scaleSweepSamples(const std::vector<double>& samples, double
     return scaled;
 }
 
-std::vector<double> generateLoopbackPulseTrain(int sampleRate) {
-    const size_t totalSamples = static_cast<size_t>(std::max(sampleRate / 2, 4096));
-    const size_t firstPulse = static_cast<size_t>(std::max(sampleRate / 20, 512));
-    const size_t pulseSpacing = static_cast<size_t>(std::max(sampleRate / 20, 512));
-    constexpr size_t kPulseCount = 8;
-
-    std::vector<double> samples(totalSamples, 0.0);
-    for (size_t i = 0; i < kPulseCount; ++i) {
-        const size_t index = firstPulse + (i * pulseSpacing);
-        if (index >= samples.size()) {
-            break;
-        }
-        samples[index] = (i % 2) == 0 ? 1.0 : -1.0;
-    }
-    return samples;
-}
-
 int16_t sampleToPcm16(double sample) {
     const double clamped = clampValue(sample, -1.0, 1.0);
     return static_cast<int16_t>(std::round(clamped * 32767.0));
@@ -128,20 +111,6 @@ SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings, do
     plan.segmentFrames = plan.leadInFrames + plan.sweepFrames + plan.postRollFrames;
     plan.totalFrames = plan.segmentFrames * 2;
     plan.playbackPcm = buildStereoSweepPcm(plan.playedSweep, settings.leadInSamples, plan.postRollFrames);
-    return plan;
-}
-
-SweepPlaybackPlan buildLoopbackCalibrationPlaybackPlan(const MeasurementSettings& settings, double outputVolumeDb) {
-    const int sampleRate = std::max(8000, settings.sampleRate);
-
-    SweepPlaybackPlan plan;
-    plan.leadInFrames = static_cast<size_t>(std::max(settings.leadInSamples, sampleRate / 10));
-    plan.playedSweep = scaleSweepSamples(generateLoopbackPulseTrain(sampleRate), outputVolumeDb);
-    plan.sweepFrames = plan.playedSweep.size();
-    plan.postRollFrames = 0;
-    plan.segmentFrames = plan.leadInFrames + plan.sweepFrames;
-    plan.totalFrames = plan.segmentFrames * 2;
-    plan.playbackPcm = buildStereoSweepPcm(plan.playedSweep, static_cast<int>(plan.leadInFrames), plan.postRollFrames);
     return plan;
 }
 
