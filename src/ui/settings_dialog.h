@@ -49,6 +49,7 @@ private:
     HWND mic_ = nullptr;
     HWND left_ = nullptr;
     HWND right_ = nullptr;
+    HWND micCalibrationPath_ = nullptr;
 };
 
 }  // namespace wolfie::ui

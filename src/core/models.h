@@ -19,6 +19,9 @@ struct AudioSettings {
     int leftOutputChannel = 1;
     int rightOutputChannel = 2;
     double outputVolumeDb = -30.0;
+    std::filesystem::path microphoneCalibrationPath;
+    std::vector<double> microphoneCalibrationFrequencyHz;
+    std::vector<double> microphoneCalibrationCorrectionDb;
 };
 
 struct MeasurementSettings {

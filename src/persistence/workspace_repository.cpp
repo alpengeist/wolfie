@@ -6,6 +6,7 @@
 #include <sstream>
 #include <vector>
 
+#include "persistence/microphone_calibration_repository.h"
 #include "measurement/response_smoother.h"
 #include "measurement/sweep_generator.h"
 #include "measurement/target_curve_designer.h"
@@ -278,6 +279,9 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonNumber(*content, "rightOutputChannel")) {
             workspace.audio.rightOutputChannel = static_cast<int>(*value);
         }
+        if (const auto value = findJsonString(*content, "microphoneCalibrationPath")) {
+            workspace.audio.microphoneCalibrationPath = std::filesystem::path(*value);
+        }
         if (const auto value = findJsonNumber(*content, "sampleRate")) {
             workspace.measurement.sampleRate = static_cast<int>(*value);
         }
@@ -347,6 +351,8 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
 
     measurement::syncDerivedMeasurementSettings(workspace.measurement);
     measurement::normalizeResponseSmoothingSettings(workspace.smoothing);
+    std::wstring calibrationError;
+    loadMicrophoneCalibration(workspace.audio, calibrationError);
     loadMeasurementResultFile(workspace);
     loadTargetCurveBandsFile(workspace);
     const auto targetPlot = measurement::buildTargetCurvePlotData(workspace.smoothedResponse,
@@ -365,13 +371,17 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
     std::filesystem::create_directories(workspace.rootPath / "measurement");
 
     std::ostringstream workspaceJson;
+    const auto microphoneCalibrationPathUtf8 = workspace.audio.microphoneCalibrationPath.generic_u8string();
     workspaceJson << "{\n"
                   << "  \"audio\": {\n"
                   << "    \"driver\": \"" << escapeJson(workspace.audio.driver) << "\",\n"
                   << "    \"micInputChannel\": " << workspace.audio.micInputChannel << ",\n"
                   << "    \"leftOutputChannel\": " << workspace.audio.leftOutputChannel << ",\n"
                   << "    \"rightOutputChannel\": " << workspace.audio.rightOutputChannel << ",\n"
-                  << "    \"outputVolumeDb\": " << workspace.audio.outputVolumeDb << "\n"
+                  << "    \"outputVolumeDb\": " << workspace.audio.outputVolumeDb << ",\n"
+                  << "    \"microphoneCalibrationPath\": \""
+                  << escapeJson(std::string(microphoneCalibrationPathUtf8.begin(), microphoneCalibrationPathUtf8.end()))
+                  << "\"\n"
                   << "  },\n"
                   << "  \"measurement\": {\n"
                   << "    \"sampleRate\": " << workspace.measurement.sampleRate << ",\n"

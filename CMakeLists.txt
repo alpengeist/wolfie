@@ -26,6 +26,8 @@ add_executable(wolfie WIN32
     src/measurement/target_curve_designer.h
     src/persistence/app_state_repository.cpp
     src/persistence/app_state_repository.h
+    src/persistence/microphone_calibration_repository.cpp
+    src/persistence/microphone_calibration_repository.h
     src/persistence/workspace_repository.cpp
     src/persistence/workspace_repository.h
     src/ui/measurement_page.cpp

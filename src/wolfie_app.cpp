@@ -14,6 +14,7 @@
 #include "measurement/response_analyzer.h"
 #include "measurement/response_smoother.h"
 #include "measurement/target_curve_designer.h"
+#include "persistence/microphone_calibration_repository.h"
 #include "ui/response_graph.h"
 #include "ui/settings_dialog.h"
 #include "ui/target_curve_graph.h"
@@ -423,7 +424,18 @@ void WolfieApp::endLogResize() {
 
 void WolfieApp::showSettingsWindow() {
     ui::SettingsDialog::show(instance_, mainWindow_, workspace_.audio, asioService_, [this](const AudioSettings& settings) {
+        const std::filesystem::path previousCalibrationPath = workspace_.audio.microphoneCalibrationPath;
         workspace_.audio = settings;
+        std::wstring calibrationError;
+        if (!persistence::loadMicrophoneCalibration(workspace_.audio, calibrationError)) {
+            appendLog(L"Microphone calibration unavailable: " + calibrationError, LogSeverity::Error);
+        } else if (workspace_.audio.microphoneCalibrationPath != previousCalibrationPath) {
+            if (workspace_.audio.microphoneCalibrationPath.empty()) {
+                appendLog(L"Microphone calibration cleared.");
+            } else {
+                appendLog(L"Microphone calibration loaded: " + workspace_.audio.microphoneCalibrationPath.wstring());
+            }
+        }
         populateControlsFromState();
         syncStateFromControls();
         workspaceRepository_.save(workspace_);
@@ -706,6 +718,12 @@ void WolfieApp::openWorkspace(const std::filesystem::path& path) {
     refreshMeasurementStatus();
     measurementPage_.invalidateGraph();
     targetCurvePage_.populate(workspace_);
+    if (!workspace_.audio.microphoneCalibrationPath.empty() &&
+        workspace_.audio.microphoneCalibrationFrequencyHz.size() < 2) {
+        appendLog(L"Workspace microphone calibration could not be loaded: " +
+                  workspace_.audio.microphoneCalibrationPath.wstring(),
+                  LogSeverity::Error);
+    }
     appendLog(L"Workspace opened: " + path.wstring());
 }
 
@@ -755,6 +773,15 @@ void WolfieApp::startMeasurement() {
                          std::to_wstring(measurement::configuredLoopbackLatencySamples(workspace_.measurement,
                                                                                        workspace_.measurement.sampleRate)) +
                          L" samples.");
+    if (!workspace_.audio.microphoneCalibrationPath.empty()) {
+        if (workspace_.audio.microphoneCalibrationFrequencyHz.size() >= 2) {
+            appendMeasurementLog(L"Using microphone calibration: " + workspace_.audio.microphoneCalibrationPath.wstring());
+        } else {
+            appendMeasurementLog(L"Configured microphone calibration could not be loaded: " +
+                                     workspace_.audio.microphoneCalibrationPath.wstring(),
+                                 LogSeverity::Error);
+        }
+    }
     if (!measurementController_.start(workspace_)) {
         refreshMeasurementStatus();
         if (!measurementController_.status().lastErrorMessage.empty()) {

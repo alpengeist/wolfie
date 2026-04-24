@@ -155,6 +155,53 @@ CorrelationPeak correlatePulseTrainAtSegment(const std::vector<double>& captured
     return peak;
 }
 
+double interpolateMicrophoneCalibrationDb(const AudioSettings& audioSettings, double frequencyHz) {
+    const auto& frequencyAxisHz = audioSettings.microphoneCalibrationFrequencyHz;
+    const auto& correctionDb = audioSettings.microphoneCalibrationCorrectionDb;
+    if (frequencyAxisHz.size() < 2 || frequencyAxisHz.size() != correctionDb.size()) {
+        return 0.0;
+    }
+
+    const double clampedFrequencyHz = std::max(1.0, frequencyHz);
+    if (clampedFrequencyHz <= frequencyAxisHz.front()) {
+        return correctionDb.front();
+    }
+    if (clampedFrequencyHz >= frequencyAxisHz.back()) {
+        return correctionDb.back();
+    }
+
+    for (size_t i = 1; i < frequencyAxisHz.size(); ++i) {
+        if (frequencyAxisHz[i] < clampedFrequencyHz) {
+            continue;
+        }
+
+        const double lowFrequencyHz = std::max(1.0, frequencyAxisHz[i - 1]);
+        const double highFrequencyHz = std::max(lowFrequencyHz + 1.0e-9, frequencyAxisHz[i]);
+        const double lowLog = std::log(lowFrequencyHz);
+        const double highLog = std::log(highFrequencyHz);
+        const double targetLog = std::log(clampedFrequencyHz);
+        const double blend = clampValue((targetLog - lowLog) / std::max(1.0e-9, highLog - lowLog), 0.0, 1.0);
+        return correctionDb[i - 1] + ((correctionDb[i] - correctionDb[i - 1]) * blend);
+    }
+
+    return correctionDb.back();
+}
+
+void applyMicrophoneCalibration(const AudioSettings& audioSettings, MeasurementResult& result) {
+    if (audioSettings.microphoneCalibrationFrequencyHz.size() < 2 ||
+        audioSettings.microphoneCalibrationFrequencyHz.size() != audioSettings.microphoneCalibrationCorrectionDb.size()) {
+        return;
+    }
+
+    for (size_t i = 0; i < result.frequencyAxisHz.size() &&
+                       i < result.leftChannelDb.size() &&
+                       i < result.rightChannelDb.size(); ++i) {
+        const double correctionDb = interpolateMicrophoneCalibrationDb(audioSettings, result.frequencyAxisHz[i]);
+        result.leftChannelDb[i] += correctionDb;
+        result.rightChannelDb[i] += correctionDb;
+    }
+}
+
 }  // namespace
 
 double amplitudeDbFromPcm16(const int16_t* samples, size_t count) {
@@ -243,6 +290,7 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                     const std::vector<double>& playedSweep,
                                                     size_t leadInFrames,
                                                     int sampleRate,
+                                                    const AudioSettings& audioSettings,
                                                     const MeasurementSettings& settings) {
     MeasurementResult result;
     if (playedSweep.empty()) {
@@ -299,6 +347,7 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
         result.rightChannelDb.push_back(channelDb(segmentFrames, begin, end));
     }
 
+    applyMicrophoneCalibration(audioSettings, result);
     return result;
 }
 

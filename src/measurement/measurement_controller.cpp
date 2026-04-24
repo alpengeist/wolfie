@@ -176,6 +176,7 @@ void MeasurementController::tick() {
                                                                  playbackPlan_.playedSweep,
                                                                  playbackPlan_.leadInFrames,
                                                                  session_->sampleRate(),
+                                                                 snapshot_.audio,
                                                                  snapshot_.measurement);
     }
 

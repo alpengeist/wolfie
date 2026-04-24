@@ -33,6 +33,7 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                     const std::vector<double>& playedSweep,
                                                     size_t leadInFrames,
                                                     int sampleRate,
+                                                    const AudioSettings& audioSettings,
                                                     const MeasurementSettings& settings);
 
 }  // namespace wolfie::measurement
