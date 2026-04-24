@@ -6,6 +6,7 @@
 #include <commctrl.h>
 
 #include "core/text_utils.h"
+#include "measurement/response_analyzer.h"
 #include "measurement/sweep_generator.h"
 #include "ui/ui_theme.h"
 
@@ -82,6 +83,8 @@ void MeasurementPage::createControls() {
     controls_.currentFrequency = CreateWindowW(L"STATIC", L"Freq 0 Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.currentAmplitude = CreateWindowW(L"STATIC", L"Amp -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.peakAmplitude = CreateWindowW(L"STATIC", L"Peak -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.buttonLoopback = CreateWindowW(L"BUTTON", L"LOOPBACK", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonLoopback), instance_, nullptr);
+    controls_.loopbackLatency = CreateWindowW(L"STATIC", L"Loopback 0 samples", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
 
     responseGraph_.create(window_, instance_, kResponseGraph);
 
@@ -131,6 +134,7 @@ void MeasurementPage::layout() {
     constexpr int kUnitHeight = 16;
     constexpr int kUnitTopOffset = 52;
     constexpr int kButtonWidth = 184;
+    constexpr int kLoopbackButtonWidth = 104;
     constexpr int kProgressLabelWidth = 42;
     constexpr int kProgressBarWidth = 180;
     constexpr int kProgressTextWidth = 44;
@@ -184,14 +188,15 @@ void MeasurementPage::layout() {
     const int buttonTop = dataRowTop - 4;
     const int buttonHeight = (progressRowTop + 20) - buttonTop;
     MoveWindow(controls_.buttonMeasure, contentLeft, buttonTop, kButtonWidth, buttonHeight, TRUE);
-    int metricLeft = contentLeft + kButtonWidth + kMetricGap;
+    MoveWindow(controls_.buttonLoopback, contentLeft + kButtonWidth + kMetricGap, buttonTop, kLoopbackButtonWidth, buttonHeight, TRUE);
+    int metricLeft = contentLeft + kButtonWidth + kMetricGap + kLoopbackButtonWidth + kMetricGap;
     MoveWindow(controls_.currentFrequency, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
     metricLeft += kMetricWidth + kMetricGap;
     MoveWindow(controls_.currentAmplitude, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
     metricLeft += kMetricWidth + kMetricGap;
     MoveWindow(controls_.peakAmplitude, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
 
-    metricLeft = contentLeft + kButtonWidth + kMetricGap;
+    metricLeft = contentLeft + kButtonWidth + kMetricGap + kLoopbackButtonWidth + kMetricGap;
     MoveWindow(controls_.leftChannelLabel, metricLeft, progressRowTop + 2, kProgressLabelWidth, 18, TRUE);
     MoveWindow(controls_.leftProgressBar, metricLeft + kProgressLabelWidth + 8, progressRowTop + 4, kProgressBarWidth, 16, TRUE);
     MoveWindow(controls_.leftProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
@@ -199,8 +204,9 @@ void MeasurementPage::layout() {
     MoveWindow(controls_.rightChannelLabel, metricLeft, progressRowTop + 2, kProgressLabelWidth, 18, TRUE);
     MoveWindow(controls_.rightProgressBar, metricLeft + kProgressLabelWidth + 8, progressRowTop + 4, kProgressBarWidth, 16, TRUE);
     MoveWindow(controls_.rightProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
+    MoveWindow(controls_.loopbackLatency, contentLeft + kButtonWidth + kMetricGap, progressRowTop + 24, 260, 18, TRUE);
 
-    const int graphTop = progressRowTop + 40;
+    const int graphTop = progressRowTop + 48;
     const RECT graphBounds{contentLeft, graphTop, contentLeft + innerWidth, graphTop + std::max(200, innerHeight - graphTop - 12)};
     responseGraph_.layout(graphBounds);
 }
@@ -218,6 +224,11 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.editTargetLength, formatWideDouble(workspace.measurement.targetLengthSamples, 0));
     setWindowTextValue(controls_.editLeadIn, formatWideDouble(workspace.measurement.leadInSamples, 0));
     SendMessageW(controls_.comboSampleRate, CB_SETCURSEL, comboIndexFromMeasurementSampleRate(workspace.measurement.sampleRate), 0);
+    setWindowTextValue(controls_.loopbackLatency,
+                       L"Loopback " +
+                           formatWideDouble(measurement::configuredLoopbackLatencySamples(workspace.measurement,
+                                                                                         workspace.measurement.sampleRate), 0) +
+                           L" samples");
     setWindowTextValue(controls_.outputVolumeValue, formatOutputVolumeLabel(workspace.audio.outputVolumeDb));
     SendMessageW(controls_.outputVolumeSlider, TBM_SETPOS, TRUE, outputVolumeDbToSliderPosition(workspace.audio.outputVolumeDb));
     responseGraph_.setExtraVisibleRangeDb(workspace.ui.measurementGraphExtraRangeDb);
@@ -265,6 +276,12 @@ void MeasurementPage::refreshStatus(const MeasurementStatus& status, bool hasRes
     setWindowTextValue(controls_.currentFrequency, L"Freq " + formatWideDouble(status.currentFrequencyHz, 0) + L" Hz");
     setWindowTextValue(controls_.currentAmplitude, L"Amp " + formatWideDouble(status.currentAmplitudeDb, 1) + L" dB");
     setWindowTextValue(controls_.peakAmplitude, L"Peak " + formatWideDouble(status.peakAmplitudeDb, 1) + L" dB");
+    if (status.loopbackCalibration && status.running) {
+        setWindowTextValue(controls_.loopbackLatency, L"Loopback running");
+    } else if (status.loopbackCalibration && status.finished && status.lastErrorMessage.empty()) {
+        setWindowTextValue(controls_.loopbackLatency,
+                           L"Loopback " + std::to_wstring(status.measuredLoopbackLatencySamples) + L" samples");
+    }
     InvalidateRect(controls_.buttonMeasure, nullptr, TRUE);
 
     (void)hasResult;
@@ -330,10 +347,16 @@ bool MeasurementPage::handleCommand(WORD commandId,
                                     WORD notificationCode,
                                     WorkspaceState& workspace,
                                     bool& measurePressed,
+                                    bool& loopbackPressed,
                                     bool& sampleRateChanged,
                                     bool& graphZoomChanged) {
     if (commandId == kButtonMeasure) {
         measurePressed = true;
+        return true;
+    }
+
+    if (commandId == kButtonLoopback) {
+        loopbackPressed = true;
         return true;
     }
 

@@ -128,6 +128,9 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "resultSectionHeight")) {
         ui.resultSectionHeight = static_cast<int>(*value);
     }
+    if (const auto value = findJsonNumber(content, "processLogHeight")) {
+        ui.processLogHeight = static_cast<int>(*value);
+    }
     if (const auto value = findJsonNumber(content, "measurementGraphExtraRangeDb")) {
         ui.measurementGraphExtraRangeDb = *value;
     }
@@ -299,6 +302,12 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonNumber(*content, "leadInSamples")) {
             workspace.measurement.leadInSamples = static_cast<int>(*value);
         }
+        if (const auto value = findJsonNumber(*content, "loopbackLatencySamples")) {
+            workspace.measurement.loopbackLatencySamples = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, "loopbackLatencySampleRate")) {
+            workspace.measurement.loopbackLatencySampleRate = static_cast<int>(*value);
+        }
         loadUiSettingsFromJson(*content, workspace.ui);
         if (const auto model = findJsonString(*content, "psychoacousticModel")) {
             workspace.smoothing.psychoacousticModel = *model;
@@ -372,7 +381,9 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"startFrequencyHz\": " << workspace.measurement.startFrequencyHz << ",\n"
                   << "    \"endFrequencyHz\": " << workspace.measurement.endFrequencyHz << ",\n"
                   << "    \"targetLengthSamples\": " << workspace.measurement.targetLengthSamples << ",\n"
-                  << "    \"leadInSamples\": " << workspace.measurement.leadInSamples << "\n"
+                  << "    \"leadInSamples\": " << workspace.measurement.leadInSamples << ",\n"
+                  << "    \"loopbackLatencySamples\": " << workspace.measurement.loopbackLatencySamples << ",\n"
+                  << "    \"loopbackLatencySampleRate\": " << workspace.measurement.loopbackLatencySampleRate << "\n"
                   << "  },\n"
                   << "  \"smoothing\": {\n"
                   << "    \"psychoacousticModel\": \"" << escapeJson(workspace.smoothing.psychoacousticModel) << "\",\n"
@@ -391,6 +402,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "  \"ui\": {\n"
                   << "    \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
                   << "    \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
+                  << "    \"processLogHeight\": " << workspace.ui.processLogHeight << ",\n"
                   << "    \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
                   << "    \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
                   << "    \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
@@ -405,6 +417,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
     uiJson << "{\n"
            << "  \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
            << "  \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
+           << "  \"processLogHeight\": " << workspace.ui.processLogHeight << ",\n"
            << "  \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
            << "  \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
            << "  \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"

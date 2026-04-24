@@ -1,12 +1,16 @@
 #include "wolfie_app.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
+#include <sstream>
 
 #include <commctrl.h>
 #include <shobjidl.h>
+#include <windowsx.h>
 
 #include "audio/winmm_audio_backend.h"
+#include "measurement/response_analyzer.h"
 #include "measurement/response_smoother.h"
 #include "measurement/target_curve_designer.h"
 #include "ui/response_graph.h"
@@ -25,7 +29,14 @@ constexpr int kMenuFileSaveAs = 1004;
 constexpr int kMenuFileSettings = 1005;
 constexpr int kMenuFileRecentBase = 1100;
 constexpr int kTabMain = 3013;
+constexpr int kProcessLog = 3015;
+constexpr int kProcessLogSplitter = 3016;
 constexpr wchar_t kMainClassName[] = L"WolfieMainWindow";
+constexpr int kLogSplitterHeight = 6;
+constexpr int kLogLabelHeight = 20;
+constexpr int kMinLogHeight = 86;
+constexpr int kMaxLogHeight = 420;
+constexpr int kMinTabHeight = 360;
 
 std::filesystem::path appStatePath() {
     const std::filesystem::path legacyPath = std::filesystem::current_path() / "wolfie-app-state.json";
@@ -110,6 +121,43 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
     case WM_HSCROLL:
         app->onHScroll(reinterpret_cast<HWND>(lParam));
         return 0;
+    case WM_SETCURSOR: {
+        const POINT cursor = [] {
+            POINT point{};
+            GetCursorPos(&point);
+            return point;
+        }();
+        POINT clientPoint = cursor;
+        ScreenToClient(window, &clientPoint);
+        if (app->resizingLog_ || app->isPointOnLogSplitter(clientPoint.y)) {
+            SetCursor(LoadCursor(nullptr, IDC_SIZENS));
+            return TRUE;
+        }
+        break;
+    }
+    case WM_LBUTTONDOWN: {
+        const int y = GET_Y_LPARAM(lParam);
+        if (app->isPointOnLogSplitter(y)) {
+            app->beginLogResize(y);
+            return 0;
+        }
+        break;
+    }
+    case WM_LBUTTONUP:
+        if (app->resizingLog_) {
+            app->endLogResize();
+            return 0;
+        }
+        break;
+    case WM_MOUSEMOVE:
+        if (app->resizingLog_) {
+            app->updateLogResize(GET_Y_LPARAM(lParam));
+            return 0;
+        }
+        break;
+    case WM_CAPTURECHANGED:
+        app->resizingLog_ = false;
+        break;
     case WM_DRAWITEM:
         if (app->measurementPage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam),
                                                  app->measurementController_.status().running)) {
@@ -227,16 +275,58 @@ void WolfieApp::createLayout() {
                                         0, 0, 0, 0, pageFilters_, nullptr, instance_, nullptr);
     placeholderExport_ = CreateWindowW(L"STATIC", L"ROON export will live here.", WS_CHILD | SS_CENTER,
                                        0, 0, 0, 0, pageExport_, nullptr, instance_, nullptr);
+    logSplitter_ = CreateWindowW(L"STATIC", nullptr, WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+                                 0, 0, 0, 0, mainWindow_, reinterpret_cast<HMENU>(kProcessLogSplitter), instance_, nullptr);
+    logLabel_ = CreateWindowW(L"STATIC", L"Process Log", WS_CHILD | WS_VISIBLE,
+                              0, 0, 0, 0, mainWindow_, nullptr, instance_, nullptr);
+    logEdit_ = CreateWindowExW(WS_EX_CLIENTEDGE,
+                               L"EDIT",
+                               L"",
+                               WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
+                               0,
+                               0,
+                               0,
+                               0,
+                               mainWindow_,
+                               reinterpret_cast<HMENU>(kProcessLog),
+                               instance_,
+                               nullptr);
+    SendMessageW(logEdit_, EM_SETLIMITTEXT, 0, 0);
 
     updateVisibleTab();
     layoutMainWindow();
+    appendLog(L"Application ready.");
 }
 
 void WolfieApp::layoutMainWindow() {
     const RECT bounds = clientRect(mainWindow_);
     const int width = std::max(320L, bounds.right - (2 * kContentMargin));
     const int height = std::max(360L, bounds.bottom - (2 * kContentMargin));
-    MoveWindow(tabControl_, kContentMargin, kContentMargin, width, height, TRUE);
+    const int maxLogHeight = std::max(kMinLogHeight, height - kMinTabHeight - kLogSplitterHeight);
+    workspace_.ui.processLogHeight = std::clamp(workspace_.ui.processLogHeight,
+                                                kMinLogHeight,
+                                                std::min(kMaxLogHeight, maxLogHeight));
+    const int logHeight = workspace_.ui.processLogHeight;
+    const int tabHeight = std::max(kMinTabHeight, height - logHeight - kLogSplitterHeight);
+    MoveWindow(tabControl_, kContentMargin, kContentMargin, width, tabHeight, TRUE);
+
+    const int splitterTop = kContentMargin + tabHeight;
+    logSplitterRect_ = RECT{kContentMargin, splitterTop, kContentMargin + width, splitterTop + kLogSplitterHeight};
+    MoveWindow(logSplitter_,
+               logSplitterRect_.left,
+               logSplitterRect_.top,
+               logSplitterRect_.right - logSplitterRect_.left,
+               logSplitterRect_.bottom - logSplitterRect_.top,
+               TRUE);
+
+    const int logTop = splitterTop + kLogSplitterHeight;
+    MoveWindow(logLabel_, kContentMargin, logTop + 2, width, kLogLabelHeight, TRUE);
+    MoveWindow(logEdit_,
+               kContentMargin,
+               logTop + kLogLabelHeight,
+               width,
+               std::max(40, logHeight - kLogLabelHeight),
+               TRUE);
 
     RECT tabRect{};
     GetClientRect(tabControl_, &tabRect);
@@ -261,6 +351,65 @@ void WolfieApp::layoutContent() {
     targetCurvePage_.layout();
 }
 
+void WolfieApp::appendLog(const std::wstring& message) {
+    if (logEdit_ == nullptr) {
+        return;
+    }
+
+    SYSTEMTIME time{};
+    GetLocalTime(&time);
+    std::wostringstream line;
+    line << L'['
+         << (time.wHour < 10 ? L"0" : L"") << time.wHour << L':'
+         << (time.wMinute < 10 ? L"0" : L"") << time.wMinute << L':'
+         << (time.wSecond < 10 ? L"0" : L"") << time.wSecond << L"] "
+         << message << L"\r\n";
+
+    const int length = GetWindowTextLengthW(logEdit_);
+    SendMessageW(logEdit_, EM_SETSEL, length, length);
+    SendMessageW(logEdit_, EM_REPLACESEL, FALSE, reinterpret_cast<LPARAM>(line.str().c_str()));
+    SendMessageW(logEdit_, EM_SCROLLCARET, 0, 0);
+}
+
+void WolfieApp::appendMeasurementLog(const std::wstring& message) {
+    appendLog(L"Measurement: " + message);
+}
+
+bool WolfieApp::isPointOnLogSplitter(int y) const {
+    return y >= logSplitterRect_.top - 3 && y <= logSplitterRect_.bottom + 3;
+}
+
+void WolfieApp::beginLogResize(int) {
+    resizingLog_ = true;
+    SetCapture(mainWindow_);
+    SetCursor(LoadCursor(nullptr, IDC_SIZENS));
+}
+
+void WolfieApp::updateLogResize(int y) {
+    const RECT bounds = clientRect(mainWindow_);
+    const int contentBottom = bounds.bottom - kContentMargin;
+    const int height = std::max(360L, bounds.bottom - (2 * kContentMargin));
+    const int maxLogHeight = std::max(kMinLogHeight, height - kMinTabHeight - kLogSplitterHeight);
+    workspace_.ui.processLogHeight = std::clamp(contentBottom - y - kLogSplitterHeight,
+                                                kMinLogHeight,
+                                                std::min(kMaxLogHeight, maxLogHeight));
+    layoutMainWindow();
+}
+
+void WolfieApp::endLogResize() {
+    resizingLog_ = false;
+    if (GetCapture() == mainWindow_) {
+        ReleaseCapture();
+    }
+    if (!workspace_.rootPath.empty()) {
+        try {
+            syncStateFromControls();
+        } catch (...) {
+        }
+        workspaceRepository_.save(workspace_);
+    }
+}
+
 void WolfieApp::showSettingsWindow() {
     ui::SettingsDialog::show(instance_, mainWindow_, workspace_.audio, asioService_, [this](const AudioSettings& settings) {
         workspace_.audio = settings;
@@ -282,6 +431,7 @@ void WolfieApp::populateControlsFromState() {
     measurementPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
+    layoutMainWindow();
 }
 
 void WolfieApp::syncStateFromControls() {
@@ -341,12 +491,14 @@ void WolfieApp::ensureSmoothedResponseReady() {
 
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     bool measurePressed = false;
+    bool loopbackPressed = false;
     bool sampleRateChanged = false;
     bool measurementGraphZoomChanged = false;
     if (measurementPage_.handleCommand(commandId,
                                        notificationCode,
                                        workspace_,
                                        measurePressed,
+                                       loopbackPressed,
                                        sampleRateChanged,
                                        measurementGraphZoomChanged)) {
         if (measurementGraphZoomChanged) {
@@ -362,6 +514,13 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
                 stopMeasurement();
             } else {
                 startMeasurement();
+            }
+        }
+        if (loopbackPressed) {
+            if (measurementController_.status().running) {
+                stopMeasurement();
+            } else {
+                startLoopbackCalibration();
             }
         }
         return;
@@ -467,9 +626,10 @@ void WolfieApp::onTimer(UINT_PTR timerId) {
 
     measurementController_.tick();
     refreshMeasurementStatus();
-    if (measurementController_.status().finished) {
-        finalizeMeasurement();
+    if (measurementController_.status().finished && !measurementCompletionHandled_) {
+        measurementCompletionHandled_ = true;
         KillTimer(mainWindow_, kMeasurementTimerId);
+        finalizeMeasurement();
     }
 }
 
@@ -516,6 +676,7 @@ void WolfieApp::newWorkspace() {
     syncStateFromControls();
     workspaceRepository_.save(workspace_);
     touchRecentWorkspace(*path);
+    appendLog(L"Workspace created: " + path->wstring());
 }
 
 void WolfieApp::openWorkspace() {
@@ -534,6 +695,7 @@ void WolfieApp::openWorkspace(const std::filesystem::path& path) {
     refreshMeasurementStatus();
     measurementPage_.invalidateGraph();
     targetCurvePage_.populate(workspace_);
+    appendLog(L"Workspace opened: " + path.wstring());
 }
 
 void WolfieApp::saveWorkspace(bool saveAs) {
@@ -549,6 +711,7 @@ void WolfieApp::saveWorkspace(bool saveAs) {
     syncStateFromControls();
     workspaceRepository_.save(workspace_);
     refreshWindowTitle();
+    appendLog(L"Workspace saved: " + workspace_.rootPath.wstring());
 }
 
 void WolfieApp::loadLastWorkspaceIfPossible() {
@@ -570,18 +733,27 @@ void WolfieApp::touchRecentWorkspace(const std::filesystem::path& path) {
 
 void WolfieApp::startMeasurement() {
     if (workspace_.rootPath.empty()) {
-        MessageBoxW(mainWindow_, L"Create or open a workspace first.", L"Wolfie", MB_OK | MB_ICONWARNING);
+        appendMeasurementLog(L"Cannot start measurement because no workspace is open.");
         return;
     }
 
     syncStateFromControls();
+    appendMeasurementLog(L"Starting sweep measurement at " +
+                         std::to_wstring(workspace_.measurement.sampleRate) +
+                         L" Hz, stored loopback latency " +
+                         std::to_wstring(measurement::configuredLoopbackLatencySamples(workspace_.measurement,
+                                                                                       workspace_.measurement.sampleRate)) +
+                         L" samples.");
     if (!measurementController_.start(workspace_)) {
         refreshMeasurementStatus();
         if (!measurementController_.status().lastErrorMessage.empty()) {
-            MessageBoxW(mainWindow_, measurementController_.status().lastErrorMessage.c_str(), L"Wolfie", MB_OK | MB_ICONERROR);
+            appendMeasurementLog(L"Start failed: " + measurementController_.status().lastErrorMessage);
         }
         return;
     }
+
+    measurementCompletionHandled_ = false;
+    appendMeasurementLog(L"Playback file written to " + measurementController_.status().generatedSweepPath.wstring());
 
     workspace_.result = {};
     workspace_.smoothedResponse = {};
@@ -592,11 +764,40 @@ void WolfieApp::startMeasurement() {
     refreshMeasurementStatus();
 }
 
+void WolfieApp::startLoopbackCalibration() {
+    if (workspace_.rootPath.empty()) {
+        appendMeasurementLog(L"Cannot start loopback calibration because no workspace is open.");
+        return;
+    }
+
+    syncStateFromControls();
+    appendMeasurementLog(L"Starting loopback latency calibration at " +
+                         std::to_wstring(workspace_.measurement.sampleRate) +
+                         L" Hz.");
+    if (!measurementController_.startLoopbackCalibration(workspace_)) {
+        refreshMeasurementStatus();
+        if (!measurementController_.status().lastErrorMessage.empty()) {
+            appendMeasurementLog(L"Loopback calibration start failed: " + measurementController_.status().lastErrorMessage);
+        }
+        return;
+    }
+
+    measurementCompletionHandled_ = false;
+    appendMeasurementLog(L"Loopback pulse file written to " + measurementController_.status().generatedSweepPath.wstring());
+
+    SetTimer(mainWindow_, kMeasurementTimerId, 50, nullptr);
+    refreshMeasurementStatus();
+}
+
 void WolfieApp::stopMeasurement() {
     if (!measurementController_.status().running) {
         return;
     }
 
+    appendMeasurementLog(measurementController_.status().loopbackCalibration
+                             ? L"Loopback calibration stopped by user."
+                             : L"Measurement stopped by user.");
+    measurementCompletionHandled_ = true;
     measurementController_.cancel();
     KillTimer(mainWindow_, kMeasurementTimerId);
     if (!workspace_.rootPath.empty()) {
@@ -611,6 +812,31 @@ void WolfieApp::stopMeasurement() {
 }
 
 void WolfieApp::finalizeMeasurement() {
+    const MeasurementStatus completedStatus = measurementController_.status();
+    if (completedStatus.loopbackCalibration) {
+        if (completedStatus.lastErrorMessage.empty()) {
+            workspace_.measurement.loopbackLatencySamples = completedStatus.measuredLoopbackLatencySamples;
+            workspace_.measurement.loopbackLatencySampleRate = workspace_.measurement.sampleRate;
+            workspaceRepository_.save(workspace_);
+            measurementPage_.populate(workspace_);
+            appendMeasurementLog(L"Loopback latency stored: " +
+                                 std::to_wstring(completedStatus.measuredLoopbackLatencySamples) +
+                                 L" samples, peak-to-noise " +
+                                 std::to_wstring(static_cast<int>(std::lround(completedStatus.loopbackPeakToNoiseDb))) +
+                                 L" dB.");
+            if (completedStatus.loopbackClippingDetected) {
+                appendMeasurementLog(L"Warning: clipping was detected during loopback capture.");
+            }
+        } else {
+            appendMeasurementLog(L"Loopback calibration failed: " + completedStatus.lastErrorMessage);
+            if (completedStatus.loopbackTooQuiet) {
+                appendMeasurementLog(L"Loopback input was too low. Raise the interface output/input level or check the cable path.");
+            }
+        }
+        refreshMeasurementStatus();
+        return;
+    }
+
     workspace_.result = measurementController_.result();
     workspace_.smoothedResponse = {};
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
@@ -622,6 +848,11 @@ void WolfieApp::finalizeMeasurement() {
     targetCurvePage_.populate(workspace_);
     syncStateFromControls();
     workspaceRepository_.save(workspace_);
+    appendMeasurementLog(L"Measurement finished. Generated " +
+                         std::to_wstring(workspace_.result.frequencyAxisHz.size()) +
+                         L" response points. Peak capture level " +
+                         std::to_wstring(static_cast<int>(std::lround(completedStatus.peakAmplitudeDb))) +
+                         L" dB.");
     refreshMeasurementStatus();
 }
 

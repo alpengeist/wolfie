@@ -30,11 +30,14 @@ struct MeasurementSettings {
     double endFrequencyHz = 22050.0;
     int targetLengthSamples = 65536;
     int leadInSamples = 6000;
+    int loopbackLatencySamples = 0;
+    int loopbackLatencySampleRate = 44100;
 };
 
 struct UiSettings {
     int measurementSectionHeight = 320;
     int resultSectionHeight = 360;
+    int processLogHeight = 190;
     double measurementGraphExtraRangeDb = 0.0;
     double measurementGraphVerticalOffsetDb = 0.0;
     double smoothingGraphExtraRangeDb = 0.0;
@@ -99,11 +102,16 @@ struct AppState {
 struct MeasurementStatus {
     bool running = false;
     bool finished = false;
+    bool loopbackCalibration = false;
     double progress = 0.0;
     MeasurementChannel currentChannel = MeasurementChannel::None;
     double currentFrequencyHz = 0.0;
     double currentAmplitudeDb = -90.0;
     double peakAmplitudeDb = -90.0;
+    int measuredLoopbackLatencySamples = 0;
+    bool loopbackClippingDetected = false;
+    bool loopbackTooQuiet = false;
+    double loopbackPeakToNoiseDb = 0.0;
     std::filesystem::path generatedSweepPath;
     std::wstring lastErrorMessage;
 };

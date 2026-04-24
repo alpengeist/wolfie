@@ -14,6 +14,7 @@ public:
     ~MeasurementController();
 
     bool start(const WorkspaceState& workspace);
+    bool startLoopbackCalibration(const WorkspaceState& workspace);
     void cancel();
     void tick();
 
@@ -22,6 +23,7 @@ public:
 
 private:
     void resetState();
+    bool startInternal(const WorkspaceState& workspace, bool loopbackCalibration);
 
     std::unique_ptr<audio::IAudioBackend> backend_;
     std::unique_ptr<audio::IAudioMeasurementSession> session_;
@@ -31,6 +33,7 @@ private:
     MeasurementStatus status_;
     uint64_t startTickMs_ = 0;
     uint64_t durationMs_ = 0;
+    bool loopbackCalibration_ = false;
 };
 
 }  // namespace wolfie

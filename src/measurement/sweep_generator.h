@@ -21,6 +21,7 @@ struct SweepPlaybackPlan {
 double defaultSweepEndFrequencyHz(int sampleRate);
 void syncDerivedMeasurementSettings(MeasurementSettings& settings);
 SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings, double outputVolumeDb);
+SweepPlaybackPlan buildLoopbackCalibrationPlaybackPlan(const MeasurementSettings& settings, double outputVolumeDb);
 bool writeStereoWaveFile(const std::filesystem::path& path,
                          const std::vector<int16_t>& interleavedSamples,
                          int sampleRate);

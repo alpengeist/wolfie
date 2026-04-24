@@ -38,6 +38,12 @@ private:
     void createLayout();
     void layoutMainWindow();
     void layoutContent();
+    void appendLog(const std::wstring& message);
+    void appendMeasurementLog(const std::wstring& message);
+    void beginLogResize(int y);
+    void updateLogResize(int y);
+    void endLogResize();
+    [[nodiscard]] bool isPointOnLogSplitter(int y) const;
     void showSettingsWindow();
     void populateControlsFromState();
     void syncStateFromControls();
@@ -60,6 +66,7 @@ private:
     void loadLastWorkspaceIfPossible();
     void touchRecentWorkspace(const std::filesystem::path& path);
     void startMeasurement();
+    void startLoopbackCalibration();
     void stopMeasurement();
     void finalizeMeasurement();
 
@@ -76,6 +83,12 @@ private:
     HWND pageExport_ = nullptr;
     HWND placeholderFilters_ = nullptr;
     HWND placeholderExport_ = nullptr;
+    HWND logLabel_ = nullptr;
+    HWND logEdit_ = nullptr;
+    HWND logSplitter_ = nullptr;
+    bool resizingLog_ = false;
+    bool measurementCompletionHandled_ = true;
+    RECT logSplitterRect_{};
     WorkspaceState workspace_;
     AppState appState_;
     ui::MeasurementPage measurementPage_;

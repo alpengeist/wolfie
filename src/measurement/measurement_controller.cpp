@@ -35,21 +35,35 @@ void MeasurementController::resetState() {
     startTickMs_ = 0;
     durationMs_ = 0;
     playbackPlan_ = {};
+    loopbackCalibration_ = false;
 }
 
 bool MeasurementController::start(const WorkspaceState& workspace) {
+    return startInternal(workspace, false);
+}
+
+bool MeasurementController::startLoopbackCalibration(const WorkspaceState& workspace) {
+    return startInternal(workspace, true);
+}
+
+bool MeasurementController::startInternal(const WorkspaceState& workspace, bool loopbackCalibration) {
     cancel();
     resetState();
 
+    loopbackCalibration_ = loopbackCalibration;
     snapshot_ = workspace;
     measurement::syncDerivedMeasurementSettings(snapshot_.measurement);
 
     const int sampleRate = std::max(8000, snapshot_.measurement.sampleRate);
-    playbackPlan_ = measurement::buildSweepPlaybackPlan(snapshot_.measurement, snapshot_.audio.outputVolumeDb);
+    playbackPlan_ = loopbackCalibration_
+                        ? measurement::buildLoopbackCalibrationPlaybackPlan(snapshot_.measurement,
+                                                                            snapshot_.audio.outputVolumeDb)
+                        : measurement::buildSweepPlaybackPlan(snapshot_.measurement,
+                                                              snapshot_.audio.outputVolumeDb);
 
     const std::filesystem::path measurementDir = snapshot_.rootPath / "measurement";
     std::filesystem::create_directories(measurementDir);
-    status_.generatedSweepPath = measurementDir / "logsweep.wav";
+    status_.generatedSweepPath = measurementDir / (loopbackCalibration_ ? "loopback-pulses.wav" : "logsweep.wav");
     measurement::writeStereoWaveFile(status_.generatedSweepPath, playbackPlan_.playbackPcm, sampleRate);
 
     std::wstring errorMessage;
@@ -63,6 +77,7 @@ bool MeasurementController::start(const WorkspaceState& workspace) {
         std::ceil((static_cast<double>(playbackPlan_.totalFrames) * 1000.0) / static_cast<double>(sampleRate)));
     startTickMs_ = tickMillis();
     status_.running = true;
+    status_.loopbackCalibration = loopbackCalibration_;
     status_.currentChannel = MeasurementChannel::Left;
     return true;
 }
@@ -136,15 +151,38 @@ void MeasurementController::tick() {
     status_.currentAmplitudeDb = levels.currentAmplitudeDb;
     status_.peakAmplitudeDb = levels.peakAmplitudeDb;
 
-    result_ = measurement::buildMeasurementResultFromCapture(session_->capturedSamples(),
-                                                             playbackPlan_.playedSweep,
-                                                             playbackPlan_.leadInFrames,
-                                                             session_->sampleRate(),
-                                                             snapshot_.measurement);
+    if (loopbackCalibration_) {
+        const measurement::LoopbackDelayEstimate estimate =
+            measurement::estimateLoopbackDelayFromCapture(session_->capturedSamples(),
+                                                          playbackPlan_.playedSweep,
+                                                          playbackPlan_.leadInFrames,
+                                                          session_->sampleRate(),
+                                                          snapshot_.measurement);
+        status_.measuredLoopbackLatencySamples = estimate.latencySamples;
+        status_.loopbackClippingDetected = estimate.clippingDetected;
+        status_.loopbackTooQuiet = estimate.tooQuiet;
+        status_.loopbackPeakToNoiseDb = estimate.peakToNoiseDb;
+        if (!estimate.success) {
+            if (estimate.clippingDetected) {
+                status_.lastErrorMessage = L"Loopback calibration failed because the input clipped. Lower the output level and run loopback again.";
+            } else if (estimate.tooQuiet) {
+                status_.lastErrorMessage = L"Loopback calibration failed because the input level was too low.";
+            } else {
+                status_.lastErrorMessage = L"Loopback calibration did not find a clean pulse-train timing peak.";
+            }
+        }
+    } else {
+        result_ = measurement::buildMeasurementResultFromCapture(session_->capturedSamples(),
+                                                                 playbackPlan_.playedSweep,
+                                                                 playbackPlan_.leadInFrames,
+                                                                 session_->sampleRate(),
+                                                                 snapshot_.measurement);
+    }
 
     session_.reset();
     status_.running = false;
     status_.finished = true;
+    status_.loopbackCalibration = loopbackCalibration_;
     status_.progress = 1.0;
     status_.currentChannel = MeasurementChannel::None;
     status_.currentFrequencyHz = snapshot_.measurement.endFrequencyHz;

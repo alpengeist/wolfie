@@ -48,3 +48,18 @@ add_executable(wolfie WIN32
 target_include_directories(wolfie PRIVATE src)
 target_compile_definitions(wolfie PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(wolfie PRIVATE comctl32 comdlg32 ole32 shell32 shlwapi winmm)
+
+option(WOLFIE_BUILD_TESTS "Build Wolfie tests" ON)
+if(WOLFIE_BUILD_TESTS)
+    enable_testing()
+    add_executable(wolfie_measurement_tests
+        tests/measurement_loopback_tests.cpp
+        src/measurement/response_analyzer.cpp
+        src/measurement/response_analyzer.h
+        src/measurement/sweep_generator.cpp
+        src/measurement/sweep_generator.h
+        src/core/models.h
+    )
+    target_include_directories(wolfie_measurement_tests PRIVATE src)
+    add_test(NAME wolfie_measurement_tests COMMAND wolfie_measurement_tests)
+endif()
