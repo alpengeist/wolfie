@@ -14,9 +14,44 @@ namespace wolfie::ui {
 
 namespace {
 
+constexpr double kSmoothnessSteps[] = {0.1, 1.0, 2.0, 4.0};
+constexpr int kSmoothnessStepCount = static_cast<int>(sizeof(kSmoothnessSteps) / sizeof(kSmoothnessSteps[0]));
+
 template <typename T>
 T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
+}
+
+int smoothnessSliderPositionFromValue(double smoothness) {
+    int bestIndex = 0;
+    double bestDistance = std::abs(smoothness - kSmoothnessSteps[0]);
+    for (int index = 1; index < kSmoothnessStepCount; ++index) {
+        const double distance = std::abs(smoothness - kSmoothnessSteps[index]);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = index;
+        }
+    }
+    return bestIndex;
+}
+
+double smoothnessValueFromSliderPosition(LRESULT position) {
+    const int index = clampValue(static_cast<int>(position), 0, kSmoothnessStepCount - 1);
+    return kSmoothnessSteps[index];
+}
+
+void drawLegendFrame(const DRAWITEMSTRUCT& draw) {
+    HBRUSH backgroundBrush = CreateSolidBrush(ui_theme::kBackground);
+    FillRect(draw.hDC, &draw.rcItem, backgroundBrush);
+    DeleteObject(backgroundBrush);
+
+    const int savedDc = SaveDC(draw.hDC);
+    SelectObject(draw.hDC, GetStockObject(HOLLOW_BRUSH));
+    HPEN borderPen = CreatePen(PS_SOLID, 1, ui_theme::kBorder);
+    SelectObject(draw.hDC, borderPen);
+    Rectangle(draw.hDC, draw.rcItem.left, draw.rcItem.top, draw.rcItem.right, draw.rcItem.bottom);
+    RestoreDC(draw.hDC, savedDc);
+    DeleteObject(borderPen);
 }
 
 double interpolateLinear(double x, double x0, double y0, double x1, double y1) {
@@ -120,6 +155,14 @@ void FiltersPage::createControls() {
                                             nullptr);
     controls_.labelPhaseMode = CreateWindowW(L"STATIC", L"Phase Mode", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.phaseModeValue = CreateWindowW(L"STATIC", L"Minimum phase", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelLowCorrection = CreateWindowW(L"STATIC", L"Low Bound", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.editLowCorrection = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditLowCorrection), instance_, nullptr);
+    controls_.unitLowCorrection = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelHighCorrection = CreateWindowW(L"STATIC", L"High Bound", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.editHighCorrection = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditHighCorrection), instance_, nullptr);
+    controls_.unitHighCorrection = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMaxBoost = CreateWindowW(L"STATIC", L"Max Boost", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMaxBoost = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
                                              0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMaxBoost), instance_, nullptr);
@@ -129,24 +172,26 @@ void FiltersPage::createControls() {
                                            0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMaxCut), instance_, nullptr);
     controls_.unitMaxCut = CreateWindowW(L"STATIC", L"dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelSmoothness = CreateWindowW(L"STATIC", L"Smoothness", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.editSmoothness = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditSmoothness), instance_, nullptr);
-    controls_.labelLowCorrection = CreateWindowW(L"STATIC", L"Low Bound", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.editLowCorrection = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditLowCorrection), instance_, nullptr);
-    controls_.unitLowCorrection = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelHighCorrection = CreateWindowW(L"STATIC", L"High Bound", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.editHighCorrection = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditHighCorrection), instance_, nullptr);
-    controls_.unitHighCorrection = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.sliderSmoothness = CreateWindowW(TRACKBAR_CLASSW,
+                                               nullptr,
+                                               WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ,
+                                               0,
+                                               0,
+                                               0,
+                                               0,
+                                               window_,
+                                               reinterpret_cast<HMENU>(kSliderSmoothness),
+                                               instance_,
+                                               nullptr);
+    controls_.valueSmoothness = CreateWindowW(L"STATIC", L"1", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonRecalculate), instance_, nullptr);
     controls_.summary = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.inversionLegendFrame = CreateWindowW(L"BUTTON",
+    controls_.inversionLegendFrame = CreateWindowW(L"STATIC",
                                                    L"",
-                                                   WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+                                                   WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
                                                    0,
                                                    0,
                                                    0,
@@ -209,16 +254,63 @@ void FiltersPage::createControls() {
     controls_.labelInversionLeft = CreateWindowW(L"STATIC", L"L inv", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.correctedTitle = CreateWindowW(L"STATIC", L"Predicted Corrected Response", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.correctedLegendFrame = CreateWindowW(L"STATIC",
+                                                   L"",
+                                                   WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   window_,
+                                                   nullptr,
+                                                   instance_,
+                                                   nullptr);
+    controls_.lineCorrectedTarget = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelCorrectedTarget = CreateWindowW(L"STATIC", L"Target", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowCorrectedLeft = CreateWindowW(L"BUTTON",
+                                                        L"",
+                                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                        0,
+                                                        0,
+                                                        0,
+                                                        0,
+                                                        window_,
+                                                        reinterpret_cast<HMENU>(kCheckboxShowCorrectedLeft),
+                                                        instance_,
+                                                        nullptr);
+    controls_.lineCorrectedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelCorrectedLeft = CreateWindowW(L"STATIC", L"L", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowCorrectedRight = CreateWindowW(L"BUTTON",
+                                                         L"",
+                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         window_,
+                                                         reinterpret_cast<HMENU>(kCheckboxShowCorrectedRight),
+                                                         instance_,
+                                                         nullptr);
+    controls_.lineCorrectedRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelCorrectedRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Filter Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.impulseTitle = CreateWindowW(L"STATIC", L"Filter Impulse", WS_CHILD | WS_VISIBLE,
                                            0, 0, 0, 0, window_, nullptr, instance_, nullptr);
 
     populateTapCountCombo(controls_.comboTapCount);
+    SendMessageW(controls_.sliderSmoothness, TBM_SETRANGEMIN, FALSE, 0);
+    SendMessageW(controls_.sliderSmoothness, TBM_SETRANGEMAX, FALSE, static_cast<LPARAM>(kSmoothnessStepCount - 1));
+    SendMessageW(controls_.sliderSmoothness, TBM_SETTICFREQ, 1, 0);
+    SendMessageW(controls_.sliderSmoothness, TBM_SETLINESIZE, 0, 1);
+    SendMessageW(controls_.sliderSmoothness, TBM_SETPAGESIZE, 0, 1);
+    setSelectedSmoothness(1.0);
     SendMessageW(controls_.checkboxShowInputRight, BM_SETCHECK, showInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInversionRight, BM_SETCHECK, showInversionRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     correctionGraph_.create(window_, instance_);
     correctedGraph_.create(window_, instance_);
     groupDelayGraph_.create(window_, instance_);
@@ -244,20 +336,21 @@ void FiltersPage::layout() {
     MoveWindow(controls_.comboTapCount, contentLeft, top + 22, 120, comboDropHeight, TRUE);
     MoveWindow(controls_.labelPhaseMode, contentLeft + 148, top, 84, 18, TRUE);
     MoveWindow(controls_.phaseModeValue, contentLeft + 148, top + 24, 120, 18, TRUE);
-    MoveWindow(controls_.labelMaxBoost, contentLeft + 292, top, 70, 18, TRUE);
-    MoveWindow(controls_.editMaxBoost, contentLeft + 292, top + 22, 58, 26, TRUE);
-    MoveWindow(controls_.unitMaxBoost, contentLeft + 354, top + 26, 24, 18, TRUE);
-    MoveWindow(controls_.labelMaxCut, contentLeft + 394, top, 70, 18, TRUE);
-    MoveWindow(controls_.editMaxCut, contentLeft + 394, top + 22, 58, 26, TRUE);
-    MoveWindow(controls_.unitMaxCut, contentLeft + 456, top + 26, 24, 18, TRUE);
-    MoveWindow(controls_.labelSmoothness, contentLeft + 496, top, 72, 18, TRUE);
-    MoveWindow(controls_.editSmoothness, contentLeft + 496, top + 22, 58, 26, TRUE);
-    MoveWindow(controls_.labelLowCorrection, contentLeft + 574, top, 72, 18, TRUE);
-    MoveWindow(controls_.editLowCorrection, contentLeft + 574, top + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitLowCorrection, contentLeft + 646, top + 26, 22, 18, TRUE);
-    MoveWindow(controls_.labelHighCorrection, contentLeft + 684, top, 76, 18, TRUE);
-    MoveWindow(controls_.editHighCorrection, contentLeft + 684, top + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitHighCorrection, contentLeft + 756, top + 26, 22, 18, TRUE);
+    MoveWindow(controls_.labelLowCorrection, contentLeft + 292, top, 72, 18, TRUE);
+    MoveWindow(controls_.editLowCorrection, contentLeft + 292, top + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitLowCorrection, contentLeft + 364, top + 26, 22, 18, TRUE);
+    MoveWindow(controls_.labelHighCorrection, contentLeft + 402, top, 76, 18, TRUE);
+    MoveWindow(controls_.editHighCorrection, contentLeft + 402, top + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitHighCorrection, contentLeft + 474, top + 26, 22, 18, TRUE);
+    MoveWindow(controls_.labelMaxBoost, contentLeft + 512, top, 70, 18, TRUE);
+    MoveWindow(controls_.editMaxBoost, contentLeft + 512, top + 22, 58, 26, TRUE);
+    MoveWindow(controls_.unitMaxBoost, contentLeft + 574, top + 26, 24, 18, TRUE);
+    MoveWindow(controls_.labelMaxCut, contentLeft + 614, top, 70, 18, TRUE);
+    MoveWindow(controls_.editMaxCut, contentLeft + 614, top + 22, 58, 26, TRUE);
+    MoveWindow(controls_.unitMaxCut, contentLeft + 676, top + 26, 24, 18, TRUE);
+    MoveWindow(controls_.labelSmoothness, contentLeft + 716, top, 78, 18, TRUE);
+    MoveWindow(controls_.sliderSmoothness, contentLeft + 716, top + 20, 120, 32, TRUE);
+    MoveWindow(controls_.valueSmoothness, contentLeft + 842, top + 24, 36, 18, TRUE);
     MoveWindow(controls_.buttonRecalculate, contentLeft + contentWidth - 110, top + 18, 110, 30, TRUE);
     MoveWindow(controls_.summary, contentLeft, top + 62, contentWidth, 18, TRUE);
 
@@ -293,7 +386,17 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.correctedTitle, contentLeft, y, contentWidth, 18, TRUE);
-    correctedGraph_.layout(RECT{contentLeft, y + 24, contentLeft + contentWidth, y + 24 + graphHeight});
+    MoveWindow(controls_.correctedLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
+    correctedGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
+    const int correctedFirstRowTop = y + 24 + 18;
+    MoveWindow(controls_.lineCorrectedTarget, lineLeft, correctedFirstRowTop + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelCorrectedTarget, labelLeft, correctedFirstRowTop + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowCorrectedLeft, checkboxLeft, correctedFirstRowTop + rowStep, checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineCorrectedLeft, lineLeft, correctedFirstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelCorrectedLeft, labelLeft, correctedFirstRowTop + rowStep + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowCorrectedRight, checkboxLeft, correctedFirstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineCorrectedRight, lineLeft, correctedFirstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelCorrectedRight, labelLeft, correctedFirstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
@@ -303,7 +406,7 @@ void FiltersPage::layout() {
     MoveWindow(controls_.impulseTitle, contentLeft, y, contentWidth, 18, TRUE);
     impulseGraph_.layout(RECT{contentLeft, y + 24, contentLeft + contentWidth, y + 24 + graphHeight});
 
-    contentHeight_ = y + 24 + graphHeight + sectionGap + 20;
+    contentHeight_ = y + scrollOffset_ + 24 + graphHeight + sectionGap + 20;
     updateScrollBar();
 
     if (contentHeight_ - scrollOffset_ < viewportHeight) {
@@ -320,15 +423,17 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     measurement::normalizeFilterDesignSettings(settings, workspace.measurement.sampleRate);
     SendMessageW(controls_.comboTapCount, CB_SETCURSEL, comboIndexFromTapCount(settings.tapCount), 0);
     SetWindowTextW(controls_.phaseModeValue, L"Minimum phase");
-    setWindowTextValue(controls_.editMaxBoost, formatWideDouble(settings.maxBoostDb, 1));
-    setWindowTextValue(controls_.editMaxCut, formatWideDouble(settings.maxCutDb, 1));
-    setWindowTextValue(controls_.editSmoothness, formatWideDouble(settings.smoothness, 2));
     setWindowTextValue(controls_.editLowCorrection, formatWideDouble(settings.lowCorrectionHz, 0));
     setWindowTextValue(controls_.editHighCorrection, formatWideDouble(settings.highCorrectionHz, 0));
+    setWindowTextValue(controls_.editMaxBoost, formatWideDouble(settings.maxBoostDb, 1));
+    setWindowTextValue(controls_.editMaxCut, formatWideDouble(settings.maxCutDb, 1));
+    setSelectedSmoothness(settings.smoothness);
     SendMessageW(controls_.checkboxShowInputRight, BM_SETCHECK, showInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInversionRight, BM_SETCHECK, showInversionRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
 
     if (workspace.filterResult.valid) {
         SetWindowTextW(controls_.summary,
@@ -349,22 +454,35 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
 void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.filters.tapCount = tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
     double value = 0.0;
-    if (tryParseDouble(getWindowTextValue(controls_.editMaxBoost), value)) {
-        workspace.filters.maxBoostDb = value;
-    }
-    if (tryParseDouble(getWindowTextValue(controls_.editMaxCut), value)) {
-        workspace.filters.maxCutDb = value;
-    }
-    if (tryParseDouble(getWindowTextValue(controls_.editSmoothness), value)) {
-        workspace.filters.smoothness = value;
-    }
+    workspace.filters.smoothness = selectedSmoothness();
     if (tryParseDouble(getWindowTextValue(controls_.editLowCorrection), value)) {
         workspace.filters.lowCorrectionHz = value;
     }
     if (tryParseDouble(getWindowTextValue(controls_.editHighCorrection), value)) {
         workspace.filters.highCorrectionHz = value;
     }
+    if (tryParseDouble(getWindowTextValue(controls_.editMaxBoost), value)) {
+        workspace.filters.maxBoostDb = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMaxCut), value)) {
+        workspace.filters.maxCutDb = value;
+    }
     measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
+}
+
+double FiltersPage::selectedSmoothness() const {
+    return smoothnessValueFromSliderPosition(SendMessageW(controls_.sliderSmoothness, TBM_GETPOS, 0, 0));
+}
+
+void FiltersPage::setSelectedSmoothness(double smoothness) const {
+    SendMessageW(controls_.sliderSmoothness, TBM_SETPOS, TRUE, smoothnessSliderPositionFromValue(smoothness));
+    refreshSmoothnessValue();
+}
+
+void FiltersPage::refreshSmoothnessValue() const {
+    const double smoothness = selectedSmoothness();
+    const int digits = std::abs(smoothness - std::round(smoothness)) < 0.001 ? 0 : 1;
+    setWindowTextValue(controls_.valueSmoothness, formatWideDouble(smoothness, digits));
 }
 
 bool FiltersPage::handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& recalculateRequested) {
@@ -379,13 +497,18 @@ bool FiltersPage::handleCommand(WORD commandId, WORD notificationCode, Workspace
     if ((commandId == kCheckboxShowInputRight ||
          commandId == kCheckboxShowInputLeft ||
          commandId == kCheckboxShowInversionRight ||
-         commandId == kCheckboxShowInversionLeft) &&
+         commandId == kCheckboxShowInversionLeft ||
+         commandId == kCheckboxShowCorrectedLeft ||
+         commandId == kCheckboxShowCorrectedRight) &&
         notificationCode == BN_CLICKED) {
         showInputRight_ = SendMessageW(controls_.checkboxShowInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showInputLeft_ = SendMessageW(controls_.checkboxShowInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showInversionRight_ = SendMessageW(controls_.checkboxShowInversionRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showInversionLeft_ = SendMessageW(controls_.checkboxShowInversionLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showCorrectedLeft_ = SendMessageW(controls_.checkboxShowCorrectedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showCorrectedRight_ = SendMessageW(controls_.checkboxShowCorrectedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
         correctionGraph_.setData(buildCorrectionGraphData(workspace));
+        correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
         return true;
     }
 
@@ -425,6 +548,12 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
             return 0;
         }
         break;
+    case WM_HSCROLL:
+        if (page != nullptr && reinterpret_cast<HWND>(lParam) == page->controls_.sliderSmoothness) {
+            page->refreshSmoothnessValue();
+            return 0;
+        }
+        break;
     case WM_COMMAND: {
         HWND root = GetAncestor(window, GA_ROOT);
         if (root != nullptr) {
@@ -432,6 +561,17 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         }
         return 0;
     }
+    case WM_DRAWITEM:
+        if (page != nullptr) {
+            const auto* draw = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+            if (draw != nullptr &&
+                (draw->hwndItem == page->controls_.inversionLegendFrame ||
+                 draw->hwndItem == page->controls_.correctedLegendFrame)) {
+                drawLegendFrame(*draw);
+                return TRUE;
+            }
+        }
+        break;
     case WM_ERASEBKGND: {
         HDC hdc = reinterpret_cast<HDC>(wParam);
         RECT rect{};
@@ -448,6 +588,9 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         static HBRUSH lineInputLeftBrush = CreateSolidBrush(ui_theme::kGreen);
         static HBRUSH lineInversionRightBrush = CreateSolidBrush(ui_theme::kBlue);
         static HBRUSH lineInversionLeftBrush = CreateSolidBrush(ui_theme::kGray);
+        static HBRUSH lineCorrectedTargetBrush = CreateSolidBrush(ui_theme::kAccent);
+        static HBRUSH lineCorrectedLeftBrush = CreateSolidBrush(ui_theme::kGreen);
+        static HBRUSH lineCorrectedRightBrush = CreateSolidBrush(ui_theme::kRed);
         HDC hdc = reinterpret_cast<HDC>(wParam);
         const HWND control = reinterpret_cast<HWND>(lParam);
         if (page != nullptr) {
@@ -466,6 +609,18 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
             if (control == page->controls_.lineInversionLeft) {
                 SetBkColor(hdc, ui_theme::kGray);
                 return reinterpret_cast<INT_PTR>(lineInversionLeftBrush);
+            }
+            if (control == page->controls_.lineCorrectedTarget) {
+                SetBkColor(hdc, ui_theme::kAccent);
+                return reinterpret_cast<INT_PTR>(lineCorrectedTargetBrush);
+            }
+            if (control == page->controls_.lineCorrectedLeft) {
+                SetBkColor(hdc, ui_theme::kGreen);
+                return reinterpret_cast<INT_PTR>(lineCorrectedLeftBrush);
+            }
+            if (control == page->controls_.lineCorrectedRight) {
+                SetBkColor(hdc, ui_theme::kRed);
+                return reinterpret_cast<INT_PTR>(lineCorrectedRightBrush);
             }
         }
         SetBkMode(hdc, TRANSPARENT);
@@ -572,8 +727,8 @@ void FiltersPage::setScrollOffset(int scrollOffset) {
                    nullptr,
                    nullptr,
                    nullptr,
-                   SW_ERASE | SW_INVALIDATE | SW_SCROLLCHILDREN);
-    RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+                   SW_INVALIDATE | SW_ERASE | SW_SCROLLCHILDREN);
+    UpdateWindow(window_);
 }
 
 bool FiltersPage::handleMouseWheel(WPARAM wParam) {
@@ -705,8 +860,12 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
         }
     };
     accumulateRange(workspace.filterResult.targetCurveDb);
-    accumulateRange(workspace.filterResult.left.correctedResponseDb);
-    accumulateRange(workspace.filterResult.right.correctedResponseDb);
+    if (showCorrectedLeft_) {
+        accumulateRange(workspace.filterResult.left.correctedResponseDb);
+    }
+    if (showCorrectedRight_) {
+        accumulateRange(workspace.filterResult.right.correctedResponseDb);
+    }
     if (!std::isfinite(minY) || !std::isfinite(maxY)) {
         minY = -18.0;
         maxY = 12.0;
@@ -720,8 +879,12 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
     data.maxY = center + halfSpan;
 
     data.series.push_back({L"Target", ui_theme::kAccent, workspace.filterResult.targetCurveDb});
-    data.series.push_back({L"Left", ui_theme::kGreen, workspace.filterResult.left.correctedResponseDb});
-    data.series.push_back({L"Right", ui_theme::kRed, workspace.filterResult.right.correctedResponseDb});
+    if (showCorrectedLeft_) {
+        data.series.push_back({L"Left", ui_theme::kGreen, workspace.filterResult.left.correctedResponseDb});
+    }
+    if (showCorrectedRight_) {
+        data.series.push_back({L"Right", ui_theme::kRed, workspace.filterResult.right.correctedResponseDb});
+    }
     return data;
 }
 
@@ -753,7 +916,7 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
 
     const size_t leftPeak = static_cast<size_t>(std::max(workspace.filterResult.left.impulsePeakIndex, 0));
     const size_t rightPeak = static_cast<size_t>(std::max(workspace.filterResult.right.impulsePeakIndex, 0));
-    const size_t preSamples = std::min<size_t>(1024, std::min(leftPeak, rightPeak));
+    const size_t preSamples = std::max<size_t>(512, std::min<size_t>(1024, std::max(leftPeak, rightPeak)));
     const size_t leftPost = workspace.filterResult.left.filterTaps.size() > leftPeak
                                 ? workspace.filterResult.left.filterTaps.size() - leftPeak - 1
                                 : 0;

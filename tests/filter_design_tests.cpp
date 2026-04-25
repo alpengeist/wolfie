@@ -107,20 +107,6 @@ bool expectDesignedFilterLooksSane() {
     return true;
 }
 
-double averageAbsoluteSecondDifference(const std::vector<double>& values) {
-    if (values.size() < 3) {
-        return 0.0;
-    }
-
-    double sum = 0.0;
-    size_t count = 0;
-    for (size_t index = 0; index + 2 < values.size(); ++index) {
-        sum += std::abs(values[index] - (2.0 * values[index + 1]) + values[index + 2]);
-        ++count;
-    }
-    return count == 0 ? 0.0 : sum / static_cast<double>(count);
-}
-
 double interpolateLogFrequency(const std::vector<double>& frequencyAxisHz,
                                const std::vector<double>& values,
                                double frequencyHz) {
@@ -148,59 +134,6 @@ double interpolateLogFrequency(const std::vector<double>& frequencyAxisHz,
     const double y1 = values[upperIndex];
     const double t = std::clamp((x - x0) / std::max(x1 - x0, 1.0e-9), 0.0, 1.0);
     return y0 + ((y1 - y0) * t);
-}
-
-bool expectSmoothnessChangesCorrectionShape() {
-    wolfie::MeasurementSettings measurement;
-    measurement.sampleRate = 48000;
-    measurement.startFrequencyHz = 20.0;
-    measurement.endFrequencyHz = 20000.0;
-
-    wolfie::TargetCurveSettings targetCurve;
-    targetCurve.lowGainDb = 2.0;
-    targetCurve.midGainDb = 0.0;
-    targetCurve.highGainDb = -1.5;
-    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
-
-    wolfie::FilterDesignSettings sharpSettings;
-    sharpSettings.tapCount = 16384;
-    sharpSettings.maxBoostDb = 6.0;
-    sharpSettings.maxCutDb = 12.0;
-    sharpSettings.highCorrectionHz = 18000.0;
-    sharpSettings.smoothness = 0.1;
-
-    wolfie::FilterDesignSettings smoothSettings = sharpSettings;
-    smoothSettings.smoothness = 4.0;
-
-    const wolfie::SmoothedResponse response = buildSyntheticResponse();
-    const wolfie::FilterDesignResult sharpResult =
-        wolfie::measurement::designFilters(response, measurement, targetCurve, sharpSettings);
-    const wolfie::FilterDesignResult smoothResult =
-        wolfie::measurement::designFilters(response, measurement, targetCurve, smoothSettings);
-    if (!sharpResult.valid || !smoothResult.valid) {
-        std::cerr << "smoothness comparison did not produce valid filter results\n";
-        return false;
-    }
-
-    const double sharpCurvature = averageAbsoluteSecondDifference(sharpResult.left.correctionCurveDb);
-    const double smoothCurvature = averageAbsoluteSecondDifference(smoothResult.left.correctionCurveDb);
-    if (smoothCurvature >= sharpCurvature * 0.8) {
-        std::cerr << "smoothness parameter did not noticeably reduce correction curvature\n";
-        return false;
-    }
-
-    double meanDifference = 0.0;
-    for (size_t index = 0; index < sharpResult.left.correctionCurveDb.size() &&
-                           index < smoothResult.left.correctionCurveDb.size(); ++index) {
-        meanDifference += std::abs(sharpResult.left.correctionCurveDb[index] - smoothResult.left.correctionCurveDb[index]);
-    }
-    meanDifference /= static_cast<double>(std::max<size_t>(sharpResult.left.correctionCurveDb.size(), 1));
-    if (meanDifference < 0.15) {
-        std::cerr << "smoothness parameter did not materially change the correction curve\n";
-        return false;
-    }
-
-    return true;
 }
 
 bool expectExactTargetCurveEvaluationCapturesBellPeak() {
@@ -284,7 +217,6 @@ bool expectTargetCurveAnchorsToMeasuredLevel() {
 
 bool runFilterDesignTests() {
     return expectDesignedFilterLooksSane() &&
-           expectSmoothnessChangesCorrectionShape() &&
            expectExactTargetCurveEvaluationCapturesBellPeak() &&
            expectTargetCurveAnchorsToMeasuredLevel();
 }

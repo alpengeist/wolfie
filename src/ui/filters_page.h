@@ -33,6 +33,12 @@ private:
         HWND comboTapCount = nullptr;
         HWND labelPhaseMode = nullptr;
         HWND phaseModeValue = nullptr;
+        HWND labelLowCorrection = nullptr;
+        HWND editLowCorrection = nullptr;
+        HWND unitLowCorrection = nullptr;
+        HWND labelHighCorrection = nullptr;
+        HWND editHighCorrection = nullptr;
+        HWND unitHighCorrection = nullptr;
         HWND labelMaxBoost = nullptr;
         HWND editMaxBoost = nullptr;
         HWND unitMaxBoost = nullptr;
@@ -40,13 +46,8 @@ private:
         HWND editMaxCut = nullptr;
         HWND unitMaxCut = nullptr;
         HWND labelSmoothness = nullptr;
-        HWND editSmoothness = nullptr;
-        HWND labelLowCorrection = nullptr;
-        HWND editLowCorrection = nullptr;
-        HWND unitLowCorrection = nullptr;
-        HWND labelHighCorrection = nullptr;
-        HWND editHighCorrection = nullptr;
-        HWND unitHighCorrection = nullptr;
+        HWND sliderSmoothness = nullptr;
+        HWND valueSmoothness = nullptr;
         HWND buttonRecalculate = nullptr;
         HWND summary = nullptr;
         HWND inversionTitle = nullptr;
@@ -64,6 +65,15 @@ private:
         HWND lineInversionLeft = nullptr;
         HWND labelInversionLeft = nullptr;
         HWND correctedTitle = nullptr;
+        HWND correctedLegendFrame = nullptr;
+        HWND lineCorrectedTarget = nullptr;
+        HWND labelCorrectedTarget = nullptr;
+        HWND checkboxShowCorrectedLeft = nullptr;
+        HWND lineCorrectedLeft = nullptr;
+        HWND labelCorrectedLeft = nullptr;
+        HWND checkboxShowCorrectedRight = nullptr;
+        HWND lineCorrectedRight = nullptr;
+        HWND labelCorrectedRight = nullptr;
         HWND groupDelayTitle = nullptr;
         HWND impulseTitle = nullptr;
     };
@@ -75,11 +85,13 @@ private:
     static constexpr int kEditLowCorrection = 3404;
     static constexpr int kEditHighCorrection = 3405;
     static constexpr int kButtonRecalculate = 3406;
-    static constexpr int kEditSmoothness = 3411;
+    static constexpr int kSliderSmoothness = 3411;
     static constexpr int kCheckboxShowInputRight = 3407;
     static constexpr int kCheckboxShowInputLeft = 3408;
     static constexpr int kCheckboxShowInversionRight = 3409;
     static constexpr int kCheckboxShowInversionLeft = 3410;
+    static constexpr int kCheckboxShowCorrectedLeft = 3412;
+    static constexpr int kCheckboxShowCorrectedRight = 3413;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
@@ -90,6 +102,9 @@ private:
     static int tapCountFromComboIndex(int index);
 
     void createControls();
+    [[nodiscard]] double selectedSmoothness() const;
+    void setSelectedSmoothness(double smoothness) const;
+    void refreshSmoothnessValue() const;
     void updateScrollBar();
     void setScrollOffset(int scrollOffset);
     bool handleMouseWheel(WPARAM wParam);
@@ -110,6 +125,8 @@ private:
     bool showInputLeft_ = true;
     bool showInversionRight_ = true;
     bool showInversionLeft_ = true;
+    bool showCorrectedLeft_ = true;
+    bool showCorrectedRight_ = true;
     int scrollOffset_ = 0;
     int contentHeight_ = 0;
 };
