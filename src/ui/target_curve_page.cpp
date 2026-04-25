@@ -139,9 +139,11 @@ void TargetCurvePage::layout() {
     MoveWindow(controls_.buttonDelete, sidebarLeft + 80, contentTop, 72, 28, TRUE);
     MoveWindow(controls_.buttonReset, sidebarLeft + 160, contentTop, 72, 28, TRUE);
     MoveWindow(controls_.checkboxBypassAll, sidebarLeft, contentTop + 34, sidebarWidth, 20, TRUE);
-    MoveWindow(controls_.listBands, sidebarLeft, contentTop + 62, sidebarWidth, 180, TRUE);
+    const int listTop = contentTop + 62;
+    const int listHeight = 180;
+    MoveWindow(controls_.listBands, sidebarLeft, listTop, sidebarWidth, listHeight, TRUE);
 
-    const int detailTop = contentTop + 258;
+    const int detailTop = listTop + listHeight + 16;
     MoveWindow(controls_.checkboxEnabled, sidebarLeft, detailTop, 90, 20, TRUE);
     MoveWindow(controls_.typeValue, sidebarLeft + 116, detailTop, 80, 20, TRUE);
 
@@ -246,7 +248,7 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
         if (workspace.targetCurve.bypassEqBands) {
             return true;
         }
-        if (notificationCode == kBandToggleNotification && pendingBandToggleIndex_ >= 0) {
+        if (notificationCode == kBandToggleNotification && pendingBandToggleIndex_ != -1) {
             toggleBandEnabled(pendingBandToggleIndex_, workspace);
             pendingBandToggleIndex_ = -1;
             workspaceChanged = true;
@@ -283,8 +285,10 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
     case kFrequencyEdit:
     case kGainEdit:
     case kQEdit:
-        if (updatingControls_ || selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size()) ||
-            notificationCode != EN_CHANGE) {
+        if (updatingControls_ || notificationCode != EN_CHANGE) {
+            return false;
+        }
+        if (selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
             return false;
         }
         break;
@@ -292,15 +296,15 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
         break;
     }
 
-    if (selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
-        return false;
-    }
+    double parsedValue = 0.0;
     if (workspace.targetCurve.bypassEqBands) {
         return false;
     }
 
+    if (selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
+        return false;
+    }
     TargetEqBand& band = workspace.targetCurve.eqBands[static_cast<size_t>(selectedBandIndex_)];
-    double parsedValue = 0.0;
     if (commandId == kFrequencyEdit && tryParseDouble(getWindowTextValue(controls_.frequencyValue), parsedValue)) {
         band.frequencyHz = parsedValue;
     } else if (commandId == kGainEdit && tryParseDouble(getWindowTextValue(controls_.gainValue), parsedValue)) {
@@ -329,11 +333,11 @@ bool TargetCurvePage::handleHScroll(HWND source, WorkspaceState& workspace, bool
         return false;
     }
 
-    TargetEqBand& band = workspace.targetCurve.eqBands[static_cast<size_t>(selectedBandIndex_)];
     const measurement::TargetCurvePlotData plot = measurement::buildTargetCurvePlotData(workspace.smoothedResponse,
                                                                                          workspace.measurement,
                                                                                          workspace.targetCurve,
                                                                                          std::nullopt);
+    TargetEqBand& band = workspace.targetCurve.eqBands[static_cast<size_t>(selectedBandIndex_)];
     if (source == controls_.frequencySlider) {
         band.frequencyHz = sliderPositionToFrequency(static_cast<int>(SendMessageW(controls_.frequencySlider, TBM_GETPOS, 0, 0)),
                                                      plot.minFrequencyHz,
@@ -511,7 +515,7 @@ LRESULT CALLBACK TargetCurvePage::ValueEditProc(HWND window,
     auto* page = reinterpret_cast<TargetCurvePage*>(refData);
     if (message == WM_MOUSEWHEEL && page != nullptr) {
         const int wheelSteps = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
-        if (page->adjustBandValueField(window, wheelSteps)) {
+        if (page->adjustValueField(window, wheelSteps)) {
             return 0;
         }
     }
@@ -558,24 +562,30 @@ bool TargetCurvePage::handleMouseWheel(WPARAM wParam, LPARAM lParam) {
             continue;
         }
 
-        return adjustBandValueField(field, GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA);
+        return adjustValueField(field, GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA);
     }
 
     return false;
 }
 
-bool TargetCurvePage::adjustBandValueField(HWND control, int wheelSteps) {
-    if (control == nullptr || wheelSteps == 0 || updatingControls_ ||
-        SendMessageW(controls_.checkboxBypassAll, BM_GETCHECK, 0, 0) == BST_CHECKED ||
-        selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(displayedBands_.size())) {
+bool TargetCurvePage::adjustValueField(HWND control, int wheelSteps) {
+    if (control == nullptr || wheelSteps == 0 || updatingControls_ || IsWindowEnabled(control) == FALSE) {
         return wheelSteps == 0;
     }
 
-    const TargetEqBand& band = displayedBands_[static_cast<size_t>(selectedBandIndex_)];
     double currentValue = 0.0;
     int decimals = 0;
     double nextValue = 0.0;
 
+    if (SendMessageW(controls_.checkboxBypassAll, BM_GETCHECK, 0, 0) == BST_CHECKED) {
+        return false;
+    }
+
+    if (selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(displayedBands_.size())) {
+        return false;
+    }
+
+    const TargetEqBand& band = displayedBands_[static_cast<size_t>(selectedBandIndex_)];
     if (control == controls_.frequencyValue) {
         if (!tryParseDouble(getWindowTextValue(control), currentValue) || currentValue <= 0.0) {
             currentValue = std::max(band.frequencyHz, 1.0);
@@ -783,10 +793,10 @@ void TargetCurvePage::toggleBandEnabled(int index, WorkspaceState& workspace) {
     }
     workspace.targetCurve.eqBands[static_cast<size_t>(index)].enabled =
         !workspace.targetCurve.eqBands[static_cast<size_t>(index)].enabled;
-    syncAllOffState(workspace.targetCurve);
     if (selectedBandIndex_ != index) {
         selectedBandIndex_ = index;
     }
+    syncAllOffState(workspace.targetCurve);
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);

@@ -54,6 +54,16 @@ void drawLegendFrame(const DRAWITEMSTRUCT& draw) {
     DeleteObject(borderPen);
 }
 
+COLORREF blendColor(COLORREF color, COLORREF target, double ratio) {
+    const auto blendChannel = [ratio](BYTE from, BYTE to) -> BYTE {
+        return static_cast<BYTE>(std::lround((static_cast<double>(from) * (1.0 - ratio)) +
+                                             (static_cast<double>(to) * ratio)));
+    };
+    return RGB(blendChannel(GetRValue(color), GetRValue(target)),
+               blendChannel(GetGValue(color), GetGValue(target)),
+               blendChannel(GetBValue(color), GetBValue(target)));
+}
+
 double interpolateLinear(double x, double x0, double y0, double x1, double y1) {
     if (std::abs(x1 - x0) < 1.0e-9) {
         return y0;
@@ -184,9 +194,8 @@ void FiltersPage::createControls() {
                                                instance_,
                                                nullptr);
     controls_.valueSmoothness = CreateWindowW(L"STATIC", L"1", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonRecalculate), instance_, nullptr);
-    controls_.summary = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.inversionLegendFrame = CreateWindowW(L"STATIC",
@@ -295,6 +304,21 @@ void FiltersPage::createControls() {
     controls_.labelCorrectedRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Filter Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.groupDelayLegendFrame = CreateWindowW(L"STATIC",
+                                                    L"",
+                                                    WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    window_,
+                                                    nullptr,
+                                                    instance_,
+                                                    nullptr);
+    controls_.lineGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelGroupDelayLeft = CreateWindowW(L"STATIC", L"L", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.lineGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelGroupDelayRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.impulseTitle = CreateWindowW(L"STATIC", L"Filter Impulse", WS_CHILD | WS_VISIBLE,
                                            0, 0, 0, 0, window_, nullptr, instance_, nullptr);
 
@@ -315,6 +339,7 @@ void FiltersPage::createControls() {
     correctedGraph_.create(window_, instance_);
     groupDelayGraph_.create(window_, instance_);
     impulseGraph_.create(window_, instance_);
+    refreshRecalculateButton();
 }
 
 void FiltersPage::layout() {
@@ -351,10 +376,9 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelSmoothness, contentLeft + 716, top, 78, 18, TRUE);
     MoveWindow(controls_.sliderSmoothness, contentLeft + 716, top + 20, 120, 32, TRUE);
     MoveWindow(controls_.valueSmoothness, contentLeft + 842, top + 24, 36, 18, TRUE);
-    MoveWindow(controls_.buttonRecalculate, contentLeft + contentWidth - 110, top + 18, 110, 30, TRUE);
-    MoveWindow(controls_.summary, contentLeft, top + 62, contentWidth, 18, TRUE);
+    MoveWindow(controls_.buttonRecalculate, contentLeft, top + 62, contentWidth, 32, TRUE);
 
-    int y = top + 96;
+    int y = top + 112;
     MoveWindow(controls_.inversionTitle, contentLeft, y, 120, 18, TRUE);
     const int legendLeft = contentLeft + contentWidth - legendWidth;
     const int graphRight = legendLeft - legendGap;
@@ -400,7 +424,13 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
-    groupDelayGraph_.layout(RECT{contentLeft, y + 24, contentLeft + contentWidth, y + 24 + graphHeight});
+    MoveWindow(controls_.groupDelayLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
+    groupDelayGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
+    const int groupDelayFirstRowTop = y + 24 + 18;
+    MoveWindow(controls_.lineGroupDelayLeft, lineLeft, groupDelayFirstRowTop + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelGroupDelayLeft, labelLeft, groupDelayFirstRowTop + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.lineGroupDelayRight, lineLeft, groupDelayFirstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelGroupDelayRight, labelLeft, groupDelayFirstRowTop + rowStep + 2, labelWidth, 18, TRUE);
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.impulseTitle, contentLeft, y, contentWidth, 18, TRUE);
@@ -421,6 +451,7 @@ void FiltersPage::setVisible(bool visible) const {
 void FiltersPage::populate(const WorkspaceState& workspace) {
     FilterDesignSettings settings = workspace.filters;
     measurement::normalizeFilterDesignSettings(settings, workspace.measurement.sampleRate);
+    sampleRate_ = workspace.measurement.sampleRate;
     SendMessageW(controls_.comboTapCount, CB_SETCURSEL, comboIndexFromTapCount(settings.tapCount), 0);
     SetWindowTextW(controls_.phaseModeValue, L"Minimum phase");
     setWindowTextValue(controls_.editLowCorrection, formatWideDouble(settings.lowCorrectionHz, 0));
@@ -434,16 +465,9 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-
-    if (workspace.filterResult.valid) {
-        SetWindowTextW(controls_.summary,
-                       (L"Designed " + std::to_wstring(workspace.filterResult.tapCount) +
-                        L" taps, FFT " + std::to_wstring(workspace.filterResult.fftSize) +
-                        L", bins " + std::to_wstring(workspace.filterResult.positiveBinCount) + L".")
-                           .c_str());
-    } else {
-        SetWindowTextW(controls_.summary, L"No filter calculated yet. Recalculate after smoothing and target-curve edits.");
-    }
+    appliedSettings_ = settings;
+    filterDesignValid_ = workspace.filterResult.valid;
+    refreshRecalculateButton();
 
     correctionGraph_.setData(buildCorrectionGraphData(workspace));
     correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
@@ -485,12 +509,117 @@ void FiltersPage::refreshSmoothnessValue() const {
     setWindowTextValue(controls_.valueSmoothness, formatWideDouble(smoothness, digits));
 }
 
-bool FiltersPage::handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& recalculateRequested) {
+FilterDesignSettings FiltersPage::currentSettings() const {
+    FilterDesignSettings settings = appliedSettings_;
+    settings.tapCount = tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
+    settings.smoothness = selectedSmoothness();
+
+    double value = 0.0;
+    if (tryParseDouble(getWindowTextValue(controls_.editLowCorrection), value)) {
+        settings.lowCorrectionHz = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editHighCorrection), value)) {
+        settings.highCorrectionHz = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMaxBoost), value)) {
+        settings.maxBoostDb = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMaxCut), value)) {
+        settings.maxCutDb = value;
+    }
+
+    measurement::normalizeFilterDesignSettings(settings, sampleRate_);
+    return settings;
+}
+
+bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const FilterDesignSettings& right) {
+    return left.tapCount == right.tapCount &&
+           std::abs(left.smoothness - right.smoothness) < 0.001 &&
+           std::abs(left.lowCorrectionHz - right.lowCorrectionHz) < 0.001 &&
+           std::abs(left.highCorrectionHz - right.highCorrectionHz) < 0.001 &&
+           std::abs(left.maxBoostDb - right.maxBoostDb) < 0.001 &&
+           std::abs(left.maxCutDb - right.maxCutDb) < 0.001;
+}
+
+void FiltersPage::refreshRecalculateButton() {
+    recalculatePending_ = !filterDesignValid_ || !areSettingsEqual(currentSettings(), appliedSettings_);
+    if (controls_.buttonRecalculate != nullptr) {
+        InvalidateRect(controls_.buttonRecalculate, nullptr, TRUE);
+    }
+}
+
+bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
+    HDC hdc = draw.hDC;
+    RECT rect = draw.rcItem;
+    const bool pressed = (draw.itemState & ODS_SELECTED) != 0;
+    const bool focused = (draw.itemState & ODS_FOCUS) != 0;
+    const bool hot = (draw.itemState & ODS_HOTLIGHT) != 0;
+
+    const COLORREF baseFill = recalculatePending_ ? ui_theme::kGreen : ui_theme::kGray;
+    const COLORREF hoverFill = blendColor(baseFill, RGB(255, 255, 255), 0.12);
+    const COLORREF pressedFill = blendColor(baseFill, RGB(0, 0, 0), 0.18);
+    const COLORREF border = blendColor(baseFill, RGB(0, 0, 0), 0.28);
+
+    HBRUSH brush = CreateSolidBrush(pressed ? pressedFill : (hot ? hoverFill : baseFill));
+    FillRect(hdc, &rect, brush);
+    DeleteObject(brush);
+
+    HPEN pen = CreatePen(PS_SOLID, 1, border);
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
+    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
+    Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+
+    LOGFONTW baseFont{};
+    HFONT guiFont = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    GetObjectW(guiFont, sizeof(baseFont), &baseFont);
+    baseFont.lfWeight = FW_BOLD;
+    baseFont.lfHeight = -17;
+    HFONT buttonFont = CreateFontIndirectW(&baseFont);
+    HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, buttonFont));
+
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, RGB(255, 255, 255));
+    RECT textRect = rect;
+    if (pressed) {
+        OffsetRect(&textRect, 0, 1);
+    }
+    DrawTextW(hdc, L"Recalculate", -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    if (focused) {
+        RECT focusRect = rect;
+        InflateRect(&focusRect, -4, -4);
+        DrawFocusRect(hdc, &focusRect);
+    }
+
+    SelectObject(hdc, oldFont);
+    DeleteObject(buttonFont);
+    return true;
+}
+
+bool FiltersPage::handleCommand(WORD commandId,
+                                WORD notificationCode,
+                                WorkspaceState& workspace,
+                                bool& settingsChanged,
+                                bool& recalculateRequested) {
     if (commandId == kComboTapCount && notificationCode == CBN_SELCHANGE) {
         workspace.filters.tapCount =
             tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
         measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
-        recalculateRequested = true;
+        filterDesignValid_ = false;
+        refreshRecalculateButton();
+        settingsChanged = true;
+        return true;
+    }
+
+    if ((commandId == kEditLowCorrection ||
+         commandId == kEditHighCorrection ||
+         commandId == kEditMaxBoost ||
+         commandId == kEditMaxCut) &&
+        notificationCode == EN_CHANGE) {
+        refreshRecalculateButton();
         return true;
     }
 
@@ -551,6 +680,7 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     case WM_HSCROLL:
         if (page != nullptr && reinterpret_cast<HWND>(lParam) == page->controls_.sliderSmoothness) {
             page->refreshSmoothnessValue();
+            page->refreshRecalculateButton();
             return 0;
         }
         break;
@@ -564,11 +694,16 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     case WM_DRAWITEM:
         if (page != nullptr) {
             const auto* draw = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
-            if (draw != nullptr &&
-                (draw->hwndItem == page->controls_.inversionLegendFrame ||
-                 draw->hwndItem == page->controls_.correctedLegendFrame)) {
-                drawLegendFrame(*draw);
-                return TRUE;
+            if (draw != nullptr) {
+                if (draw->hwndItem == page->controls_.buttonRecalculate) {
+                    return page->drawRecalculateButton(*draw) ? TRUE : FALSE;
+                }
+                if (draw->hwndItem == page->controls_.inversionLegendFrame ||
+                    draw->hwndItem == page->controls_.correctedLegendFrame ||
+                    draw->hwndItem == page->controls_.groupDelayLegendFrame) {
+                    drawLegendFrame(*draw);
+                    return TRUE;
+                }
             }
         }
         break;
@@ -582,15 +717,16 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     case WM_CTLCOLORDLG:
         return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
     case WM_CTLCOLORSTATIC:
-    case WM_CTLCOLOREDIT:
     case WM_CTLCOLORBTN: {
         static HBRUSH lineInputRightBrush = CreateSolidBrush(ui_theme::kRed);
         static HBRUSH lineInputLeftBrush = CreateSolidBrush(ui_theme::kGreen);
-        static HBRUSH lineInversionRightBrush = CreateSolidBrush(ui_theme::kBlue);
+        static HBRUSH lineInversionRightBrush = CreateSolidBrush(ui_theme::kMagenta);
         static HBRUSH lineInversionLeftBrush = CreateSolidBrush(ui_theme::kGray);
         static HBRUSH lineCorrectedTargetBrush = CreateSolidBrush(ui_theme::kAccent);
         static HBRUSH lineCorrectedLeftBrush = CreateSolidBrush(ui_theme::kGreen);
         static HBRUSH lineCorrectedRightBrush = CreateSolidBrush(ui_theme::kRed);
+        static HBRUSH lineGroupDelayLeftBrush = CreateSolidBrush(ui_theme::kGreen);
+        static HBRUSH lineGroupDelayRightBrush = CreateSolidBrush(ui_theme::kRed);
         HDC hdc = reinterpret_cast<HDC>(wParam);
         const HWND control = reinterpret_cast<HWND>(lParam);
         if (page != nullptr) {
@@ -603,7 +739,7 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
                 return reinterpret_cast<INT_PTR>(lineInputLeftBrush);
             }
             if (control == page->controls_.lineInversionRight) {
-                SetBkColor(hdc, ui_theme::kBlue);
+                SetBkColor(hdc, ui_theme::kMagenta);
                 return reinterpret_cast<INT_PTR>(lineInversionRightBrush);
             }
             if (control == page->controls_.lineInversionLeft) {
@@ -622,10 +758,25 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
                 SetBkColor(hdc, ui_theme::kRed);
                 return reinterpret_cast<INT_PTR>(lineCorrectedRightBrush);
             }
+            if (control == page->controls_.lineGroupDelayLeft) {
+                SetBkColor(hdc, ui_theme::kGreen);
+                return reinterpret_cast<INT_PTR>(lineGroupDelayLeftBrush);
+            }
+            if (control == page->controls_.lineGroupDelayRight) {
+                SetBkColor(hdc, ui_theme::kRed);
+                return reinterpret_cast<INT_PTR>(lineGroupDelayRightBrush);
+            }
         }
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, ui_theme::kText);
         return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+    }
+    case WM_CTLCOLOREDIT: {
+        static HBRUSH editBackgroundBrush = CreateSolidBrush(ui_theme::kPanelBackground);
+        HDC hdc = reinterpret_cast<HDC>(wParam);
+        SetBkColor(hdc, ui_theme::kPanelBackground);
+        SetTextColor(hdc, ui_theme::kText);
+        return reinterpret_cast<INT_PTR>(editBackgroundBrush);
     }
     default:
         break;
@@ -830,7 +981,7 @@ PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& worksp
                                                     workspace.filterResult.frequencyAxisHz)});
     }
     if (showInversionRight_) {
-        data.series.push_back({L"Right inversion", ui_theme::kBlue, workspace.filterResult.right.correctionCurveDb});
+        data.series.push_back({L"Right inversion", ui_theme::kMagenta, workspace.filterResult.right.correctionCurveDb});
     }
     if (showInversionLeft_) {
         data.series.push_back({L"Left inversion", ui_theme::kGray, workspace.filterResult.left.correctionCurveDb});

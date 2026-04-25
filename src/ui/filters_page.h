@@ -23,7 +23,11 @@ public:
     void setVisible(bool visible) const;
     void populate(const WorkspaceState& workspace);
     void syncToWorkspace(WorkspaceState& workspace) const;
-    bool handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& recalculateRequested);
+    bool handleCommand(WORD commandId,
+                       WORD notificationCode,
+                       WorkspaceState& workspace,
+                       bool& settingsChanged,
+                       bool& recalculateRequested);
 
     [[nodiscard]] HWND window() const { return window_; }
 
@@ -49,7 +53,6 @@ private:
         HWND sliderSmoothness = nullptr;
         HWND valueSmoothness = nullptr;
         HWND buttonRecalculate = nullptr;
-        HWND summary = nullptr;
         HWND inversionTitle = nullptr;
         HWND inversionLegendFrame = nullptr;
         HWND checkboxShowInputRight = nullptr;
@@ -75,6 +78,11 @@ private:
         HWND lineCorrectedRight = nullptr;
         HWND labelCorrectedRight = nullptr;
         HWND groupDelayTitle = nullptr;
+        HWND groupDelayLegendFrame = nullptr;
+        HWND lineGroupDelayLeft = nullptr;
+        HWND labelGroupDelayLeft = nullptr;
+        HWND lineGroupDelayRight = nullptr;
+        HWND labelGroupDelayRight = nullptr;
         HWND impulseTitle = nullptr;
     };
 
@@ -100,11 +108,15 @@ private:
     static void populateTapCountCombo(HWND combo);
     static int comboIndexFromTapCount(int tapCount);
     static int tapCountFromComboIndex(int index);
+    static bool areSettingsEqual(const FilterDesignSettings& left, const FilterDesignSettings& right);
 
     void createControls();
     [[nodiscard]] double selectedSmoothness() const;
     void setSelectedSmoothness(double smoothness) const;
     void refreshSmoothnessValue() const;
+    [[nodiscard]] FilterDesignSettings currentSettings() const;
+    void refreshRecalculateButton();
+    bool drawRecalculateButton(const DRAWITEMSTRUCT& draw) const;
     void updateScrollBar();
     void setScrollOffset(int scrollOffset);
     bool handleMouseWheel(WPARAM wParam);
@@ -127,6 +139,10 @@ private:
     bool showInversionLeft_ = true;
     bool showCorrectedLeft_ = true;
     bool showCorrectedRight_ = true;
+    FilterDesignSettings appliedSettings_{};
+    bool filterDesignValid_ = false;
+    bool recalculatePending_ = true;
+    int sampleRate_ = 48000;
     int scrollOffset_ = 0;
     int contentHeight_ = 0;
 };

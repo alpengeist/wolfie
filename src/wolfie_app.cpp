@@ -604,8 +604,19 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         return;
     }
 
+    bool filterSettingsChanged = false;
     bool filtersRecalculateRequested = false;
-    if (filtersPage_.handleCommand(commandId, notificationCode, workspace_, filtersRecalculateRequested)) {
+    if (filtersPage_.handleCommand(commandId,
+                                   notificationCode,
+                                   workspace_,
+                                   filterSettingsChanged,
+                                   filtersRecalculateRequested)) {
+        if (filterSettingsChanged) {
+            invalidateFilterDesign();
+            filtersPage_.populate(workspace_);
+            syncStateFromControls();
+            workspaceRepository_.save(workspace_);
+        }
         if (filtersRecalculateRequested) {
             invalidateFilterDesign();
             ensureFilterDesignReady();
@@ -711,7 +722,6 @@ void WolfieApp::updateVisibleTab() {
         } else if (selected == 2) {
             targetCurvePage_.populate(workspace_);
         } else {
-            ensureFilterDesignReady();
             filtersPage_.populate(workspace_);
         }
     }
@@ -877,9 +887,6 @@ void WolfieApp::finalizeMeasurement() {
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
     if (selected == 1 || selected == 2 || selected == 3) {
         ensureSmoothedResponseReady();
-        if (selected == 3) {
-            ensureFilterDesignReady();
-        }
     }
     measurementPage_.setMeasurementResult(workspace_.result);
     smoothingPage_.populate(workspace_);

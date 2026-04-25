@@ -881,13 +881,14 @@ int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type)
     const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
     ReleaseDC(window_, hdc);
 
+    const double lowHandleDb = plot_.basicCurveDb.empty() ? settings_.lowGainDb : plot_.basicCurveDb.front();
     const POINT lowPoint = pointOnCurve(layout.graph,
                                         plot_.minFrequencyHz,
                                         plot_.maxFrequencyHz,
                                         layout.axisMinDb,
                                         layout.axisMaxDb,
                                         plot_.minFrequencyHz,
-                                        settings_.lowGainDb);
+                                        lowHandleDb);
     if (pointHitsHandle(position, lowPoint)) {
         type = DragHandleType::BasicLow;
         return -1;
@@ -991,13 +992,14 @@ void TargetCurveGraph::onPaint() const {
                ui_theme::kAccent,
                2);
 
+    const double lowHandleDb = plot_.basicCurveDb.empty() ? settings_.lowGainDb : plot_.basicCurveDb.front();
     const POINT lowPoint = pointOnCurve(layout.graph,
                                         plot_.minFrequencyHz,
                                         plot_.maxFrequencyHz,
                                         layout.axisMinDb,
                                         layout.axisMaxDb,
                                         plot_.minFrequencyHz,
-                                        settings_.lowGainDb);
+                                        lowHandleDb);
     const POINT midPoint = pointOnCurve(layout.graph,
                                         plot_.minFrequencyHz,
                                         plot_.maxFrequencyHz,
