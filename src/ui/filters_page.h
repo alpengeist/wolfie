@@ -48,8 +48,19 @@ private:
         HWND buttonRecalculate = nullptr;
         HWND summary = nullptr;
         HWND inversionTitle = nullptr;
-        HWND checkboxShowMeasuredLeft = nullptr;
-        HWND checkboxShowMeasuredRight = nullptr;
+        HWND inversionLegendFrame = nullptr;
+        HWND checkboxShowInputRight = nullptr;
+        HWND lineInputRight = nullptr;
+        HWND labelInputRight = nullptr;
+        HWND checkboxShowInputLeft = nullptr;
+        HWND lineInputLeft = nullptr;
+        HWND labelInputLeft = nullptr;
+        HWND checkboxShowInversionRight = nullptr;
+        HWND lineInversionRight = nullptr;
+        HWND labelInversionRight = nullptr;
+        HWND checkboxShowInversionLeft = nullptr;
+        HWND lineInversionLeft = nullptr;
+        HWND labelInversionLeft = nullptr;
         HWND correctedTitle = nullptr;
         HWND groupDelayTitle = nullptr;
         HWND impulseTitle = nullptr;
@@ -62,8 +73,10 @@ private:
     static constexpr int kEditLowCorrection = 3404;
     static constexpr int kEditHighCorrection = 3405;
     static constexpr int kButtonRecalculate = 3406;
-    static constexpr int kCheckboxShowMeasuredLeft = 3407;
-    static constexpr int kCheckboxShowMeasuredRight = 3408;
+    static constexpr int kCheckboxShowInputRight = 3407;
+    static constexpr int kCheckboxShowInputLeft = 3408;
+    static constexpr int kCheckboxShowInversionRight = 3409;
+    static constexpr int kCheckboxShowInversionLeft = 3410;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
@@ -90,8 +103,10 @@ private:
     PlotGraph correctedGraph_;
     PlotGraph groupDelayGraph_;
     PlotGraph impulseGraph_;
-    bool showMeasuredLeft_ = true;
-    bool showMeasuredRight_ = true;
+    bool showInputRight_ = true;
+    bool showInputLeft_ = true;
+    bool showInversionRight_ = true;
+    bool showInversionLeft_ = true;
     int scrollOffset_ = 0;
     int contentHeight_ = 0;
 };

@@ -16,6 +16,7 @@ inline constexpr COLORREF kBorder = RGB(218, 224, 231);
 inline constexpr COLORREF kAccent = RGB(44, 110, 182);
 inline constexpr COLORREF kBlue = RGB(44, 110, 182);
 inline constexpr COLORREF kGreen = RGB(46, 143, 82);
+inline constexpr COLORREF kGray = RGB(118, 126, 136);
 inline constexpr COLORREF kRed = RGB(190, 69, 69);
 inline constexpr COLORREF kOrange = RGB(204, 112, 37);
 inline constexpr COLORREF kTeal = RGB(33, 140, 144);

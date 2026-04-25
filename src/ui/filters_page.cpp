@@ -141,28 +141,69 @@ void FiltersPage::createControls() {
     controls_.summary = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.checkboxShowMeasuredLeft = CreateWindowW(L"BUTTON",
-                                                       L"Left measured",
-                                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                                       0,
-                                                       0,
-                                                       0,
-                                                       0,
-                                                       window_,
-                                                       reinterpret_cast<HMENU>(kCheckboxShowMeasuredLeft),
-                                                       instance_,
-                                                       nullptr);
-    controls_.checkboxShowMeasuredRight = CreateWindowW(L"BUTTON",
-                                                        L"Right measured",
+    controls_.inversionLegendFrame = CreateWindowW(L"BUTTON",
+                                                   L"",
+                                                   WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   window_,
+                                                   nullptr,
+                                                   instance_,
+                                                   nullptr);
+    controls_.checkboxShowInputRight = CreateWindowW(L"BUTTON",
+                                                     L"",
+                                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     window_,
+                                                     reinterpret_cast<HMENU>(kCheckboxShowInputRight),
+                                                     instance_,
+                                                     nullptr);
+    controls_.lineInputRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInputRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowInputLeft = CreateWindowW(L"BUTTON",
+                                                    L"",
+                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    window_,
+                                                    reinterpret_cast<HMENU>(kCheckboxShowInputLeft),
+                                                    instance_,
+                                                    nullptr);
+    controls_.lineInputLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInputLeft = CreateWindowW(L"STATIC", L"L", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowInversionRight = CreateWindowW(L"BUTTON",
+                                                         L"",
+                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         window_,
+                                                         reinterpret_cast<HMENU>(kCheckboxShowInversionRight),
+                                                         instance_,
+                                                         nullptr);
+    controls_.lineInversionRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInversionRight = CreateWindowW(L"STATIC", L"R inv", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowInversionLeft = CreateWindowW(L"BUTTON",
+                                                        L"",
                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
                                                         0,
                                                         0,
                                                         0,
                                                         0,
                                                         window_,
-                                                        reinterpret_cast<HMENU>(kCheckboxShowMeasuredRight),
+                                                        reinterpret_cast<HMENU>(kCheckboxShowInversionLeft),
                                                         instance_,
                                                         nullptr);
+    controls_.lineInversionLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInversionLeft = CreateWindowW(L"STATIC", L"L inv", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.correctedTitle = CreateWindowW(L"STATIC", L"Predicted Corrected Response", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Filter Group Delay", WS_CHILD | WS_VISIBLE,
@@ -171,8 +212,10 @@ void FiltersPage::createControls() {
                                            0, 0, 0, 0, window_, nullptr, instance_, nullptr);
 
     populateTapCountCombo(controls_.comboTapCount);
-    SendMessageW(controls_.checkboxShowMeasuredLeft, BM_SETCHECK, showMeasuredLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowMeasuredRight, BM_SETCHECK, showMeasuredRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInputRight, BM_SETCHECK, showInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInversionRight, BM_SETCHECK, showInversionRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     correctionGraph_.create(window_, instance_);
     correctedGraph_.create(window_, instance_);
     groupDelayGraph_.create(window_, instance_);
@@ -189,6 +232,8 @@ void FiltersPage::layout() {
     const int graphHeight = 320;
     const int graphGap = 34;
     const int sectionGap = 26;
+    const int legendGap = 14;
+    const int legendWidth = 128;
     const int top = 20 - scrollOffset_;
     const int comboDropHeight = 220;
 
@@ -213,9 +258,33 @@ void FiltersPage::layout() {
 
     int y = top + 96;
     MoveWindow(controls_.inversionTitle, contentLeft, y, 120, 18, TRUE);
-    MoveWindow(controls_.checkboxShowMeasuredLeft, contentLeft + contentWidth - 260, y - 2, 120, 24, TRUE);
-    MoveWindow(controls_.checkboxShowMeasuredRight, contentLeft + contentWidth - 132, y - 2, 132, 24, TRUE);
-    correctionGraph_.layout(RECT{contentLeft, y + 24, contentLeft + contentWidth, y + 24 + graphHeight});
+    const int legendLeft = contentLeft + contentWidth - legendWidth;
+    const int graphRight = legendLeft - legendGap;
+    const int frameTop = y + 24;
+    MoveWindow(controls_.inversionLegendFrame, legendLeft, frameTop, legendWidth, graphHeight, TRUE);
+    correctionGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
+
+    const int checkboxLeft = legendLeft + 14;
+    const int checkboxWidth = 18;
+    const int rowStep = 30;
+    const int firstRowTop = frameTop + 18;
+    const int lineLeft = checkboxLeft + checkboxWidth + 8;
+    const int lineWidth = 24;
+    const int lineHeight = 3;
+    const int labelLeft = lineLeft + lineWidth + 8;
+    const int labelWidth = legendWidth - (labelLeft - legendLeft) - 12;
+    MoveWindow(controls_.checkboxShowInputRight, checkboxLeft, firstRowTop, checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineInputRight, lineLeft, firstRowTop + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelInputRight, labelLeft, firstRowTop + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowInputLeft, checkboxLeft, firstRowTop + rowStep, checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineInputLeft, lineLeft, firstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelInputLeft, labelLeft, firstRowTop + rowStep + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowInversionRight, checkboxLeft, firstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineInversionRight, lineLeft, firstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelInversionRight, labelLeft, firstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowInversionLeft, checkboxLeft, firstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineInversionLeft, lineLeft, firstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelInversionLeft, labelLeft, firstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.correctedTitle, contentLeft, y, contentWidth, 18, TRUE);
@@ -250,8 +319,10 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.editMaxCut, formatWideDouble(settings.maxCutDb, 1));
     setWindowTextValue(controls_.editLowCorrection, formatWideDouble(settings.lowCorrectionHz, 0));
     setWindowTextValue(controls_.editHighCorrection, formatWideDouble(settings.highCorrectionHz, 0));
-    SendMessageW(controls_.checkboxShowMeasuredLeft, BM_SETCHECK, showMeasuredLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowMeasuredRight, BM_SETCHECK, showMeasuredRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInputRight, BM_SETCHECK, showInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInversionRight, BM_SETCHECK, showInversionRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
 
     if (workspace.filterResult.valid) {
         SetWindowTextW(controls_.summary,
@@ -296,9 +367,15 @@ bool FiltersPage::handleCommand(WORD commandId, WORD notificationCode, Workspace
         return true;
     }
 
-    if ((commandId == kCheckboxShowMeasuredLeft || commandId == kCheckboxShowMeasuredRight) && notificationCode == BN_CLICKED) {
-        showMeasuredLeft_ = SendMessageW(controls_.checkboxShowMeasuredLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showMeasuredRight_ = SendMessageW(controls_.checkboxShowMeasuredRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    if ((commandId == kCheckboxShowInputRight ||
+         commandId == kCheckboxShowInputLeft ||
+         commandId == kCheckboxShowInversionRight ||
+         commandId == kCheckboxShowInversionLeft) &&
+        notificationCode == BN_CLICKED) {
+        showInputRight_ = SendMessageW(controls_.checkboxShowInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showInputLeft_ = SendMessageW(controls_.checkboxShowInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showInversionRight_ = SendMessageW(controls_.checkboxShowInversionRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showInversionLeft_ = SendMessageW(controls_.checkboxShowInversionLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
         correctionGraph_.setData(buildCorrectionGraphData(workspace));
         return true;
     }
@@ -358,7 +435,30 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLOREDIT:
     case WM_CTLCOLORBTN: {
+        static HBRUSH lineInputRightBrush = CreateSolidBrush(ui_theme::kRed);
+        static HBRUSH lineInputLeftBrush = CreateSolidBrush(ui_theme::kGreen);
+        static HBRUSH lineInversionRightBrush = CreateSolidBrush(ui_theme::kBlue);
+        static HBRUSH lineInversionLeftBrush = CreateSolidBrush(ui_theme::kGray);
         HDC hdc = reinterpret_cast<HDC>(wParam);
+        const HWND control = reinterpret_cast<HWND>(lParam);
+        if (page != nullptr) {
+            if (control == page->controls_.lineInputRight) {
+                SetBkColor(hdc, ui_theme::kRed);
+                return reinterpret_cast<INT_PTR>(lineInputRightBrush);
+            }
+            if (control == page->controls_.lineInputLeft) {
+                SetBkColor(hdc, ui_theme::kGreen);
+                return reinterpret_cast<INT_PTR>(lineInputLeftBrush);
+            }
+            if (control == page->controls_.lineInversionRight) {
+                SetBkColor(hdc, ui_theme::kBlue);
+                return reinterpret_cast<INT_PTR>(lineInversionRightBrush);
+            }
+            if (control == page->controls_.lineInversionLeft) {
+                SetBkColor(hdc, ui_theme::kGray);
+                return reinterpret_cast<INT_PTR>(lineInversionLeftBrush);
+            }
+        }
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, ui_theme::kText);
         return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
@@ -535,31 +635,41 @@ PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& worksp
         }
     };
 
-    if (showMeasuredLeft_) {
+    if (showInputRight_) {
+        accumulateRange(workspace.smoothedResponse.rightChannelDb);
+    }
+    if (showInputLeft_) {
         accumulateRange(workspace.smoothedResponse.leftChannelDb);
     }
-    if (showMeasuredRight_) {
-        accumulateRange(workspace.smoothedResponse.rightChannelDb);
+    if (showInversionRight_) {
+        accumulateRange(workspace.filterResult.right.correctionCurveDb);
+    }
+    if (showInversionLeft_) {
+        accumulateRange(workspace.filterResult.left.correctionCurveDb);
     }
 
     data.fixedYRange = true;
     data.minY = std::floor((minY - 1.5) / 3.0) * 3.0;
     data.maxY = std::ceil((maxY + 1.5) / 3.0) * 3.0;
-    data.series.push_back({L"Left correction", ui_theme::kGreen, workspace.filterResult.left.correctionCurveDb});
-    data.series.push_back({L"Right correction", ui_theme::kRed, workspace.filterResult.right.correctionCurveDb});
-    if (showMeasuredLeft_) {
-        data.series.push_back({L"Left measured",
-                               ui_theme::kBlue,
+    if (showInputRight_) {
+        data.series.push_back({L"Right input",
+                               ui_theme::kRed,
+                               resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
+                                                    workspace.smoothedResponse.rightChannelDb,
+                                                    workspace.filterResult.frequencyAxisHz)});
+    }
+    if (showInputLeft_) {
+        data.series.push_back({L"Left input",
+                               ui_theme::kGreen,
                                resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
                                                     workspace.smoothedResponse.leftChannelDb,
                                                     workspace.filterResult.frequencyAxisHz)});
     }
-    if (showMeasuredRight_) {
-        data.series.push_back({L"Right measured",
-                               ui_theme::kMagenta,
-                               resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
-                                                    workspace.smoothedResponse.rightChannelDb,
-                                                    workspace.filterResult.frequencyAxisHz)});
+    if (showInversionRight_) {
+        data.series.push_back({L"Right inversion", ui_theme::kBlue, workspace.filterResult.right.correctionCurveDb});
+    }
+    if (showInversionLeft_) {
+        data.series.push_back({L"Left inversion", ui_theme::kGray, workspace.filterResult.left.correctionCurveDb});
     }
     return data;
 }
