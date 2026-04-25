@@ -128,6 +128,9 @@ void FiltersPage::createControls() {
     controls_.editMaxCut = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
                                            0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMaxCut), instance_, nullptr);
     controls_.unitMaxCut = CreateWindowW(L"STATIC", L"dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelSmoothness = CreateWindowW(L"STATIC", L"Smoothness", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.editSmoothness = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditSmoothness), instance_, nullptr);
     controls_.labelLowCorrection = CreateWindowW(L"STATIC", L"Low Bound", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editLowCorrection = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditLowCorrection), instance_, nullptr);
@@ -247,12 +250,14 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelMaxCut, contentLeft + 394, top, 70, 18, TRUE);
     MoveWindow(controls_.editMaxCut, contentLeft + 394, top + 22, 58, 26, TRUE);
     MoveWindow(controls_.unitMaxCut, contentLeft + 456, top + 26, 24, 18, TRUE);
-    MoveWindow(controls_.labelLowCorrection, contentLeft + 496, top, 72, 18, TRUE);
-    MoveWindow(controls_.editLowCorrection, contentLeft + 496, top + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitLowCorrection, contentLeft + 568, top + 26, 22, 18, TRUE);
-    MoveWindow(controls_.labelHighCorrection, contentLeft + 606, top, 76, 18, TRUE);
-    MoveWindow(controls_.editHighCorrection, contentLeft + 606, top + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitHighCorrection, contentLeft + 678, top + 26, 22, 18, TRUE);
+    MoveWindow(controls_.labelSmoothness, contentLeft + 496, top, 72, 18, TRUE);
+    MoveWindow(controls_.editSmoothness, contentLeft + 496, top + 22, 58, 26, TRUE);
+    MoveWindow(controls_.labelLowCorrection, contentLeft + 574, top, 72, 18, TRUE);
+    MoveWindow(controls_.editLowCorrection, contentLeft + 574, top + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitLowCorrection, contentLeft + 646, top + 26, 22, 18, TRUE);
+    MoveWindow(controls_.labelHighCorrection, contentLeft + 684, top, 76, 18, TRUE);
+    MoveWindow(controls_.editHighCorrection, contentLeft + 684, top + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitHighCorrection, contentLeft + 756, top + 26, 22, 18, TRUE);
     MoveWindow(controls_.buttonRecalculate, contentLeft + contentWidth - 110, top + 18, 110, 30, TRUE);
     MoveWindow(controls_.summary, contentLeft, top + 62, contentWidth, 18, TRUE);
 
@@ -317,6 +322,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     SetWindowTextW(controls_.phaseModeValue, L"Minimum phase");
     setWindowTextValue(controls_.editMaxBoost, formatWideDouble(settings.maxBoostDb, 1));
     setWindowTextValue(controls_.editMaxCut, formatWideDouble(settings.maxCutDb, 1));
+    setWindowTextValue(controls_.editSmoothness, formatWideDouble(settings.smoothness, 2));
     setWindowTextValue(controls_.editLowCorrection, formatWideDouble(settings.lowCorrectionHz, 0));
     setWindowTextValue(controls_.editHighCorrection, formatWideDouble(settings.highCorrectionHz, 0));
     SendMessageW(controls_.checkboxShowInputRight, BM_SETCHECK, showInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -348,6 +354,9 @@ void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     }
     if (tryParseDouble(getWindowTextValue(controls_.editMaxCut), value)) {
         workspace.filters.maxCutDb = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editSmoothness), value)) {
+        workspace.filters.smoothness = value;
     }
     if (tryParseDouble(getWindowTextValue(controls_.editLowCorrection), value)) {
         workspace.filters.lowCorrectionHz = value;

@@ -158,16 +158,144 @@ double correctionWeightAt(double frequencyHz, const FilterDesignSettings& settin
     return clampValue(weight, 0.0, 1.0);
 }
 
+double applyAsymmetricSoftLimit(double valueDb, double minValueDb, double maxValueDb) {
+    if (valueDb >= 0.0) {
+        if (maxValueDb <= 1.0e-9) {
+            return 0.0;
+        }
+        return maxValueDb * std::tanh(valueDb / maxValueDb);
+    }
+
+    const double cutLimitDb = std::max(-minValueDb, 0.0);
+    if (cutLimitDb <= 1.0e-9) {
+        return 0.0;
+    }
+    return -cutLimitDb * std::tanh((-valueDb) / cutLimitDb);
+}
+
+double smoothnessRegularizationScale(double smoothness) {
+    const double clamped = clampValue(smoothness, 0.1, 4.0);
+    return std::pow(8.0, clamped - 1.0);
+}
+
+double dotProduct(const std::vector<double>& a, const std::vector<double>& b) {
+    double sum = 0.0;
+    for (size_t index = 0; index < a.size() && index < b.size(); ++index) {
+        sum += a[index] * b[index];
+    }
+    return sum;
+}
+
+void applySecondDifferencePenalty(const std::vector<double>& input, std::vector<double>& output, double scale) {
+    if (input.size() < 3 || scale <= 0.0) {
+        return;
+    }
+
+    for (size_t index = 0; index + 2 < input.size(); ++index) {
+        const double secondDifference = input[index] - (2.0 * input[index + 1]) + input[index + 2];
+        output[index] += scale * secondDifference;
+        output[index + 1] -= 2.0 * scale * secondDifference;
+        output[index + 2] += scale * secondDifference;
+    }
+}
+
+std::vector<double> applyRegularizedSystem(const std::vector<double>& trackingWeights,
+                                           const std::vector<double>& values,
+                                           double regularization) {
+    std::vector<double> result(values.size(), 0.0);
+    for (size_t index = 0; index < values.size() && index < trackingWeights.size(); ++index) {
+        result[index] = trackingWeights[index] * values[index];
+    }
+    applySecondDifferencePenalty(values, result, regularization);
+    return result;
+}
+
+std::vector<double> solveRegularizedCurve(const std::vector<double>& desiredCurveDb,
+                                          const std::vector<double>& trackingWeights,
+                                          double regularization) {
+    const size_t count = std::min(desiredCurveDb.size(), trackingWeights.size());
+    std::vector<double> solution(desiredCurveDb.begin(), desiredCurveDb.begin() + static_cast<std::ptrdiff_t>(count));
+    if (count < 3) {
+        return solution;
+    }
+
+    std::vector<double> rhs(count, 0.0);
+    for (size_t index = 0; index < count; ++index) {
+        rhs[index] = trackingWeights[index] * desiredCurveDb[index];
+    }
+
+    std::vector<double> applied = applyRegularizedSystem(trackingWeights, solution, regularization);
+    std::vector<double> residual(count, 0.0);
+    for (size_t index = 0; index < count; ++index) {
+        residual[index] = rhs[index] - applied[index];
+    }
+
+    std::vector<double> direction = residual;
+    double residualEnergy = dotProduct(residual, residual);
+    const double rhsEnergy = std::max(dotProduct(rhs, rhs), 1.0e-12);
+    if (residualEnergy <= rhsEnergy * 1.0e-12) {
+        return solution;
+    }
+
+    for (int iteration = 0; iteration < 96; ++iteration) {
+        const std::vector<double> systemDirection = applyRegularizedSystem(trackingWeights, direction, regularization);
+        const double denominator = dotProduct(direction, systemDirection);
+        if (std::abs(denominator) < 1.0e-12) {
+            break;
+        }
+
+        const double alpha = residualEnergy / denominator;
+        for (size_t index = 0; index < count; ++index) {
+            solution[index] += alpha * direction[index];
+            residual[index] -= alpha * systemDirection[index];
+        }
+
+        const double nextResidualEnergy = dotProduct(residual, residual);
+        if (nextResidualEnergy <= rhsEnergy * 1.0e-10) {
+            break;
+        }
+
+        const double beta = nextResidualEnergy / std::max(residualEnergy, 1.0e-12);
+        for (size_t index = 0; index < count; ++index) {
+            direction[index] = residual[index] + (beta * direction[index]);
+        }
+        residualEnergy = nextResidualEnergy;
+    }
+
+    return solution;
+}
+
 std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxisHz,
                                          const std::vector<double>& targetCurveDb,
                                          const std::vector<double>& sourceCurveDb,
                                          const FilterDesignSettings& settings) {
-    std::vector<double> correction;
-    correction.reserve(frequencyAxisHz.size());
-    for (size_t index = 0; index < frequencyAxisHz.size() && index < targetCurveDb.size() && index < sourceCurveDb.size(); ++index) {
-        const double rawCorrectionDb = targetCurveDb[index] - sourceCurveDb[index];
-        const double boundedCorrectionDb = clampValue(rawCorrectionDb, -settings.maxCutDb, settings.maxBoostDb);
-        correction.push_back(boundedCorrectionDb * correctionWeightAt(frequencyAxisHz[index], settings));
+    const size_t count = std::min({frequencyAxisHz.size(), targetCurveDb.size(), sourceCurveDb.size()});
+    std::vector<double> desiredCorrectionDb;
+    desiredCorrectionDb.reserve(count);
+    std::vector<double> trackingWeights;
+    trackingWeights.reserve(count);
+    std::vector<double> lowerBoundsDb;
+    lowerBoundsDb.reserve(count);
+    std::vector<double> upperBoundsDb;
+    upperBoundsDb.reserve(count);
+
+    for (size_t index = 0; index < count; ++index) {
+        const double weight = correctionWeightAt(frequencyAxisHz[index], settings);
+        const double rawCorrectionDb = (targetCurveDb[index] - sourceCurveDb[index]) * weight;
+        const double minValueDb = -settings.maxCutDb * weight;
+        const double maxValueDb = settings.maxBoostDb * weight;
+        desiredCorrectionDb.push_back(applyAsymmetricSoftLimit(rawCorrectionDb, minValueDb, maxValueDb));
+        trackingWeights.push_back(0.05 + (0.95 * weight));
+        lowerBoundsDb.push_back(minValueDb);
+        upperBoundsDb.push_back(maxValueDb);
+    }
+
+    const double regularization = 12.0 *
+                                  std::max(static_cast<double>(count) / 512.0, 1.0) *
+                                  smoothnessRegularizationScale(settings.smoothness);
+    std::vector<double> correction = solveRegularizedCurve(desiredCorrectionDb, trackingWeights, regularization);
+    for (size_t index = 0; index < correction.size() && index < lowerBoundsDb.size() && index < upperBoundsDb.size(); ++index) {
+        correction[index] = applyAsymmetricSoftLimit(correction[index], lowerBoundsDb[index], upperBoundsDb[index]);
     }
     return correction;
 }
@@ -432,6 +560,7 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     settings.tapCount = closestTapCount;
     settings.maxBoostDb = clampValue(settings.maxBoostDb, 0.0, 24.0);
     settings.maxCutDb = clampValue(settings.maxCutDb, 0.0, 36.0);
+    settings.smoothness = clampValue(settings.smoothness, 0.1, 4.0);
     settings.lowCorrectionHz = clampValue(settings.lowCorrectionHz, 10.0, static_cast<double>(std::max(nyquist - 10, 20)));
     settings.lowTaperOctaves = clampValue(settings.lowTaperOctaves, 0.0, 4.0);
     settings.highCorrectionHz =

@@ -39,6 +39,8 @@ private:
         HWND labelMaxCut = nullptr;
         HWND editMaxCut = nullptr;
         HWND unitMaxCut = nullptr;
+        HWND labelSmoothness = nullptr;
+        HWND editSmoothness = nullptr;
         HWND labelLowCorrection = nullptr;
         HWND editLowCorrection = nullptr;
         HWND unitLowCorrection = nullptr;
@@ -73,6 +75,7 @@ private:
     static constexpr int kEditLowCorrection = 3404;
     static constexpr int kEditHighCorrection = 3405;
     static constexpr int kButtonRecalculate = 3406;
+    static constexpr int kEditSmoothness = 3411;
     static constexpr int kCheckboxShowInputRight = 3407;
     static constexpr int kCheckboxShowInputLeft = 3408;
     static constexpr int kCheckboxShowInversionRight = 3409;

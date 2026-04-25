@@ -759,6 +759,9 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonNumber(*content, "filterMaxCutDb")) {
             workspace.filters.maxCutDb = *value;
         }
+        if (const auto value = findJsonNumber(*content, "filterSmoothness")) {
+            workspace.filters.smoothness = *value;
+        }
         if (const auto value = findJsonNumber(*content, "filterLowCorrectionHz")) {
             workspace.filters.lowCorrectionHz = *value;
         }
@@ -847,6 +850,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"filterTapCount\": " << workspace.filters.tapCount << ",\n"
                   << "    \"filterMaxBoostDb\": " << workspace.filters.maxBoostDb << ",\n"
                   << "    \"filterMaxCutDb\": " << workspace.filters.maxCutDb << ",\n"
+                  << "    \"filterSmoothness\": " << workspace.filters.smoothness << ",\n"
                   << "    \"filterLowCorrectionHz\": " << workspace.filters.lowCorrectionHz << ",\n"
                   << "    \"filterLowTaperOctaves\": " << workspace.filters.lowTaperOctaves << ",\n"
                   << "    \"filterHighCorrectionHz\": " << workspace.filters.highCorrectionHz << ",\n"

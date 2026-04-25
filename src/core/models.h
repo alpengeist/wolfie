@@ -224,6 +224,7 @@ struct FilterDesignSettings {
     int tapCount = 65536;
     double maxBoostDb = 9.0;
     double maxCutDb = 18.0;
+    double smoothness = 1.0;
     double lowCorrectionHz = 80.0;
     double lowTaperOctaves = 2.0;
     double highCorrectionHz = 12000.0;
