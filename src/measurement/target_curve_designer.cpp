@@ -132,6 +132,30 @@ void normalizeTargetCurveSettings(TargetCurveSettings& settings, double minFrequ
     }
 }
 
+double evaluateTargetCurveDbAtFrequency(const MeasurementSettings& measurement,
+                                        const TargetCurveSettings& sourceSettings,
+                                        double minFrequencyHz,
+                                        double maxFrequencyHz,
+                                        double frequencyHz) {
+    TargetCurveSettings settings = sourceSettings;
+    normalizeTargetCurveSettings(settings, minFrequencyHz, maxFrequencyHz);
+
+    const double clampedFrequencyHz = clampValue(frequencyHz, minFrequencyHz, maxFrequencyHz);
+    const double basicDb = basicCurveValueDb(settings, clampedFrequencyHz, minFrequencyHz, maxFrequencyHz);
+    if (settings.bypassEqBands) {
+        return basicDb;
+    }
+
+    double eqDb = 0.0;
+    for (const TargetEqBand& band : settings.eqBands) {
+        if (!band.enabled) {
+            continue;
+        }
+        eqDb += bandContributionDb(band, measurement.sampleRate, clampedFrequencyHz);
+    }
+    return basicDb + eqDb;
+}
+
 TargetCurvePlotData buildTargetCurvePlotData(const SmoothedResponse& response,
                                              const MeasurementSettings& measurement,
                                              const TargetCurveSettings& sourceSettings,
@@ -147,6 +171,7 @@ TargetCurvePlotData buildTargetCurvePlotData(const SmoothedResponse& response,
                                                             : response.frequencyAxisHz;
     plot.basicCurveDb.reserve(plot.frequencyAxisHz.size());
     plot.targetCurveDb.reserve(plot.frequencyAxisHz.size());
+    const bool includeEqBands = !settings.bypassEqBands;
     if (selectedBandIndex && *selectedBandIndex < settings.eqBands.size()) {
         plot.selectedBandContributionDb.reserve(plot.frequencyAxisHz.size());
     }
@@ -158,17 +183,15 @@ TargetCurvePlotData buildTargetCurvePlotData(const SmoothedResponse& response,
 
         double eqDb = 0.0;
         double selectedDb = 0.0;
-        if (!settings.bypassEqBands) {
-            for (size_t bandIndex = 0; bandIndex < settings.eqBands.size(); ++bandIndex) {
-                const TargetEqBand& band = settings.eqBands[bandIndex];
-                if (!band.enabled) {
-                    continue;
-                }
-                const double contributionDb = bandContributionDb(band, measurement.sampleRate, frequencyHz);
-                eqDb += contributionDb;
-                if (selectedBandIndex && bandIndex == *selectedBandIndex) {
-                    selectedDb = contributionDb;
-                }
+        for (size_t bandIndex = 0; bandIndex < settings.eqBands.size(); ++bandIndex) {
+            const TargetEqBand& band = settings.eqBands[bandIndex];
+            if (!includeEqBands || !band.enabled) {
+                continue;
+            }
+            const double contributionDb = bandContributionDb(band, measurement.sampleRate, frequencyHz);
+            eqDb += contributionDb;
+            if (selectedBandIndex && bandIndex == *selectedBandIndex) {
+                selectedDb = contributionDb;
             }
         }
 

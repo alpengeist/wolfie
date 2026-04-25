@@ -24,6 +24,17 @@ T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
 }
 
+COLORREF blendColor(COLORREF first, COLORREF second, double t) {
+    const double blend = clampValue(t, 0.0, 1.0);
+    const auto channel = [blend](BYTE a, BYTE b) -> BYTE {
+        return static_cast<BYTE>(std::lround((static_cast<double>(a) * (1.0 - blend)) +
+                                             (static_cast<double>(b) * blend)));
+    };
+    return RGB(channel(GetRValue(first), GetRValue(second)),
+               channel(GetGValue(first), GetGValue(second)),
+               channel(GetBValue(first), GetBValue(second)));
+}
+
 }  // namespace
 
 void TargetCurvePage::registerPageWindowClass(HINSTANCE instance) {
@@ -54,7 +65,7 @@ void TargetCurvePage::createControls() {
     controls_.buttonNew = CreateWindowW(L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonNew), instance_, nullptr);
     controls_.buttonDelete = CreateWindowW(L"BUTTON", L"Delete", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonDelete), instance_, nullptr);
     controls_.buttonReset = CreateWindowW(L"BUTTON", L"Reset", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonReset), instance_, nullptr);
-    controls_.checkboxBypassAll = CreateWindowW(L"BUTTON", L"Bypass all EQ bands", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+    controls_.checkboxBypassAll = CreateWindowW(L"BUTTON", L"Bypass", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kCheckboxBypassAll), instance_, nullptr);
     controls_.listBands = CreateWindowExW(WS_EX_CLIENTEDGE,
                                           L"LISTBOX",
@@ -157,7 +168,10 @@ void TargetCurvePage::setVisible(bool visible) const {
 
 void TargetCurvePage::populate(const WorkspaceState& workspace) {
     updatingControls_ = true;
-    SendMessageW(controls_.checkboxBypassAll, BM_SETCHECK, workspace.targetCurve.bypassEqBands ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxBypassAll,
+                 BM_SETCHECK,
+                 workspace.targetCurve.bypassEqBands ? BST_CHECKED : BST_UNCHECKED,
+                 0);
     if (selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
         selectedBandIndex_ = workspace.targetCurve.eqBands.empty() ? -1 : static_cast<int>(workspace.targetCurve.eqBands.size() - 1);
     }
@@ -187,7 +201,12 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
         workspace.targetCurve = graph_.settings();
         refreshList(workspace);
         refreshDetailControls(workspace);
-        workspaceChanged = true;
+        return true;
+    }
+    if (commandId == kGraph && notificationCode == TargetCurveGraph::kModelPreviewNotification) {
+        workspace.targetCurve = graph_.settings();
+        selectedBandIndex_ = graph_.selectedBandIndex();
+        refreshDetailControls(workspace);
         return true;
     }
     if (commandId == kGraph && notificationCode == TargetCurveGraph::kModelChangedNotification) {
@@ -205,6 +224,9 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
         workspaceChanged = true;
         return true;
     case kButtonDelete:
+        if (workspace.targetCurve.bypassEqBands) {
+            return true;
+        }
         deleteSelectedBand(workspace);
         workspaceChanged = true;
         return true;
@@ -213,11 +235,17 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
         workspaceChanged = true;
         return true;
     case kCheckboxBypassAll:
-        workspace.targetCurve.bypassEqBands = SendMessageW(controls_.checkboxBypassAll, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        workspace.targetCurve.bypassEqBands =
+            SendMessageW(controls_.checkboxBypassAll, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        refreshList(workspace);
+        refreshDetailControls(workspace);
         refreshGraph(workspace);
         workspaceChanged = true;
         return true;
     case kListBands:
+        if (workspace.targetCurve.bypassEqBands) {
+            return true;
+        }
         if (notificationCode == kBandToggleNotification && pendingBandToggleIndex_ >= 0) {
             toggleBandEnabled(pendingBandToggleIndex_, workspace);
             pendingBandToggleIndex_ = -1;
@@ -239,10 +267,14 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
         }
         return false;
     case kCheckboxBandEnabled:
-        if (selectedBandIndex_ >= 0 && selectedBandIndex_ < static_cast<int>(workspace.targetCurve.eqBands.size())) {
+        if (!workspace.targetCurve.bypassEqBands &&
+            selectedBandIndex_ >= 0 &&
+            selectedBandIndex_ < static_cast<int>(workspace.targetCurve.eqBands.size())) {
             workspace.targetCurve.eqBands[static_cast<size_t>(selectedBandIndex_)].enabled =
                 SendMessageW(controls_.checkboxEnabled, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            syncAllOffState(workspace.targetCurve);
             refreshList(workspace);
+            refreshDetailControls(workspace);
             refreshGraph(workspace);
             workspaceChanged = true;
             return true;
@@ -261,6 +293,9 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
     }
 
     if (selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
+        return false;
+    }
+    if (workspace.targetCurve.bypassEqBands) {
         return false;
     }
 
@@ -288,6 +323,9 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
 
 bool TargetCurvePage::handleHScroll(HWND source, WorkspaceState& workspace, bool& workspaceChanged) {
     if (selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
+        return false;
+    }
+    if (workspace.targetCurve.bypassEqBands) {
         return false;
     }
 
@@ -323,7 +361,8 @@ bool TargetCurvePage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
 
     const bool selected = (draw->itemState & ODS_SELECTED) != 0;
     const bool focused = (draw->itemState & ODS_FOCUS) != 0;
-    const COLORREF fillColor = selected ? RGB(225, 234, 246) : ui_theme::kPanelBackground;
+    const bool bypassed = SendMessageW(controls_.checkboxBypassAll, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    const COLORREF fillColor = !bypassed && selected ? RGB(225, 234, 246) : ui_theme::kPanelBackground;
     HBRUSH fillBrush = CreateSolidBrush(fillColor);
     FillRect(draw->hDC, &draw->rcItem, fillBrush);
     DeleteObject(fillBrush);
@@ -332,6 +371,8 @@ bool TargetCurvePage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
         const LPARAM itemData = SendMessageW(draw->hwndItem, LB_GETITEMDATA, draw->itemID, 0);
         const size_t bandIndex = itemData >= 0 ? static_cast<size_t>(itemData) : 0;
         const TargetEqBand* band = bandIndex < displayedBands_.size() ? &displayedBands_[bandIndex] : nullptr;
+        const COLORREF textColor = bypassed ? ui_theme::kMuted : ui_theme::kText;
+        const COLORREF checkColor = bypassed ? ui_theme::kMuted : ui_theme::kText;
         RECT checkboxRect{draw->rcItem.left + 8, draw->rcItem.top + 6, draw->rcItem.left + 22, draw->rcItem.top + 20};
         HPEN borderPen = CreatePen(PS_SOLID, 1, ui_theme::kBorder);
         HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(draw->hDC, borderPen));
@@ -342,7 +383,7 @@ bool TargetCurvePage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
         DeleteObject(borderPen);
 
         if (band != nullptr && band->enabled) {
-            HPEN checkPen = CreatePen(PS_SOLID, 2, ui_theme::kText);
+            HPEN checkPen = CreatePen(PS_SOLID, 2, checkColor);
             oldPen = reinterpret_cast<HPEN>(SelectObject(draw->hDC, checkPen));
             MoveToEx(draw->hDC, checkboxRect.left + 3, checkboxRect.top + 7, nullptr);
             LineTo(draw->hDC, checkboxRect.left + 6, checkboxRect.bottom - 4);
@@ -350,7 +391,9 @@ bool TargetCurvePage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
             SelectObject(draw->hDC, oldPen);
             DeleteObject(checkPen);
         }
-        const COLORREF dotColor = band != nullptr ? targetCurveBandColor(band->colorIndex) : targetCurveBandColor(static_cast<int>(bandIndex));
+        const COLORREF baseDotColor = band != nullptr ? targetCurveBandColor(band->colorIndex)
+                                                      : targetCurveBandColor(static_cast<int>(bandIndex));
+        const COLORREF dotColor = bypassed ? blendColor(baseDotColor, ui_theme::kPanelBackground, 0.55) : baseDotColor;
         HBRUSH dotBrush = CreateSolidBrush(dotColor);
         HBRUSH previousBrush = reinterpret_cast<HBRUSH>(SelectObject(draw->hDC, dotBrush));
         HPEN dotPen = CreatePen(PS_SOLID, 1, dotColor);
@@ -363,14 +406,14 @@ bool TargetCurvePage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
         RECT typeRect{draw->rcItem.left + 50, draw->rcItem.top + 4, draw->rcItem.left + 120, draw->rcItem.bottom - 2};
         RECT freqRect{draw->rcItem.left + 124, draw->rcItem.top + 4, draw->rcItem.right - 8, draw->rcItem.bottom - 2};
         SetBkMode(draw->hDC, TRANSPARENT);
-        SetTextColor(draw->hDC, ui_theme::kText);
+        SetTextColor(draw->hDC, textColor);
         const std::wstring typeText = L"Bell";
         const std::wstring freqText = band != nullptr ? formatWideDouble(band->frequencyHz, 0) + L" Hz" : L"";
         DrawTextW(draw->hDC, typeText.c_str(), -1, &typeRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         DrawTextW(draw->hDC, freqText.c_str(), -1, &freqRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
 
-    if (focused) {
+    if (!bypassed && focused) {
         DrawFocusRect(draw->hDC, &draw->rcItem);
     }
     return true;
@@ -430,6 +473,9 @@ LRESULT CALLBACK TargetCurvePage::BandListProc(HWND window, UINT message, WPARAM
     }
 
     if (message == WM_LBUTTONDOWN) {
+        if (SendMessageW(page->controls_.checkboxBypassAll, BM_GETCHECK, 0, 0) == BST_CHECKED) {
+            return 0;
+        }
         POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         const DWORD itemData = static_cast<DWORD>(SendMessageW(window, LB_ITEMFROMPOINT, 0, MAKELPARAM(point.x, point.y)));
         const int index = LOWORD(itemData);
@@ -520,6 +566,7 @@ bool TargetCurvePage::handleMouseWheel(WPARAM wParam, LPARAM lParam) {
 
 bool TargetCurvePage::adjustBandValueField(HWND control, int wheelSteps) {
     if (control == nullptr || wheelSteps == 0 || updatingControls_ ||
+        SendMessageW(controls_.checkboxBypassAll, BM_GETCHECK, 0, 0) == BST_CHECKED ||
         selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(displayedBands_.size())) {
         return wheelSteps == 0;
     }
@@ -553,6 +600,10 @@ bool TargetCurvePage::adjustBandValueField(HWND control, int wheelSteps) {
 
     setWindowTextValue(control, formatWideDouble(nextValue, decimals));
     return true;
+}
+
+void TargetCurvePage::syncAllOffState(TargetCurveSettings& settings) const {
+    (void)settings;
 }
 
 int TargetCurvePage::frequencyToSliderPosition(double frequencyHz, double minFrequencyHz, double maxFrequencyHz) {
@@ -596,24 +647,35 @@ double TargetCurvePage::sliderPositionToQ(int position) {
 void TargetCurvePage::refreshList(const WorkspaceState& workspace) {
     updatingControls_ = true;
     displayedBands_ = workspace.targetCurve.eqBands;
+    SendMessageW(controls_.checkboxBypassAll,
+                 BM_SETCHECK,
+                 workspace.targetCurve.bypassEqBands ? BST_CHECKED : BST_UNCHECKED,
+                 0);
     SendMessageW(controls_.listBands, LB_RESETCONTENT, 0, 0);
     for (size_t i = 0; i < workspace.targetCurve.eqBands.size(); ++i) {
         const int bandIndex = static_cast<int>(i);
-        const TargetEqBand& band = workspace.targetCurve.eqBands[i];
         const std::wstring label = L"Bell";
         const LRESULT index = SendMessageW(controls_.listBands, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
         SendMessageW(controls_.listBands, LB_SETITEMDATA, index, static_cast<LPARAM>(bandIndex));
     }
-    if (selectedBandIndex_ >= 0 && selectedBandIndex_ < static_cast<int>(workspace.targetCurve.eqBands.size())) {
+    if (!workspace.targetCurve.bypassEqBands &&
+        selectedBandIndex_ >= 0 &&
+        selectedBandIndex_ < static_cast<int>(workspace.targetCurve.eqBands.size())) {
         SendMessageW(controls_.listBands, LB_SETCURSEL, selectedBandIndex_, 0);
+    } else {
+        SendMessageW(controls_.listBands, LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
     }
-    EnableWindow(controls_.buttonDelete, !workspace.targetCurve.eqBands.empty());
+    EnableWindow(controls_.listBands, workspace.targetCurve.bypassEqBands ? FALSE : TRUE);
+    EnableWindow(controls_.buttonDelete,
+                 !workspace.targetCurve.bypassEqBands && !workspace.targetCurve.eqBands.empty());
     updatingControls_ = false;
 }
 
 void TargetCurvePage::refreshDetailControls(const WorkspaceState& workspace) {
     updatingControls_ = true;
-    const bool hasSelection = selectedBandIndex_ >= 0 && selectedBandIndex_ < static_cast<int>(workspace.targetCurve.eqBands.size());
+    const bool hasSelection = !workspace.targetCurve.bypassEqBands &&
+                              selectedBandIndex_ >= 0 &&
+                              selectedBandIndex_ < static_cast<int>(workspace.targetCurve.eqBands.size());
     EnableWindow(controls_.checkboxEnabled, hasSelection);
     EnableWindow(controls_.frequencySlider, hasSelection);
     EnableWindow(controls_.frequencyValue, hasSelection);
@@ -683,6 +745,7 @@ void TargetCurvePage::addBand(WorkspaceState& workspace) {
             selectedBandIndex_ = static_cast<int>(i);
         }
     }
+    syncAllOffState(workspace.targetCurve);
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
@@ -698,6 +761,7 @@ void TargetCurvePage::deleteSelectedBand(WorkspaceState& workspace) {
     } else {
         selectedBandIndex_ = clampValue(selectedBandIndex_, 0, static_cast<int>(workspace.targetCurve.eqBands.size()) - 1);
     }
+    syncAllOffState(workspace.targetCurve);
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
@@ -708,6 +772,7 @@ void TargetCurvePage::resetTarget(WorkspaceState& workspace) {
     measurement::normalizeTargetCurveSettings(workspace.targetCurve,
                                               std::max(workspace.measurement.startFrequencyHz, 20.0),
                                               std::min(workspace.measurement.endFrequencyHz, 20000.0));
+    syncAllOffState(workspace.targetCurve);
     selectedBandIndex_ = workspace.targetCurve.eqBands.empty() ? -1 : 0;
     populate(workspace);
 }
@@ -718,6 +783,7 @@ void TargetCurvePage::toggleBandEnabled(int index, WorkspaceState& workspace) {
     }
     workspace.targetCurve.eqBands[static_cast<size_t>(index)].enabled =
         !workspace.targetCurve.eqBands[static_cast<size_t>(index)].enabled;
+    syncAllOffState(workspace.targetCurve);
     if (selectedBandIndex_ != index) {
         selectedBandIndex_ = index;
     }

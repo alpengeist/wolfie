@@ -650,7 +650,7 @@ LRESULT CALLBACK TargetCurveGraph::WindowProc(HWND window, UINT message, WPARAM 
         graph->onLButtonUp();
         return 0;
     case WM_CAPTURECHANGED:
-        graph->finishDrag();
+        graph->finishDrag(true);
         return 0;
     case WM_SIZE:
         graph->invalidateBackgroundCache();
@@ -790,16 +790,18 @@ void TargetCurveGraph::onLButtonDown(LPARAM lParam) {
     drag_.type = type;
     drag_.bandIndex = bandIndex;
     drag_.origin = position;
+    drag_.changed = false;
     drag_.originalSettings = settings_;
     SetCapture(window_);
     invalidate();
 }
 
 void TargetCurveGraph::onLButtonUp() {
-    if (window_ != nullptr && GetCapture() == window_) {
+    const bool hadCapture = window_ != nullptr && GetCapture() == window_;
+    finishDrag(true);
+    if (hadCapture) {
         ReleaseCapture();
     }
-    finishDrag();
 }
 
 void TargetCurveGraph::updateDrag(const POINT& position) {
@@ -847,11 +849,21 @@ void TargetCurveGraph::updateDrag(const POINT& position) {
 
     rebuildPlot();
     invalidate();
-    notifyParent(kModelChangedNotification);
+    drag_.changed = true;
+    notifyParent(kModelPreviewNotification);
 }
 
-void TargetCurveGraph::finishDrag() {
+void TargetCurveGraph::finishDrag(bool notifyCommit) {
+    if (!drag_.active) {
+        return;
+    }
+
+    const bool changed = drag_.changed;
     drag_ = {};
+    invalidate();
+    if (notifyCommit && changed) {
+        notifyParent(kModelChangedNotification);
+    }
 }
 
 int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type) const {
@@ -905,22 +917,28 @@ int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type)
         return -1;
     }
 
-    for (int i = static_cast<int>(settings_.eqBands.size()) - 1; i >= 0; --i) {
-        const TargetEqBand& band = settings_.eqBands[static_cast<size_t>(i)];
-        if (!band.enabled) {
-            continue;
-        }
-        const double handleDb = sampleSeriesAtFrequency(plot_.frequencyAxisHz, plot_.targetCurveDb, band.frequencyHz);
-        const POINT point = pointOnCurve(layout.graph,
-                                         plot_.minFrequencyHz,
-                                         plot_.maxFrequencyHz,
-                                         layout.axisMinDb,
-                                         layout.axisMaxDb,
-                                         band.frequencyHz,
-                                         handleDb);
-        if (pointHitsHandle(position, point)) {
-            type = DragHandleType::EqBand;
-            return i;
+    if (!settings_.bypassEqBands) {
+        for (int i = static_cast<int>(settings_.eqBands.size()) - 1; i >= 0; --i) {
+            const TargetEqBand& band = settings_.eqBands[static_cast<size_t>(i)];
+            if (!band.enabled) {
+                continue;
+            }
+            const double handleDb = measurement::evaluateTargetCurveDbAtFrequency(measurement_,
+                                                                                  settings_,
+                                                                                  plot_.minFrequencyHz,
+                                                                                  plot_.maxFrequencyHz,
+                                                                                  band.frequencyHz);
+            const POINT point = pointOnCurve(layout.graph,
+                                             plot_.minFrequencyHz,
+                                             plot_.maxFrequencyHz,
+                                             layout.axisMinDb,
+                                             layout.axisMaxDb,
+                                             band.frequencyHz,
+                                             handleDb);
+            if (pointHitsHandle(position, point)) {
+                type = DragHandleType::EqBand;
+                return i;
+            }
         }
     }
 
@@ -998,23 +1016,29 @@ void TargetCurveGraph::onPaint() const {
     drawRectHandle(frameDc, midPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicMid);
     drawRectHandle(frameDc, highPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicHigh);
 
-    for (size_t i = 0; i < settings_.eqBands.size(); ++i) {
-        const TargetEqBand& band = settings_.eqBands[i];
-        if (!band.enabled) {
-            continue;
+    if (!settings_.bypassEqBands) {
+        for (size_t i = 0; i < settings_.eqBands.size(); ++i) {
+            const TargetEqBand& band = settings_.eqBands[i];
+            if (!band.enabled) {
+                continue;
+            }
+            const double handleDb = measurement::evaluateTargetCurveDbAtFrequency(measurement_,
+                                                                                  settings_,
+                                                                                  plot_.minFrequencyHz,
+                                                                                  plot_.maxFrequencyHz,
+                                                                                  band.frequencyHz);
+            const POINT point = pointOnCurve(layout.graph,
+                                             plot_.minFrequencyHz,
+                                             plot_.maxFrequencyHz,
+                                             layout.axisMinDb,
+                                             layout.axisMaxDb,
+                                             band.frequencyHz,
+                                             handleDb);
+            drawRoundHandle(frameDc,
+                            point,
+                            targetCurveBandColor(band.colorIndex),
+                            static_cast<int>(i) == selectedBandIndex_);
         }
-        const double handleDb = sampleSeriesAtFrequency(plot_.frequencyAxisHz, plot_.targetCurveDb, band.frequencyHz);
-        const POINT point = pointOnCurve(layout.graph,
-                                         plot_.minFrequencyHz,
-                                         plot_.maxFrequencyHz,
-                                         layout.axisMinDb,
-                                         layout.axisMaxDb,
-                                         band.frequencyHz,
-                                         handleDb);
-        drawRoundHandle(frameDc,
-                        point,
-                        targetCurveBandColor(band.colorIndex),
-                        static_cast<int>(i) == selectedBandIndex_);
     }
 
     if (hover_.active && PtInRect(&layout.graph, hover_.position) != FALSE) {

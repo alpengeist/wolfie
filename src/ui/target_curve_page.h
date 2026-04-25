@@ -97,6 +97,7 @@ private:
     void createControls();
     bool handleMouseWheel(WPARAM wParam, LPARAM lParam);
     bool adjustBandValueField(HWND control, int wheelSteps);
+    void syncAllOffState(TargetCurveSettings& settings) const;
     void refreshList(const WorkspaceState& workspace);
     void refreshDetailControls(const WorkspaceState& workspace);
     void refreshGraph(const WorkspaceState& workspace);

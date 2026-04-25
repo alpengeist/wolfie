@@ -20,6 +20,11 @@ struct TargetCurvePlotData {
 void normalizeTargetCurveSettings(TargetCurveSettings& settings, double minFrequencyHz, double maxFrequencyHz);
 TargetEqBand makeDefaultTargetEqBand(double frequencyHz, int colorIndex);
 std::vector<TargetEqBand> defaultTargetEqBands();
+double evaluateTargetCurveDbAtFrequency(const MeasurementSettings& measurement,
+                                        const TargetCurveSettings& settings,
+                                        double minFrequencyHz,
+                                        double maxFrequencyHz,
+                                        double frequencyHz);
 TargetCurvePlotData buildTargetCurvePlotData(const SmoothedResponse& response,
                                              const MeasurementSettings& measurement,
                                              const TargetCurveSettings& settings,

@@ -19,8 +19,9 @@ namespace wolfie::ui {
 class TargetCurveGraph {
 public:
     static constexpr WORD kZoomChangedNotification = 0x7F11;
-    static constexpr WORD kModelChangedNotification = 0x7F12;
-    static constexpr WORD kSelectionChangedNotification = 0x7F13;
+    static constexpr WORD kModelPreviewNotification = 0x7F12;
+    static constexpr WORD kModelChangedNotification = 0x7F13;
+    static constexpr WORD kSelectionChangedNotification = 0x7F15;
 
     static void registerWindowClass(HINSTANCE instance);
 
@@ -56,6 +57,7 @@ private:
         DragHandleType type = DragHandleType::None;
         int bandIndex = -1;
         POINT origin{};
+        bool changed = false;
         TargetCurveSettings originalSettings;
     };
 
@@ -83,7 +85,7 @@ private:
     void onLButtonDown(LPARAM lParam);
     void onLButtonUp();
     void updateDrag(const POINT& position);
-    void finishDrag();
+    void finishDrag(bool notifyCommit);
 
     [[nodiscard]] int hitTestHandle(const POINT& position, DragHandleType& type) const;
 
