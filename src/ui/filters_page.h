@@ -47,7 +47,9 @@ private:
         HWND unitHighCorrection = nullptr;
         HWND buttonRecalculate = nullptr;
         HWND summary = nullptr;
-        HWND correctionTitle = nullptr;
+        HWND inversionTitle = nullptr;
+        HWND checkboxShowMeasuredLeft = nullptr;
+        HWND checkboxShowMeasuredRight = nullptr;
         HWND correctedTitle = nullptr;
         HWND groupDelayTitle = nullptr;
         HWND impulseTitle = nullptr;
@@ -60,6 +62,8 @@ private:
     static constexpr int kEditLowCorrection = 3404;
     static constexpr int kEditHighCorrection = 3405;
     static constexpr int kButtonRecalculate = 3406;
+    static constexpr int kCheckboxShowMeasuredLeft = 3407;
+    static constexpr int kCheckboxShowMeasuredRight = 3408;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
@@ -86,6 +90,8 @@ private:
     PlotGraph correctedGraph_;
     PlotGraph groupDelayGraph_;
     PlotGraph impulseGraph_;
+    bool showMeasuredLeft_ = true;
+    bool showMeasuredRight_ = true;
     int scrollOffset_ = 0;
     int contentHeight_ = 0;
 };

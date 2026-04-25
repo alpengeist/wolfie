@@ -407,6 +407,18 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     const int safeSampleRate = std::max(sampleRate, 44100);
     const int nyquist = safeSampleRate / 2;
 
+    const bool legacyEdgeDefaults =
+        std::abs(settings.lowCorrectionHz - 20.0) < 0.001 &&
+        std::abs(settings.lowTaperOctaves - 1.0) < 0.001 &&
+        std::abs(settings.highCorrectionHz - 20000.0) < 0.001 &&
+        std::abs(settings.highTaperOctaves - 0.75) < 0.001;
+    if (legacyEdgeDefaults) {
+        settings.lowCorrectionHz = 80.0;
+        settings.lowTaperOctaves = 2.0;
+        settings.highCorrectionHz = 12000.0;
+        settings.highTaperOctaves = 1.25;
+    }
+
     const int taps[] = {16384, 32768, 65536};
     int closestTapCount = taps[0];
     int closestDistance = std::abs(settings.tapCount - taps[0]);

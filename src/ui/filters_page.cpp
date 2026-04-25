@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include <commctrl.h>
 
@@ -16,6 +17,59 @@ namespace {
 template <typename T>
 T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
+}
+
+double interpolateLinear(double x, double x0, double y0, double x1, double y1) {
+    if (std::abs(x1 - x0) < 1.0e-9) {
+        return y0;
+    }
+    const double t = (x - x0) / (x1 - x0);
+    return y0 + (t * (y1 - y0));
+}
+
+double interpolateLogFrequency(const std::vector<double>& sourceAxisHz,
+                               const std::vector<double>& sourceValues,
+                               double frequencyHz) {
+    if (sourceAxisHz.empty() || sourceValues.size() != sourceAxisHz.size()) {
+        return 0.0;
+    }
+
+    if (frequencyHz <= sourceAxisHz.front()) {
+        return sourceValues.front();
+    }
+    if (frequencyHz >= sourceAxisHz.back()) {
+        return sourceValues.back();
+    }
+
+    const auto upper = std::lower_bound(sourceAxisHz.begin(), sourceAxisHz.end(), frequencyHz);
+    if (upper == sourceAxisHz.begin()) {
+        return sourceValues.front();
+    }
+    if (upper == sourceAxisHz.end()) {
+        return sourceValues.back();
+    }
+
+    const size_t upperIndex = static_cast<size_t>(upper - sourceAxisHz.begin());
+    const size_t lowerIndex = upperIndex - 1;
+    const double x = std::log10(std::max(frequencyHz, 1.0));
+    const double x0 = std::log10(std::max(sourceAxisHz[lowerIndex], 1.0));
+    const double x1 = std::log10(std::max(sourceAxisHz[upperIndex], 1.0));
+    return interpolateLinear(x, x0, sourceValues[lowerIndex], x1, sourceValues[upperIndex]);
+}
+
+std::vector<double> resampleLogFrequency(const std::vector<double>& sourceAxisHz,
+                                         const std::vector<double>& sourceValues,
+                                         const std::vector<double>& targetAxisHz) {
+    std::vector<double> resampled;
+    if (sourceAxisHz.empty() || sourceValues.size() != sourceAxisHz.size() || targetAxisHz.empty()) {
+        return resampled;
+    }
+
+    resampled.reserve(targetAxisHz.size());
+    for (const double frequencyHz : targetAxisHz) {
+        resampled.push_back(interpolateLogFrequency(sourceAxisHz, sourceValues, frequencyHz));
+    }
+    return resampled;
 }
 
 }  // namespace
@@ -85,8 +139,30 @@ void FiltersPage::createControls() {
     controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonRecalculate), instance_, nullptr);
     controls_.summary = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.correctionTitle = CreateWindowW(L"STATIC", L"Correction And Filter Response", WS_CHILD | WS_VISIBLE,
-                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
+                                             0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowMeasuredLeft = CreateWindowW(L"BUTTON",
+                                                       L"Left measured",
+                                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                       0,
+                                                       0,
+                                                       0,
+                                                       0,
+                                                       window_,
+                                                       reinterpret_cast<HMENU>(kCheckboxShowMeasuredLeft),
+                                                       instance_,
+                                                       nullptr);
+    controls_.checkboxShowMeasuredRight = CreateWindowW(L"BUTTON",
+                                                        L"Right measured",
+                                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                        0,
+                                                        0,
+                                                        0,
+                                                        0,
+                                                        window_,
+                                                        reinterpret_cast<HMENU>(kCheckboxShowMeasuredRight),
+                                                        instance_,
+                                                        nullptr);
     controls_.correctedTitle = CreateWindowW(L"STATIC", L"Predicted Corrected Response", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Filter Group Delay", WS_CHILD | WS_VISIBLE,
@@ -95,6 +171,8 @@ void FiltersPage::createControls() {
                                            0, 0, 0, 0, window_, nullptr, instance_, nullptr);
 
     populateTapCountCombo(controls_.comboTapCount);
+    SendMessageW(controls_.checkboxShowMeasuredLeft, BM_SETCHECK, showMeasuredLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowMeasuredRight, BM_SETCHECK, showMeasuredRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     correctionGraph_.create(window_, instance_);
     correctedGraph_.create(window_, instance_);
     groupDelayGraph_.create(window_, instance_);
@@ -108,7 +186,7 @@ void FiltersPage::layout() {
     const int viewportHeight = std::max(360L, pageRect.bottom);
     const int contentLeft = 20;
     const int contentWidth = std::max(420, viewportWidth - (contentLeft * 2) - GetSystemMetrics(SM_CXVSCROLL));
-    const int graphHeight = 260;
+    const int graphHeight = 320;
     const int graphGap = 34;
     const int sectionGap = 26;
     const int top = 20 - scrollOffset_;
@@ -134,7 +212,9 @@ void FiltersPage::layout() {
     MoveWindow(controls_.summary, contentLeft, top + 62, contentWidth, 18, TRUE);
 
     int y = top + 96;
-    MoveWindow(controls_.correctionTitle, contentLeft, y, contentWidth, 18, TRUE);
+    MoveWindow(controls_.inversionTitle, contentLeft, y, 120, 18, TRUE);
+    MoveWindow(controls_.checkboxShowMeasuredLeft, contentLeft + contentWidth - 260, y - 2, 120, 24, TRUE);
+    MoveWindow(controls_.checkboxShowMeasuredRight, contentLeft + contentWidth - 132, y - 2, 132, 24, TRUE);
     correctionGraph_.layout(RECT{contentLeft, y + 24, contentLeft + contentWidth, y + 24 + graphHeight});
 
     y += 24 + graphHeight + graphGap;
@@ -170,6 +250,8 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.editMaxCut, formatWideDouble(settings.maxCutDb, 1));
     setWindowTextValue(controls_.editLowCorrection, formatWideDouble(settings.lowCorrectionHz, 0));
     setWindowTextValue(controls_.editHighCorrection, formatWideDouble(settings.highCorrectionHz, 0));
+    SendMessageW(controls_.checkboxShowMeasuredLeft, BM_SETCHECK, showMeasuredLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowMeasuredRight, BM_SETCHECK, showMeasuredRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
 
     if (workspace.filterResult.valid) {
         SetWindowTextW(controls_.summary,
@@ -211,6 +293,13 @@ bool FiltersPage::handleCommand(WORD commandId, WORD notificationCode, Workspace
             tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
         measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
         recalculateRequested = true;
+        return true;
+    }
+
+    if ((commandId == kCheckboxShowMeasuredLeft || commandId == kCheckboxShowMeasuredRight) && notificationCode == BN_CLICKED) {
+        showMeasuredLeft_ = SendMessageW(controls_.checkboxShowMeasuredLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showMeasuredRight_ = SendMessageW(controls_.checkboxShowMeasuredRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        correctionGraph_.setData(buildCorrectionGraphData(workspace));
         return true;
     }
 
@@ -256,6 +345,13 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
             return SendMessageW(root, message, wParam, lParam);
         }
         return 0;
+    }
+    case WM_ERASEBKGND: {
+        HDC hdc = reinterpret_cast<HDC>(wParam);
+        RECT rect{};
+        GetClientRect(window, &rect);
+        FillRect(hdc, &rect, pageBackgroundBrush);
+        return 1;
     }
     case WM_CTLCOLORDLG:
         return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
@@ -357,10 +453,18 @@ void FiltersPage::setScrollOffset(int scrollOffset) {
         return;
     }
 
+    const int deltaY = scrollOffset_ - nextScrollOffset;
     scrollOffset_ = nextScrollOffset;
     updateScrollBar();
-    layout();
-    InvalidateRect(window_, nullptr, TRUE);
+    ScrollWindowEx(window_,
+                   0,
+                   deltaY,
+                   nullptr,
+                   nullptr,
+                   nullptr,
+                   nullptr,
+                   SW_ERASE | SW_INVALIDATE | SW_SCROLLCHILDREN);
+    RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
 
 bool FiltersPage::handleMouseWheel(WPARAM wParam) {
@@ -416,13 +520,47 @@ PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& worksp
     data.xUnit = L"Hz";
     data.yUnit = L"dB";
     if (!workspace.filterResult.valid) {
+        data.fixedYRange = true;
+        data.minY = -workspace.filters.maxCutDb - 3.0;
+        data.maxY = workspace.filters.maxBoostDb + 3.0;
         return data;
     }
 
+    double minY = -workspace.filters.maxCutDb - 3.0;
+    double maxY = workspace.filters.maxBoostDb + 3.0;
+    const auto accumulateRange = [&](const std::vector<double>& values) {
+        for (const double value : values) {
+            minY = std::min(minY, value);
+            maxY = std::max(maxY, value);
+        }
+    };
+
+    if (showMeasuredLeft_) {
+        accumulateRange(workspace.smoothedResponse.leftChannelDb);
+    }
+    if (showMeasuredRight_) {
+        accumulateRange(workspace.smoothedResponse.rightChannelDb);
+    }
+
+    data.fixedYRange = true;
+    data.minY = std::floor((minY - 1.5) / 3.0) * 3.0;
+    data.maxY = std::ceil((maxY + 1.5) / 3.0) * 3.0;
     data.series.push_back({L"Left correction", ui_theme::kGreen, workspace.filterResult.left.correctionCurveDb});
     data.series.push_back({L"Right correction", ui_theme::kRed, workspace.filterResult.right.correctionCurveDb});
-    data.series.push_back({L"Left filter", ui_theme::kTeal, workspace.filterResult.left.filterResponseDb});
-    data.series.push_back({L"Right filter", ui_theme::kOrange, workspace.filterResult.right.filterResponseDb});
+    if (showMeasuredLeft_) {
+        data.series.push_back({L"Left measured",
+                               ui_theme::kBlue,
+                               resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
+                                                    workspace.smoothedResponse.leftChannelDb,
+                                                    workspace.filterResult.frequencyAxisHz)});
+    }
+    if (showMeasuredRight_) {
+        data.series.push_back({L"Right measured",
+                               ui_theme::kMagenta,
+                               resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
+                                                    workspace.smoothedResponse.rightChannelDb,
+                                                    workspace.filterResult.frequencyAxisHz)});
+    }
     return data;
 }
 
@@ -432,9 +570,35 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"dB";
+    data.fixedYRange = true;
     if (!workspace.filterResult.valid) {
+        data.minY = -18.0;
+        data.maxY = 12.0;
         return data;
     }
+
+    double minY = std::numeric_limits<double>::max();
+    double maxY = std::numeric_limits<double>::lowest();
+    const auto accumulateRange = [&](const std::vector<double>& values) {
+        for (const double value : values) {
+            minY = std::min(minY, value);
+            maxY = std::max(maxY, value);
+        }
+    };
+    accumulateRange(workspace.filterResult.targetCurveDb);
+    accumulateRange(workspace.filterResult.left.correctedResponseDb);
+    accumulateRange(workspace.filterResult.right.correctedResponseDb);
+    if (!std::isfinite(minY) || !std::isfinite(maxY)) {
+        minY = -18.0;
+        maxY = 12.0;
+    }
+    const double paddedMin = std::floor((minY - 2.0) / 3.0) * 3.0;
+    const double paddedMax = std::ceil((maxY + 2.0) / 3.0) * 3.0;
+    const double minimumSpan = 18.0;
+    const double center = (paddedMin + paddedMax) * 0.5;
+    const double halfSpan = std::max((paddedMax - paddedMin) * 0.5, minimumSpan * 0.5);
+    data.minY = center - halfSpan;
+    data.maxY = center + halfSpan;
 
     data.series.push_back({L"Target", ui_theme::kAccent, workspace.filterResult.targetCurveDb});
     data.series.push_back({L"Left", ui_theme::kGreen, workspace.filterResult.left.correctedResponseDb});

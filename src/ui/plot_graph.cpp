@@ -25,6 +25,14 @@ struct GraphLayout {
     std::vector<double> yTicks;
 };
 
+struct AxisLabel {
+    double value = 0.0;
+    int pixel = 0;
+    int left = 0;
+    int right = 0;
+    std::wstring text;
+};
+
 int measureTextWidth(HDC hdc, const std::wstring& text) {
     SIZE size{};
     GetTextExtentPoint32W(hdc, text.c_str(), static_cast<int>(text.size()), &size);
@@ -151,25 +159,52 @@ GraphLayout buildLayout(HDC hdc, const RECT& rect, const PlotGraphData& data) {
     return layout;
 }
 
-std::vector<double> buildXTicks(const PlotGraphData& data) {
+bool isMajorLogFrequencyTick(double value, double maxValue) {
+    if (std::abs(value - maxValue) < 0.5) {
+        return true;
+    }
+
+    const double magnitude = std::pow(10.0, std::floor(std::log10(std::max(value, 1.0))));
+    return std::abs(value - magnitude) < 0.001;
+}
+
+std::vector<double> buildXTicks(const RECT& graph, const PlotGraphData& data) {
     if (data.xValues.empty()) {
         return {};
     }
 
     if (data.xAxisMode == PlotGraphXAxisMode::LogFrequency) {
-        std::vector<double> ticks;
-        const double minFrequencyHz = std::max(data.xValues.front(), 10.0);
+        std::vector<double> candidates;
+        const double minFrequencyHz = std::max(data.xValues.front(), 1.0);
         const double maxFrequencyHz = std::max(data.xValues.back(), minFrequencyHz + 1.0);
-        for (double decade = 10.0; decade <= maxFrequencyHz; decade *= 10.0) {
+        const double firstDecade = std::pow(10.0, std::floor(std::log10(minFrequencyHz)));
+        for (double decade = firstDecade; decade <= maxFrequencyHz * 1.001; decade *= 10.0) {
             for (int multiplier = 1; multiplier <= 9; ++multiplier) {
                 const double value = decade * static_cast<double>(multiplier);
                 if (value < minFrequencyHz || value > maxFrequencyHz) {
                     continue;
                 }
-                ticks.push_back(value);
+                candidates.push_back(value);
+            }
+
+            if (decade > maxFrequencyHz / 10.0) {
+                break;
             }
         }
-        if (ticks.empty() || ticks.back() < maxFrequencyHz) {
+
+        std::vector<double> ticks;
+        const int graphWidth = std::max(static_cast<int>(graph.right - graph.left), 1);
+        const int minPixelSpacing = clampValue(graphWidth / 60, 8, 12);
+        int lastPixel = std::numeric_limits<int>::min() / 2;
+        for (const double candidate : candidates) {
+            const int pixel = graphXFromValue(graph, data.xAxisMode, data.xValues, candidate);
+            if (ticks.empty() || isMajorLogFrequencyTick(candidate, maxFrequencyHz) || pixel - lastPixel >= minPixelSpacing) {
+                ticks.push_back(candidate);
+                lastPixel = pixel;
+            }
+        }
+
+        if (ticks.empty() || std::abs(ticks.back() - maxFrequencyHz) > 0.5) {
             ticks.push_back(maxFrequencyHz);
         }
         return ticks;
@@ -188,11 +223,71 @@ std::vector<double> buildXTicks(const PlotGraphData& data) {
 std::wstring formatXTickLabel(const PlotGraphData& data, double value) {
     if (data.xAxisMode == PlotGraphXAxisMode::LogFrequency) {
         if (value >= 1000.0) {
-            return formatWideDouble(value / 1000.0, value >= 10000.0 ? 0 : 1) + L"k";
+            return std::to_wstring(static_cast<int>(std::lround(value / 1000.0))) + L"k";
         }
-        return formatWideDouble(value, value >= 100.0 ? 0 : 1);
+        return std::to_wstring(static_cast<int>(std::lround(value)));
     }
     return formatAxisValue(value);
+}
+
+std::vector<AxisLabel> buildXLabels(HDC hdc, const RECT& graph, const PlotGraphData& data, const std::vector<double>& ticks) {
+    std::vector<AxisLabel> candidates;
+    candidates.reserve(ticks.size());
+    const double maxValue = data.xValues.empty() ? 0.0 : data.xValues.back();
+    for (const double tick : ticks) {
+        AxisLabel label;
+        label.value = tick;
+        label.pixel = graphXFromValue(graph, data.xAxisMode, data.xValues, tick);
+        label.text = formatXTickLabel(data, tick);
+        const int width = measureTextWidth(hdc, label.text);
+        label.left = clampValue(label.pixel - width / 2,
+                                static_cast<int>(graph.left - 2),
+                                static_cast<int>(graph.right - width + 2));
+        label.right = label.left + width;
+        candidates.push_back(std::move(label));
+    }
+
+    if (data.xAxisMode != PlotGraphXAxisMode::LogFrequency || candidates.empty()) {
+        return candidates;
+    }
+
+    constexpr int kMinLabelGap = 8;
+    std::vector<AxisLabel> labels;
+    labels.reserve(candidates.size());
+
+    for (const AxisLabel& candidate : candidates) {
+        if (!isMajorLogFrequencyTick(candidate.value, maxValue)) {
+            continue;
+        }
+
+        while (!labels.empty() && candidate.left - labels.back().right < kMinLabelGap) {
+            labels.pop_back();
+        }
+        labels.push_back(candidate);
+    }
+
+    size_t insertIndex = 0;
+    for (const AxisLabel& candidate : candidates) {
+        if (isMajorLogFrequencyTick(candidate.value, maxValue)) {
+            while (insertIndex < labels.size() && labels[insertIndex].value < candidate.value) {
+                ++insertIndex;
+            }
+            continue;
+        }
+
+        while (insertIndex < labels.size() && labels[insertIndex].value < candidate.value) {
+            ++insertIndex;
+        }
+
+        const int previousRight = insertIndex == 0 ? graph.left - kMinLabelGap : labels[insertIndex - 1].right;
+        const int nextLeft = insertIndex == labels.size() ? graph.right + kMinLabelGap : labels[insertIndex].left;
+        if (candidate.left - previousRight >= kMinLabelGap && nextLeft - candidate.right >= kMinLabelGap) {
+            labels.insert(labels.begin() + static_cast<std::ptrdiff_t>(insertIndex), candidate);
+            ++insertIndex;
+        }
+    }
+
+    return labels.empty() ? candidates : labels;
 }
 
 void drawSeries(HDC hdc, const PlotGraphData& data, const GraphLayout& layout, const PlotGraphSeries& series) {
@@ -302,7 +397,8 @@ void PlotGraph::onPaint() const {
     SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
 
     const GraphLayout layout = buildLayout(hdc, rect, data_);
-    const std::vector<double> xTicks = buildXTicks(data_);
+    const std::vector<double> xTicks = buildXTicks(layout.graph, data_);
+    const std::vector<AxisLabel> xLabels = buildXLabels(hdc, layout.graph, data_, xTicks);
 
     HBRUSH stripeBrush = CreateSolidBrush(RGB(244, 247, 251));
     for (size_t index = 0; index + 1 < layout.yTicks.size(); ++index) {
@@ -337,12 +433,9 @@ void PlotGraph::onPaint() const {
     }
 
     SetTextColor(hdc, ui_theme::kMuted);
-    for (const double tick : xTicks) {
-        const int x = graphXFromValue(layout.graph, data_.xAxisMode, data_.xValues, tick);
-        const std::wstring label = formatXTickLabel(data_, tick);
-        const int width = measureTextWidth(hdc, label);
-        RECT labelRect{x - (width / 2), layout.graph.bottom + 6, x + (width / 2) + 4, rect.bottom};
-        DrawTextW(hdc, label.c_str(), -1, &labelRect, DT_CENTER | DT_TOP | DT_SINGLELINE);
+    for (const AxisLabel& label : xLabels) {
+        RECT labelRect{label.left, layout.graph.bottom + 6, label.right + 2, rect.bottom};
+        DrawTextW(hdc, label.text.c_str(), -1, &labelRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
     }
     for (const double tick : layout.yTicks) {
         const int y = graphYFromValue(layout.graph, tick, layout.minY, layout.maxY);

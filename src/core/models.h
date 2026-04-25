@@ -224,10 +224,10 @@ struct FilterDesignSettings {
     int tapCount = 65536;
     double maxBoostDb = 9.0;
     double maxCutDb = 18.0;
-    double lowCorrectionHz = 20.0;
-    double lowTaperOctaves = 1.0;
-    double highCorrectionHz = 20000.0;
-    double highTaperOctaves = 0.75;
+    double lowCorrectionHz = 80.0;
+    double lowTaperOctaves = 2.0;
+    double highCorrectionHz = 12000.0;
+    double highTaperOctaves = 1.25;
     int displayPointCount = 2048;
     std::string phaseMode = "minimum";
 };
