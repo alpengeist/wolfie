@@ -44,6 +44,31 @@ std::wstring formatPathValue(const std::filesystem::path& path) {
     return path.empty() ? L"-" : path.wstring();
 }
 
+void drawDisclosureTriangle(HDC hdc, const RECT& rect, bool collapsed, COLORREF color) {
+    const int centerX = (rect.left + rect.right) / 2;
+    const int centerY = (rect.top + rect.bottom) / 2;
+    POINT points[3]{};
+    if (collapsed) {
+        points[0] = {centerX - 3, centerY - 5};
+        points[1] = {centerX + 4, centerY};
+        points[2] = {centerX - 3, centerY + 5};
+    } else {
+        points[0] = {centerX - 5, centerY - 2};
+        points[1] = {centerX + 5, centerY - 2};
+        points[2] = {centerX, centerY + 4};
+    }
+
+    HPEN pen = CreatePen(PS_SOLID, 1, color);
+    HBRUSH brush = CreateSolidBrush(color);
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
+    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, brush));
+    Polygon(hdc, points, 3);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+}
+
 }  // namespace
 
 void MeasurementPage::registerPageWindowClass(HINSTANCE instance) {
@@ -132,8 +157,8 @@ void MeasurementPage::createControls() {
                                                     nullptr);
     controls_.metadataLabel = CreateWindowW(L"STATIC", L"Measurement Metadata", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.metadataToggle = CreateWindowW(L"BUTTON",
-                                             L"Hide",
-                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                                             L"",
+                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                              0,
                                              0,
                                              0,
@@ -313,8 +338,14 @@ void MeasurementPage::layout() {
     const RECT graphBounds{contentLeft, graphTop, contentLeft + innerWidth, graphBottom};
     responseGraph_.layout(graphBounds);
     waterfallGraph_.layout(graphBounds);
-    MoveWindow(controls_.metadataLabel, contentLeft, metadataLabelTop, std::max(160, innerWidth - 100), 20, TRUE);
-    MoveWindow(controls_.metadataToggle, contentLeft + innerWidth - 92, metadataLabelTop - 2, 92, 24, TRUE);
+    constexpr int kMetadataToggleSize = 24;
+    MoveWindow(controls_.metadataLabel, contentLeft, metadataLabelTop, std::max(160, innerWidth - 36), 20, TRUE);
+    MoveWindow(controls_.metadataToggle,
+               contentLeft + innerWidth - kMetadataToggleSize,
+               metadataLabelTop - 2,
+               kMetadataToggleSize,
+               kMetadataToggleSize,
+               TRUE);
     MoveWindow(controls_.metadataTable,
                contentLeft,
                metadataLabelTop + 24,
@@ -419,7 +450,42 @@ void MeasurementPage::invalidateGraph() const {
 }
 
 bool MeasurementPage::handleDrawItem(const DRAWITEMSTRUCT* draw, bool measurementRunning) const {
-    if (draw == nullptr || draw->CtlID != kButtonMeasure) {
+    if (draw == nullptr) {
+        return false;
+    }
+
+    if (draw->CtlID == kButtonMetadataToggle) {
+        HDC hdc = draw->hDC;
+        RECT rect = draw->rcItem;
+        const bool pressed = (draw->itemState & ODS_SELECTED) != 0;
+        const bool focused = (draw->itemState & ODS_FOCUS) != 0;
+        const bool hot = (draw->itemState & ODS_HOTLIGHT) != 0;
+        const COLORREF fill = pressed ? RGB(221, 228, 236) : (hot ? RGB(233, 239, 245) : ui_theme::kPanelBackground);
+        const COLORREF border = pressed ? RGB(177, 187, 199) : ui_theme::kBorder;
+
+        HBRUSH brush = CreateSolidBrush(fill);
+        FillRect(hdc, &rect, brush);
+        DeleteObject(brush);
+
+        HPEN pen = CreatePen(PS_SOLID, 1, border);
+        HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
+        HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
+        Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(pen);
+
+        drawDisclosureTriangle(hdc, rect, metadataCollapsed_, ui_theme::kMuted);
+
+        if (focused) {
+            RECT focusRect = rect;
+            InflateRect(&focusRect, -3, -3);
+            DrawFocusRect(hdc, &focusRect);
+        }
+        return true;
+    }
+
+    if (draw->CtlID != kButtonMeasure) {
         return false;
     }
 
@@ -703,7 +769,8 @@ void MeasurementPage::updatePlotControlVisibility() const {
 
 void MeasurementPage::updateMetadataVisibility() const {
     if (controls_.metadataToggle != nullptr) {
-        SetWindowTextW(controls_.metadataToggle, metadataCollapsed_ ? L"Show" : L"Hide");
+        SetWindowTextW(controls_.metadataToggle, metadataCollapsed_ ? L"Expand metadata" : L"Collapse metadata");
+        InvalidateRect(controls_.metadataToggle, nullptr, TRUE);
     }
     if (controls_.metadataTable != nullptr) {
         ShowWindow(controls_.metadataTable, metadataCollapsed_ ? SW_HIDE : SW_SHOW);

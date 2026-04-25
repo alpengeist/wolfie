@@ -16,6 +16,7 @@
 #include "measurement/measurement_controller.h"
 #include "persistence/app_state_repository.h"
 #include "persistence/workspace_repository.h"
+#include "ui/filters_page.h"
 #include "ui/measurement_page.h"
 #include "ui/smoothing_page.h"
 #include "ui/target_curve_page.h"
@@ -57,6 +58,8 @@ private:
     void refreshMeasurementStatus();
     void refreshRecentMenu();
     void ensureSmoothedResponseReady();
+    void invalidateFilterDesign();
+    void ensureFilterDesignReady();
     void onCommand(WORD commandId, WORD notificationCode);
     void onHScroll(HWND source);
     void onNotify(LPARAM lParam);
@@ -83,9 +86,7 @@ private:
     HWND tabControl_ = nullptr;
     HWND pageSmoothing_ = nullptr;
     HWND pageTargetCurve_ = nullptr;
-    HWND pageFilters_ = nullptr;
     HWND pageExport_ = nullptr;
-    HWND placeholderFilters_ = nullptr;
     HWND placeholderExport_ = nullptr;
     HWND logLabel_ = nullptr;
     HWND logEdit_ = nullptr;
@@ -98,6 +99,7 @@ private:
     ui::MeasurementPage measurementPage_;
     ui::SmoothingPage smoothingPage_;
     ui::TargetCurvePage targetCurvePage_;
+    ui::FiltersPage filtersPage_;
     MeasurementController measurementController_;
     persistence::WorkspaceRepository workspaceRepository_;
     persistence::AppStateRepository appStateRepository_;

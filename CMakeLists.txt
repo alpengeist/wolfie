@@ -20,6 +20,8 @@ add_executable(wolfie WIN32
     src/audio/winmm_audio_backend.h
     src/measurement/measurement_controller.cpp
     src/measurement/measurement_controller.h
+    src/measurement/filter_designer.cpp
+    src/measurement/filter_designer.h
     src/measurement/response_analyzer.cpp
     src/measurement/response_analyzer.h
     src/measurement/response_smoother.cpp
@@ -38,6 +40,10 @@ add_executable(wolfie WIN32
     src/persistence/workspace_repository.h
     src/ui/measurement_page.cpp
     src/ui/measurement_page.h
+    src/ui/filters_page.cpp
+    src/ui/filters_page.h
+    src/ui/plot_graph.cpp
+    src/ui/plot_graph.h
     src/ui/response_graph.cpp
     src/ui/response_graph.h
     src/ui/settings_dialog.cpp
@@ -63,13 +69,20 @@ option(WOLFIE_BUILD_TESTS "Build Wolfie tests" ON)
 if(WOLFIE_BUILD_TESTS)
     enable_testing()
     add_executable(wolfie_measurement_tests
+        tests/filter_design_tests.cpp
         tests/measurement_loopback_tests.cpp
+        src/measurement/filter_designer.cpp
+        src/measurement/filter_designer.h
         src/measurement/response_analyzer.cpp
         src/measurement/response_analyzer.h
+        src/measurement/response_smoother.cpp
+        src/measurement/response_smoother.h
         src/measurement/waterfall_builder.cpp
         src/measurement/waterfall_builder.h
         src/measurement/sweep_generator.cpp
         src/measurement/sweep_generator.h
+        src/measurement/target_curve_designer.cpp
+        src/measurement/target_curve_designer.h
         src/core/models.h
     )
     target_include_directories(wolfie_measurement_tests PRIVATE src)

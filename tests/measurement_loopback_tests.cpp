@@ -9,6 +9,8 @@
 #include "measurement/sweep_generator.h"
 #include "measurement/waterfall_builder.h"
 
+bool runFilterDesignTests();
+
 namespace {
 
 int16_t sampleToPcm16(double sample) {
@@ -142,5 +144,5 @@ bool expectWaterfallPlotData() {
 }  // namespace
 
 int main() {
-    return expectMeasurementResultValueSets() && expectWaterfallPlotData() ? 0 : 1;
+    return expectMeasurementResultValueSets() && expectWaterfallPlotData() && runFilterDesignTests() ? 0 : 1;
 }

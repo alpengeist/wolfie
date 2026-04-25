@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "persistence/microphone_calibration_repository.h"
+#include "measurement/filter_designer.h"
 #include "measurement/response_smoother.h"
 #include "measurement/sweep_generator.h"
 #include "measurement/target_curve_designer.h"
@@ -749,6 +750,33 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonBool(*content, "bypassEqBands")) {
             workspace.targetCurve.bypassEqBands = *value;
         }
+        if (const auto value = findJsonNumber(*content, "filterTapCount")) {
+            workspace.filters.tapCount = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonNumber(*content, "filterMaxBoostDb")) {
+            workspace.filters.maxBoostDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "filterMaxCutDb")) {
+            workspace.filters.maxCutDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "filterLowCorrectionHz")) {
+            workspace.filters.lowCorrectionHz = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "filterLowTaperOctaves")) {
+            workspace.filters.lowTaperOctaves = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "filterHighCorrectionHz")) {
+            workspace.filters.highCorrectionHz = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "filterHighTaperOctaves")) {
+            workspace.filters.highTaperOctaves = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "filterDisplayPointCount")) {
+            workspace.filters.displayPointCount = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonString(*content, "filterPhaseMode")) {
+            workspace.filters.phaseMode = *value;
+        }
     }
 
     if (const auto uiContent = readTextFile(path / "ui.json")) {
@@ -757,6 +785,7 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
 
     measurement::syncDerivedMeasurementSettings(workspace.measurement);
     measurement::normalizeResponseSmoothingSettings(workspace.smoothing);
+    measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
     std::wstring calibrationError;
     loadMicrophoneCalibration(workspace.audio, calibrationError);
     loadMeasurementResultFile(workspace);
@@ -813,6 +842,17 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"midGainDb\": " << workspace.targetCurve.midGainDb << ",\n"
                   << "    \"highGainDb\": " << workspace.targetCurve.highGainDb << ",\n"
                   << "    \"bypassEqBands\": " << (workspace.targetCurve.bypassEqBands ? "true" : "false") << "\n"
+                  << "  },\n"
+                  << "  \"filters\": {\n"
+                  << "    \"filterTapCount\": " << workspace.filters.tapCount << ",\n"
+                  << "    \"filterMaxBoostDb\": " << workspace.filters.maxBoostDb << ",\n"
+                  << "    \"filterMaxCutDb\": " << workspace.filters.maxCutDb << ",\n"
+                  << "    \"filterLowCorrectionHz\": " << workspace.filters.lowCorrectionHz << ",\n"
+                  << "    \"filterLowTaperOctaves\": " << workspace.filters.lowTaperOctaves << ",\n"
+                  << "    \"filterHighCorrectionHz\": " << workspace.filters.highCorrectionHz << ",\n"
+                  << "    \"filterHighTaperOctaves\": " << workspace.filters.highTaperOctaves << ",\n"
+                  << "    \"filterDisplayPointCount\": " << workspace.filters.displayPointCount << ",\n"
+                  << "    \"filterPhaseMode\": \"" << escapeJson(workspace.filters.phaseMode) << "\"\n"
                   << "  },\n"
                   << "  \"ui\": {\n"
                   << "    \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"

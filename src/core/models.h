@@ -44,7 +44,7 @@ struct UiSettings {
     double measurementGraphVerticalOffsetDb = 0.0;
     std::string measurementPlotMode = "magnitude";
     std::string measurementWaterfallChannel = "left";
-    bool measurementMetadataCollapsed = false;
+    bool measurementMetadataCollapsed = true;
     double smoothingGraphExtraRangeDb = 0.0;
     double smoothingGraphVerticalOffsetDb = 0.0;
     double targetCurveGraphExtraRangeDb = 0.0;
@@ -220,15 +220,53 @@ struct TargetCurveSettings {
     std::vector<TargetEqBand> eqBands;
 };
 
+struct FilterDesignSettings {
+    int tapCount = 65536;
+    double maxBoostDb = 9.0;
+    double maxCutDb = 18.0;
+    double lowCorrectionHz = 20.0;
+    double lowTaperOctaves = 1.0;
+    double highCorrectionHz = 20000.0;
+    double highTaperOctaves = 0.75;
+    int displayPointCount = 2048;
+    std::string phaseMode = "minimum";
+};
+
+struct FilterDesignChannelResult {
+    std::vector<double> correctionCurveDb;
+    std::vector<double> filterResponseDb;
+    std::vector<double> correctedResponseDb;
+    std::vector<double> groupDelayMs;
+    std::vector<double> impulseTimeMs;
+    std::vector<double> filterTaps;
+    int impulsePeakIndex = 0;
+    double peakAmplitude = 0.0;
+};
+
+struct FilterDesignResult {
+    bool valid = false;
+    int sampleRate = 0;
+    int tapCount = 0;
+    int fftSize = 0;
+    int positiveBinCount = 0;
+    std::string phaseMode = "minimum";
+    std::vector<double> frequencyAxisHz;
+    std::vector<double> targetCurveDb;
+    FilterDesignChannelResult left;
+    FilterDesignChannelResult right;
+};
+
 struct WorkspaceState {
     std::filesystem::path rootPath;
     AudioSettings audio;
     MeasurementSettings measurement;
     ResponseSmoothingSettings smoothing;
     TargetCurveSettings targetCurve;
+    FilterDesignSettings filters;
     UiSettings ui;
     MeasurementResult result;
     SmoothedResponse smoothedResponse;
+    FilterDesignResult filterResult;
 };
 
 struct AppState {
