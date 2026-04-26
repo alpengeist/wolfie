@@ -63,7 +63,7 @@ add_executable(wolfie WIN32
 
 target_include_directories(wolfie PRIVATE src)
 target_compile_definitions(wolfie PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(wolfie PRIVATE comctl32 comdlg32 ole32 shell32 shlwapi winmm)
+target_link_libraries(wolfie PRIVATE comctl32 comdlg32 msimg32 ole32 shell32 shlwapi winmm)
 
 option(WOLFIE_BUILD_TESTS "Build Wolfie tests" ON)
 if(WOLFIE_BUILD_TESTS)

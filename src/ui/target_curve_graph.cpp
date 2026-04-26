@@ -340,6 +340,37 @@ bool hasBrushHeight(const POINT& anchor, const POINT& current) {
     return std::abs(current.y - anchor.y) >= kMinBrushPixels;
 }
 
+void fillSelectionOverlay(HDC hdc, const RECT& selection) {
+    const int width = std::max(selection.right - selection.left, 1L);
+    const int height = std::max(selection.bottom - selection.top, 1L);
+
+    HDC overlayDc = CreateCompatibleDC(hdc);
+    if (overlayDc == nullptr) {
+        return;
+    }
+
+    HBITMAP overlayBitmap = CreateCompatibleBitmap(hdc, width, height);
+    if (overlayBitmap == nullptr) {
+        DeleteDC(overlayDc);
+        return;
+    }
+
+    HBITMAP oldOverlayBitmap = reinterpret_cast<HBITMAP>(SelectObject(overlayDc, overlayBitmap));
+    RECT overlayRect{0, 0, width, height};
+    HBRUSH overlayBrush = CreateSolidBrush(RGB(214, 227, 244));
+    FillRect(overlayDc, &overlayRect, overlayBrush);
+    DeleteObject(overlayBrush);
+
+    BLENDFUNCTION blend{};
+    blend.BlendOp = AC_SRC_OVER;
+    blend.SourceConstantAlpha = 80;
+    AlphaBlend(hdc, selection.left, selection.top, width, height, overlayDc, 0, 0, width, height, blend);
+
+    SelectObject(overlayDc, oldOverlayBitmap);
+    DeleteObject(overlayBitmap);
+    DeleteDC(overlayDc);
+}
+
 GraphLayout buildLayout(HDC hdc,
                         const RECT& rect,
                         const TargetCurveGraph& graph) {
@@ -1190,9 +1221,7 @@ void TargetCurveGraph::onPaint() const {
 
     if (brush_.active && hasBrushHeight(brush_.anchor, brush_.current)) {
         const RECT selection = brushRect(layout.graph, brush_.anchor, brush_.current);
-        HBRUSH selectionBrush = CreateSolidBrush(RGB(214, 227, 244));
-        FillRect(frameDc, &selection, selectionBrush);
-        DeleteObject(selectionBrush);
+        fillSelectionOverlay(frameDc, selection);
 
         HPEN selectionPen = CreatePen(PS_SOLID, 1, ui_theme::kAccent);
         HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(frameDc, selectionPen));

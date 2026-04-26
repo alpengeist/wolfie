@@ -517,6 +517,37 @@ bool hasBrushWidth(const POINT& anchor, const POINT& current) {
     return std::abs(current.x - anchor.x) >= kMinBrushPixels;
 }
 
+void fillSelectionOverlay(HDC hdc, const RECT& selection) {
+    const int width = std::max(selection.right - selection.left, 1L);
+    const int height = std::max(selection.bottom - selection.top, 1L);
+
+    HDC overlayDc = CreateCompatibleDC(hdc);
+    if (overlayDc == nullptr) {
+        return;
+    }
+
+    HBITMAP overlayBitmap = CreateCompatibleBitmap(hdc, width, height);
+    if (overlayBitmap == nullptr) {
+        DeleteDC(overlayDc);
+        return;
+    }
+
+    HBITMAP oldOverlayBitmap = reinterpret_cast<HBITMAP>(SelectObject(overlayDc, overlayBitmap));
+    RECT overlayRect{0, 0, width, height};
+    HBRUSH overlayBrush = CreateSolidBrush(RGB(214, 227, 244));
+    FillRect(overlayDc, &overlayRect, overlayBrush);
+    DeleteObject(overlayBrush);
+
+    BLENDFUNCTION blend{};
+    blend.BlendOp = AC_SRC_OVER;
+    blend.SourceConstantAlpha = 80;
+    AlphaBlend(hdc, selection.left, selection.top, width, height, overlayDc, 0, 0, width, height, blend);
+
+    SelectObject(overlayDc, oldOverlayBitmap);
+    DeleteObject(overlayBitmap);
+    DeleteDC(overlayDc);
+}
+
 }  // namespace
 
 void ResponseGraph::registerWindowClass(HINSTANCE instance) {
@@ -550,6 +581,7 @@ void ResponseGraph::setData(ResponseGraphData data) {
     if (data_.frequencyAxisHz.empty()) {
         resetVisibleFrequencyRange();
     }
+    invalidateBackgroundCache();
     invalidate();
 }
 
@@ -571,6 +603,7 @@ void ResponseGraph::setVisibleFrequencyRange(bool hasCustomRange, double minFreq
     hasCustomVisibleFrequencyRange_ = true;
     visibleMinFrequencyHz_ = nextMin;
     visibleMaxFrequencyHz_ = nextMax;
+    invalidateBackgroundCache();
     invalidate();
 }
 
@@ -579,6 +612,7 @@ void ResponseGraph::resetVisibleFrequencyRange() {
     visibleMinFrequencyHz_ = kMinFrequencyHz;
     visibleMaxFrequencyHz_ = kMaxFrequencyHz;
     brush_ = {};
+    invalidateBackgroundCache();
 }
 
 void ResponseGraph::layout(const RECT& bounds) const {
@@ -589,8 +623,22 @@ void ResponseGraph::layout(const RECT& bounds) const {
 
 void ResponseGraph::invalidate() const {
     if (window_ != nullptr) {
-        InvalidateRect(window_, nullptr, TRUE);
+        InvalidateRect(window_, nullptr, FALSE);
     }
+}
+
+void ResponseGraph::invalidateBackgroundCache() const {
+    backgroundCacheValid_ = false;
+}
+
+void ResponseGraph::releaseBackgroundCache() const {
+    if (backgroundCacheBitmap_ != nullptr) {
+        DeleteObject(backgroundCacheBitmap_);
+        backgroundCacheBitmap_ = nullptr;
+    }
+
+    backgroundCacheSize_ = {};
+    backgroundCacheValid_ = false;
 }
 
 LRESULT CALLBACK ResponseGraph::WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -634,8 +682,103 @@ LRESULT CALLBACK ResponseGraph::WindowProc(HWND window, UINT message, WPARAM wPa
     case WM_LBUTTONDBLCLK:
         graph->onLButtonDblClk(lParam);
         return 0;
+    case WM_SIZE:
+        graph->invalidateBackgroundCache();
+        return 0;
+    case WM_NCDESTROY:
+        graph->releaseBackgroundCache();
+        break;
     default:
         return DefWindowProcW(window, message, wParam, lParam);
+    }
+
+    return DefWindowProcW(window, message, wParam, lParam);
+}
+
+void ResponseGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
+    HBRUSH background = CreateSolidBrush(RGB(248, 250, 252));
+    FillRect(hdc, &rect, background);
+    DeleteObject(background);
+
+    SetBkMode(hdc, TRANSPARENT);
+    SelectObject(hdc, GetStockObject(DC_PEN));
+    SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
+
+    const GraphLayout layout =
+        buildGraphLayout(hdc, rect, data_, hasCustomVisibleFrequencyRange_, visibleMinFrequencyHz_, visibleMaxFrequencyHz_);
+    const RECT& graph = layout.graph;
+    const std::vector<double> xTickValues =
+        buildFrequencyTickValues(graph, layout.visibleMinFrequencyHz, layout.visibleMaxFrequencyHz);
+    const std::vector<AxisLabel> xLabels =
+        buildFrequencyLabels(hdc, graph, layout.visibleMinFrequencyHz, layout.visibleMaxFrequencyHz, xTickValues);
+
+    const COLORREF stripeColor = RGB(244, 247, 251);
+    HBRUSH stripeBrush = CreateSolidBrush(stripeColor);
+    for (size_t i = 0; i + 1 < layout.yTickValues.size(); ++i) {
+        if ((i % 2) != 0) {
+            continue;
+        }
+
+        const int y0 = graphYFromDb(graph, layout.yTickValues[i], layout.axisMinDb, layout.axisMaxDb);
+        const int y1 = graphYFromDb(graph, layout.yTickValues[i + 1], layout.axisMinDb, layout.axisMaxDb);
+        RECT stripeRect{graph.left, std::min(y0, y1), graph.right, std::max(y0, y1)};
+        FillRect(hdc, &stripeRect, stripeBrush);
+    }
+    DeleteObject(stripeBrush);
+
+    SetDCPenColor(hdc, ui_theme::kBorder);
+    Rectangle(hdc, graph.left, graph.top, graph.right, graph.bottom);
+
+    for (const double tickHz : xTickValues) {
+        const int x = graphXFromFrequency(graph,
+                                          layout.visibleMinFrequencyHz,
+                                          layout.visibleMaxFrequencyHz,
+                                          tickHz);
+        MoveToEx(hdc, x, graph.top, nullptr);
+        LineTo(hdc, x, graph.bottom);
+    }
+    for (const double tickValue : layout.yTickValues) {
+        const int y = graphYFromDb(graph, tickValue, layout.axisMinDb, layout.axisMaxDb);
+        MoveToEx(hdc, graph.left, y, nullptr);
+        LineTo(hdc, graph.right, y);
+    }
+
+    constexpr int kMajorTickLength = 6;
+    for (const double tickValue : layout.yTickValues) {
+        const int y = graphYFromDb(graph, tickValue, layout.axisMinDb, layout.axisMaxDb);
+        MoveToEx(hdc, graph.left - kMajorTickLength, y, nullptr);
+        LineTo(hdc, graph.left, y);
+        MoveToEx(hdc, graph.right, y, nullptr);
+        LineTo(hdc, graph.right + kMajorTickLength, y);
+    }
+
+    if (!data_.frequencyAxisHz.empty()) {
+        for (const ResponseGraphSeries& series : data_.series) {
+            drawSeries(hdc,
+                       graph,
+                       layout.axisMinDb,
+                       layout.axisMaxDb,
+                       layout.visibleMinFrequencyHz,
+                       layout.visibleMaxFrequencyHz,
+                       data_.frequencyAxisHz,
+                       series.values,
+                       series.color);
+        }
+    }
+
+    drawResetButton(hdc, layout.resetButton, hasCustomVisibleFrequencyRange_);
+
+    SetTextColor(hdc, ui_theme::kMuted);
+    for (const AxisLabel& label : xLabels) {
+        RECT textRect{label.left, graph.bottom + 6, label.right + 2, rect.bottom};
+        DrawTextW(hdc, label.text.c_str(), -1, &textRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
+    }
+
+    for (const double tickValue : layout.yTickValues) {
+        const int y = graphYFromDb(graph, tickValue, layout.axisMinDb, layout.axisMaxDb);
+        RECT labelRect{rect.left + 4, y - layout.textHeight / 2 - 2, graph.left - 6, y + layout.textHeight / 2 + 2};
+        const std::wstring label = formatDbTickLabel(tickValue);
+        DrawTextW(hdc, label.c_str(), -1, &labelRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
 }
 
@@ -826,6 +969,7 @@ void ResponseGraph::onCaptureChanged() {
             hasCustomVisibleFrequencyRange_ = true;
             visibleMinFrequencyHz_ = nextMinFrequencyHz;
             visibleMaxFrequencyHz_ = nextMaxFrequencyHz;
+            invalidateBackgroundCache();
             changed = true;
         }
     }
@@ -869,34 +1013,61 @@ void ResponseGraph::onPaint() const {
 
     RECT rect{};
     GetClientRect(window_, &rect);
-    HBRUSH background = CreateSolidBrush(RGB(248, 250, 252));
-    FillRect(hdc, &rect, background);
-    DeleteObject(background);
-
-    SetBkMode(hdc, TRANSPARENT);
-    SelectObject(hdc, GetStockObject(DC_PEN));
-    SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
     const GraphLayout layout =
         buildGraphLayout(hdc, rect, data_, hasCustomVisibleFrequencyRange_, visibleMinFrequencyHz_, visibleMaxFrequencyHz_);
     const RECT& graph = layout.graph;
-    const std::vector<double> xTickValues =
-        buildFrequencyTickValues(graph, layout.visibleMinFrequencyHz, layout.visibleMaxFrequencyHz);
-    const std::vector<AxisLabel> xLabels =
-        buildFrequencyLabels(hdc, graph, layout.visibleMinFrequencyHz, layout.visibleMaxFrequencyHz, xTickValues);
 
-    const COLORREF stripeColor = RGB(244, 247, 251);
-    HBRUSH stripeBrush = CreateSolidBrush(stripeColor);
-    for (size_t i = 0; i + 1 < layout.yTickValues.size(); ++i) {
-        if ((i % 2) != 0) {
-            continue;
-        }
-
-        const int y0 = graphYFromDb(graph, layout.yTickValues[i], layout.axisMinDb, layout.axisMaxDb);
-        const int y1 = graphYFromDb(graph, layout.yTickValues[i + 1], layout.axisMinDb, layout.axisMaxDb);
-        RECT stripeRect{graph.left, std::min(y0, y1), graph.right, std::max(y0, y1)};
-        FillRect(hdc, &stripeRect, stripeBrush);
+    HDC cacheSource = CreateCompatibleDC(hdc);
+    if (cacheSource == nullptr) {
+        EndPaint(window_, &paint);
+        return;
     }
-    DeleteObject(stripeBrush);
+
+    if (backgroundCacheBitmap_ == nullptr ||
+        backgroundCacheSize_.cx != rect.right - rect.left ||
+        backgroundCacheSize_.cy != rect.bottom - rect.top) {
+        releaseBackgroundCache();
+    }
+    if (backgroundCacheBitmap_ == nullptr) {
+        backgroundCacheBitmap_ =
+            CreateCompatibleBitmap(hdc, std::max(rect.right - rect.left, 1L), std::max(rect.bottom - rect.top, 1L));
+        backgroundCacheSize_.cx = rect.right - rect.left;
+        backgroundCacheSize_.cy = rect.bottom - rect.top;
+        backgroundCacheValid_ = false;
+    }
+    if (backgroundCacheBitmap_ == nullptr) {
+        DeleteDC(cacheSource);
+        EndPaint(window_, &paint);
+        return;
+    }
+
+    HBITMAP oldCacheBitmap = reinterpret_cast<HBITMAP>(SelectObject(cacheSource, backgroundCacheBitmap_));
+    if (!backgroundCacheValid_) {
+        drawStaticLayer(cacheSource, rect);
+        backgroundCacheValid_ = true;
+    }
+
+    HDC frameDc = CreateCompatibleDC(hdc);
+    if (frameDc == nullptr) {
+        SelectObject(cacheSource, oldCacheBitmap);
+        DeleteDC(cacheSource);
+        EndPaint(window_, &paint);
+        return;
+    }
+
+    HBITMAP frameBitmap =
+        CreateCompatibleBitmap(hdc, std::max(rect.right - rect.left, 1L), std::max(rect.bottom - rect.top, 1L));
+    if (frameBitmap == nullptr) {
+        DeleteDC(frameDc);
+        SelectObject(cacheSource, oldCacheBitmap);
+        DeleteDC(cacheSource);
+        EndPaint(window_, &paint);
+        return;
+    }
+
+    HBITMAP oldFrameBitmap = reinterpret_cast<HBITMAP>(SelectObject(frameDc, frameBitmap));
+    BitBlt(frameDc, 0, 0, rect.right - rect.left, rect.bottom - rect.top, cacheSource, 0, 0, SRCCOPY);
+    SetBkMode(frameDc, TRANSPARENT);
 
     RECT infoRect{graph.left, rect.top + 2, layout.resetButton.left - 8, graph.top - 4};
     if (brush_.active && hasBrushWidth(brush_.anchor, brush_.current)) {
@@ -909,8 +1080,8 @@ void ResponseGraph::onPaint() const {
                                                           layout.visibleMaxFrequencyHz,
                                                           std::max(brush_.anchor.x, brush_.current.x));
         const std::wstring infoText = formatBrushFrequencyRange(minFrequencyHz, maxFrequencyHz);
-        SetTextColor(hdc, ui_theme::kAccent);
-        DrawTextW(hdc, infoText.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        SetTextColor(frameDc, ui_theme::kAccent);
+        DrawTextW(frameDc, infoText.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     } else if (hover_.active) {
         const double frequencyHz =
             frequencyFromGraphX(graph, layout.visibleMinFrequencyHz, layout.visibleMaxFrequencyHz, hover_.position.x);
@@ -919,79 +1090,29 @@ void ResponseGraph::onPaint() const {
         const std::wstring infoText = formatHoverAmplitude(amplitudeDb) + L" @ " + formatHoverFrequency(frequencyHz) +
                                       L"    " + formatHoverWavelength(wavelengthMeters) + L"    " +
                                       formatHoverQuarterWavelength(wavelengthMeters);
-        SetTextColor(hdc, ui_theme::kAccent);
-        DrawTextW(hdc, infoText.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-    }
-
-    drawResetButton(hdc, layout.resetButton, hasCustomVisibleFrequencyRange_);
-
-    SetDCPenColor(hdc, ui_theme::kBorder);
-    Rectangle(hdc, graph.left, graph.top, graph.right, graph.bottom);
-
-    for (const double tickHz : xTickValues) {
-        const int x = graphXFromFrequency(graph,
-                                          layout.visibleMinFrequencyHz,
-                                          layout.visibleMaxFrequencyHz,
-                                          tickHz);
-        MoveToEx(hdc, x, graph.top, nullptr);
-        LineTo(hdc, x, graph.bottom);
-    }
-    for (const double tickValue : layout.yTickValues) {
-        const int y = graphYFromDb(graph, tickValue, layout.axisMinDb, layout.axisMaxDb);
-        MoveToEx(hdc, graph.left, y, nullptr);
-        LineTo(hdc, graph.right, y);
-    }
-
-    constexpr int kMajorTickLength = 6;
-    for (const double tickValue : layout.yTickValues) {
-        const int y = graphYFromDb(graph, tickValue, layout.axisMinDb, layout.axisMaxDb);
-        MoveToEx(hdc, graph.left - kMajorTickLength, y, nullptr);
-        LineTo(hdc, graph.left, y);
-        MoveToEx(hdc, graph.right, y, nullptr);
-        LineTo(hdc, graph.right + kMajorTickLength, y);
-    }
-
-    if (!data_.frequencyAxisHz.empty()) {
-        for (const ResponseGraphSeries& series : data_.series) {
-            drawSeries(hdc,
-                       graph,
-                       layout.axisMinDb,
-                       layout.axisMaxDb,
-                       layout.visibleMinFrequencyHz,
-                       layout.visibleMaxFrequencyHz,
-                       data_.frequencyAxisHz,
-                       series.values,
-                       series.color);
-        }
+        SetTextColor(frameDc, ui_theme::kAccent);
+        DrawTextW(frameDc, infoText.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
 
     if (brush_.active && hasBrushWidth(brush_.anchor, brush_.current)) {
         const RECT selection = brushRect(graph, brush_.anchor, brush_.current);
-        HBRUSH selectionBrush = CreateSolidBrush(RGB(214, 227, 244));
-        FillRect(hdc, &selection, selectionBrush);
-        DeleteObject(selectionBrush);
+        fillSelectionOverlay(frameDc, selection);
 
         HPEN selectionPen = CreatePen(PS_SOLID, 1, ui_theme::kAccent);
-        HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, selectionPen));
-        HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)));
-        Rectangle(hdc, selection.left, selection.top, selection.right, selection.bottom);
-        SelectObject(hdc, oldBrush);
-        SelectObject(hdc, oldPen);
+        HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(frameDc, selectionPen));
+        HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(frameDc, GetStockObject(HOLLOW_BRUSH)));
+        Rectangle(frameDc, selection.left, selection.top, selection.right, selection.bottom);
+        SelectObject(frameDc, oldBrush);
+        SelectObject(frameDc, oldPen);
         DeleteObject(selectionPen);
     }
 
-    SetTextColor(hdc, ui_theme::kMuted);
-    for (const AxisLabel& label : xLabels) {
-        RECT textRect{label.left, graph.bottom + 6, label.right + 2, rect.bottom};
-        DrawTextW(hdc, label.text.c_str(), -1, &textRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
-    }
-
-    for (const double tickValue : layout.yTickValues) {
-        const int y = graphYFromDb(graph, tickValue, layout.axisMinDb, layout.axisMaxDb);
-        RECT labelRect{rect.left + 4, y - layout.textHeight / 2 - 2, graph.left - 6, y + layout.textHeight / 2 + 2};
-        const std::wstring label = formatDbTickLabel(tickValue);
-        DrawTextW(hdc, label.c_str(), -1, &labelRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-    }
+    BitBlt(hdc, 0, 0, rect.right - rect.left, rect.bottom - rect.top, frameDc, 0, 0, SRCCOPY);
+    SelectObject(frameDc, oldFrameBitmap);
+    DeleteObject(frameBitmap);
+    DeleteDC(frameDc);
+    SelectObject(cacheSource, oldCacheBitmap);
+    DeleteDC(cacheSource);
 
     EndPaint(window_, &paint);
 }

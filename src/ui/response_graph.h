@@ -60,6 +60,9 @@ private:
 
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 
+    void invalidateBackgroundCache() const;
+    void releaseBackgroundCache() const;
+    void drawStaticLayer(HDC hdc, const RECT& rect) const;
     [[nodiscard]] RECT infoLineRect() const;
     void invalidateInfoLine() const;
     void notifyZoomChanged() const;
@@ -78,6 +81,9 @@ private:
     bool hasCustomVisibleFrequencyRange_ = false;
     double visibleMinFrequencyHz_ = 10.0;
     double visibleMaxFrequencyHz_ = 20000.0;
+    mutable HBITMAP backgroundCacheBitmap_ = nullptr;
+    mutable SIZE backgroundCacheSize_{};
+    mutable bool backgroundCacheValid_ = false;
 };
 
 }  // namespace wolfie::ui

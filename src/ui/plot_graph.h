@@ -57,6 +57,9 @@ private:
 
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 
+    void invalidateBackgroundCache() const;
+    void releaseBackgroundCache() const;
+    void drawStaticLayer(HDC hdc, const RECT& rect) const;
     void onLButtonDown(LPARAM lParam);
     void onLButtonUp(LPARAM lParam);
     void onMouseMove(LPARAM lParam);
@@ -71,6 +74,9 @@ private:
     double visibleMinX_ = 0.0;
     double visibleMaxX_ = 1.0;
     BrushState brush_;
+    mutable HBITMAP backgroundCacheBitmap_ = nullptr;
+    mutable SIZE backgroundCacheSize_{};
+    mutable bool backgroundCacheValid_ = false;
 };
 
 }  // namespace wolfie::ui
