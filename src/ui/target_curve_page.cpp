@@ -202,7 +202,6 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
         workspace.ui.targetCurveGraphHasCustomVisibleDbRange = graph_.hasCustomVisibleDbRange();
         workspace.ui.targetCurveGraphVisibleMinDb = graph_.visibleMinDb();
         workspace.ui.targetCurveGraphVisibleMaxDb = graph_.visibleMaxDb();
-        workspaceChanged = true;
         return true;
     }
     if (commandId == kGraph && notificationCode == TargetCurveGraph::kSelectionChangedNotification) {
