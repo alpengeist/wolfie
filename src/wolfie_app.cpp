@@ -13,6 +13,7 @@
 #include "audio/asio_audio_backend.h"
 #include "measurement/response_analyzer.h"
 #include "measurement/filter_designer.h"
+#include "measurement/filter_wav_export.h"
 #include "measurement/response_smoother.h"
 #include "measurement/target_curve_designer.h"
 #include "persistence/microphone_calibration_repository.h"
@@ -36,6 +37,7 @@ constexpr int kMenuFileRecentBase = 1100;
 constexpr int kTabMain = 3013;
 constexpr int kProcessLog = 3015;
 constexpr int kProcessLogSplitter = 3016;
+constexpr int kButtonExportRoon = 3017;
 constexpr wchar_t kMainClassName[] = L"WolfieMainWindow";
 constexpr int kLogSplitterHeight = 6;
 constexpr int kLogLabelHeight = 20;
@@ -279,8 +281,33 @@ void WolfieApp::createLayout() {
     pageTargetCurve_ = targetCurvePage_.window();
     pageExport_ = CreateWindowExW(0, ui::MeasurementPage::pageWindowClassName(), nullptr, WS_CHILD | WS_CLIPCHILDREN,
                                   0, 0, 0, 0, tabControl_, nullptr, instance_, nullptr);
-    placeholderExport_ = CreateWindowW(L"STATIC", L"ROON export will live here.", WS_CHILD | SS_CENTER,
-                                       0, 0, 0, 0, pageExport_, nullptr, instance_, nullptr);
+    exportTitle_ = CreateWindowW(L"STATIC", L"Roon Convolution Export", WS_CHILD | WS_VISIBLE,
+                                 0, 0, 0, 0, pageExport_, nullptr, instance_, nullptr);
+    exportBody_ = CreateWindowW(L"STATIC",
+                                L"Generates stereo 32-bit float WAV filters for 44.1, 48, 88.2, 96, "
+                                L"176.4, 192, 352.8, 384, 705.6, and 768 kHz in the current workspace.",
+                                WS_CHILD | WS_VISIBLE,
+                                0,
+                                0,
+                                0,
+                                0,
+                                pageExport_,
+                                nullptr,
+                                instance_,
+                                nullptr);
+    exportButton_ = CreateWindowW(L"BUTTON",
+                                  L"Generate Roon WAV Set",
+                                  WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  pageExport_,
+                                  reinterpret_cast<HMENU>(kButtonExportRoon),
+                                  instance_,
+                                  nullptr);
+    exportStatus_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+                                  0, 0, 0, 0, pageExport_, nullptr, instance_, nullptr);
     logSplitter_ = CreateWindowW(L"STATIC", nullptr, WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
                                  0, 0, 0, 0, mainWindow_, reinterpret_cast<HMENU>(kProcessLogSplitter), instance_, nullptr);
     logLabel_ = CreateWindowW(L"STATIC", L"Process Log", WS_CHILD | WS_VISIBLE,
@@ -350,7 +377,11 @@ void WolfieApp::layoutMainWindow() {
 
 void WolfieApp::layoutContent() {
     RECT exportRect = clientRect(pageExport_);
-    MoveWindow(placeholderExport_, 24, 32, std::max(200L, exportRect.right - 48), 24, TRUE);
+    const int exportWidth = std::max(320L, exportRect.right - 48);
+    MoveWindow(exportTitle_, 24, 28, exportWidth, 24, TRUE);
+    MoveWindow(exportBody_, 24, 62, exportWidth, 44, TRUE);
+    MoveWindow(exportButton_, 24, 120, 220, 28, TRUE);
+    MoveWindow(exportStatus_, 24, 164, exportWidth, 48, TRUE);
     measurementPage_.layout();
     smoothingPage_.layout();
     targetCurvePage_.layout();
@@ -457,6 +488,7 @@ void WolfieApp::populateControlsFromState() {
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
     filtersPage_.populate(workspace_);
+    updateExportControls();
     layoutMainWindow();
 }
 
@@ -535,6 +567,64 @@ void WolfieApp::ensureFilterDesignReady() {
                                                          workspace_.measurement,
                                                          workspace_.targetCurve,
                                                          workspace_.filters);
+}
+
+void WolfieApp::updateExportControls() {
+    if (exportButton_ == nullptr || exportStatus_ == nullptr) {
+        return;
+    }
+
+    const bool canExport = !workspace_.rootPath.empty() && workspace_.result.hasAnyValues();
+    EnableWindow(exportButton_, canExport ? TRUE : FALSE);
+    if (!canExport) {
+        SetWindowTextW(exportStatus_, L"Open a workspace and complete a measurement before exporting.");
+        return;
+    }
+
+    const std::wstring exportPath = (workspace_.rootPath / "export" / "roon").wstring();
+    SetWindowTextW(exportStatus_,
+                   (L"Ready to write the Roon filter set to:\r\n" + exportPath +
+                    L"\r\nZip that folder in Roon if you want exact per-rate matching.")
+                       .c_str());
+}
+
+void WolfieApp::exportRoonFilters() {
+    if (workspace_.rootPath.empty()) {
+        appendLog(L"Roon export failed: no workspace is open.", LogSeverity::Error);
+        updateExportControls();
+        return;
+    }
+
+    syncStateFromControls();
+    ensureSmoothedResponseReady();
+    if (workspace_.smoothedResponse.frequencyAxisHz.empty()) {
+        SetWindowTextW(exportStatus_, L"No smoothed response is available. Run a measurement first.");
+        appendLog(L"Roon export failed: no smoothed response is available.", LogSeverity::Error);
+        return;
+    }
+
+    const std::filesystem::path exportDirectory = workspace_.rootPath / "export" / "roon";
+    std::vector<std::filesystem::path> generatedFiles;
+    std::wstring errorMessage;
+    if (!measurement::exportRoonFilterWavSet(exportDirectory,
+                                             workspace_.smoothedResponse,
+                                             workspace_.measurement,
+                                             workspace_.targetCurve,
+                                             workspace_.filters,
+                                             generatedFiles,
+                                             errorMessage)) {
+        SetWindowTextW(exportStatus_, errorMessage.c_str());
+        appendLog(L"Roon export failed: " + errorMessage, LogSeverity::Error);
+        return;
+    }
+
+    const std::wstring status =
+        L"Generated " + std::to_wstring(generatedFiles.size()) +
+        L" stereo float WAV files in:\r\n" + exportDirectory.wstring();
+    SetWindowTextW(exportStatus_, status.c_str());
+    appendLog(L"Roon export completed: wrote " +
+              std::to_wstring(generatedFiles.size()) +
+              L" filter WAV files to " + exportDirectory.wstring());
 }
 
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
@@ -628,6 +718,11 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     }
 
     switch (commandId) {
+    case kButtonExportRoon:
+        if (notificationCode == BN_CLICKED) {
+            exportRoonFilters();
+        }
+        return;
     case kMenuFileNew:
         newWorkspace();
         return;
@@ -721,8 +816,10 @@ void WolfieApp::updateVisibleTab() {
             smoothingPage_.populate(workspace_);
         } else if (selected == 2) {
             targetCurvePage_.populate(workspace_);
-        } else {
+        } else if (selected == 3) {
             filtersPage_.populate(workspace_);
+        } else {
+            updateExportControls();
         }
     }
 
@@ -796,6 +893,7 @@ void WolfieApp::saveWorkspace(bool saveAs) {
     syncStateFromControls();
     workspaceRepository_.save(workspace_);
     refreshWindowTitle();
+    updateExportControls();
     appendLog(L"Workspace saved: " + workspace_.rootPath.wstring());
 }
 

@@ -60,6 +60,8 @@ private:
     void ensureSmoothedResponseReady();
     void invalidateFilterDesign();
     void ensureFilterDesignReady();
+    void updateExportControls();
+    void exportRoonFilters();
     void onCommand(WORD commandId, WORD notificationCode);
     void onHScroll(HWND source);
     void onNotify(LPARAM lParam);
@@ -87,7 +89,10 @@ private:
     HWND pageSmoothing_ = nullptr;
     HWND pageTargetCurve_ = nullptr;
     HWND pageExport_ = nullptr;
-    HWND placeholderExport_ = nullptr;
+    HWND exportTitle_ = nullptr;
+    HWND exportBody_ = nullptr;
+    HWND exportButton_ = nullptr;
+    HWND exportStatus_ = nullptr;
     HWND logLabel_ = nullptr;
     HWND logEdit_ = nullptr;
     HWND logSplitter_ = nullptr;

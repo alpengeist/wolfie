@@ -616,10 +616,11 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     settings.phaseMode = "minimum";
 }
 
-FilterDesignResult designFilters(const SmoothedResponse& response,
-                                 const MeasurementSettings& measurement,
-                                 const TargetCurveSettings& targetCurve,
-                                 const FilterDesignSettings& sourceSettings) {
+FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
+                                              const MeasurementSettings& measurement,
+                                              const TargetCurveSettings& targetCurve,
+                                              const FilterDesignSettings& sourceSettings,
+                                              int sampleRate) {
     FilterDesignResult result;
     if (response.frequencyAxisHz.empty() ||
         response.leftChannelDb.size() != response.frequencyAxisHz.size() ||
@@ -627,13 +628,16 @@ FilterDesignResult designFilters(const SmoothedResponse& response,
         return result;
     }
 
-    const TargetCurvePlotData targetPlot = buildTargetCurvePlotData(response, measurement, targetCurve, std::nullopt);
+    MeasurementSettings exportMeasurement = measurement;
+    exportMeasurement.sampleRate = sampleRate;
+
+    const TargetCurvePlotData targetPlot = buildTargetCurvePlotData(response, exportMeasurement, targetCurve, std::nullopt);
     if (targetPlot.frequencyAxisHz.empty() || targetPlot.targetCurveDb.empty()) {
         return result;
     }
 
     FilterDesignSettings settings = sourceSettings;
-    normalizeFilterDesignSettings(settings, measurement.sampleRate);
+    normalizeFilterDesignSettings(settings, exportMeasurement.sampleRate);
 
     const std::vector<double> displayFrequencyAxisHz =
         buildLogFrequencyAxis(targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz, settings.displayPointCount);
@@ -651,17 +655,17 @@ FilterDesignResult designFilters(const SmoothedResponse& response,
                                                targetCurveDb,
                                                leftSourceDb,
                                                settings,
-                                               measurement.sampleRate,
+                                               exportMeasurement.sampleRate,
                                                fftSize);
     const DesignedChannel right = designChannel(displayFrequencyAxisHz,
                                                 targetCurveDb,
                                                 rightSourceDb,
                                                 settings,
-                                                measurement.sampleRate,
+                                                exportMeasurement.sampleRate,
                                                 fftSize);
 
     result.valid = true;
-    result.sampleRate = measurement.sampleRate;
+    result.sampleRate = exportMeasurement.sampleRate;
     result.tapCount = settings.tapCount;
     result.fftSize = fftSize;
     result.positiveBinCount = (fftSize / 2) + 1;
@@ -685,6 +689,17 @@ FilterDesignResult designFilters(const SmoothedResponse& response,
     result.right.impulsePeakIndex = right.impulsePeakIndex;
     result.right.peakAmplitude = right.peakAmplitude;
     return result;
+}
+
+FilterDesignResult designFilters(const SmoothedResponse& response,
+                                 const MeasurementSettings& measurement,
+                                 const TargetCurveSettings& targetCurve,
+                                 const FilterDesignSettings& settings) {
+    return designFiltersForSampleRate(response,
+                                      measurement,
+                                      targetCurve,
+                                      settings,
+                                      measurement.sampleRate);
 }
 
 }  // namespace wolfie::measurement

@@ -1,10 +1,14 @@
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <vector>
 
 #include "core/models.h"
 #include "measurement/filter_designer.h"
+#include "measurement/filter_wav_export.h"
 #include "measurement/target_curve_designer.h"
 
 namespace {
@@ -213,10 +217,89 @@ bool expectTargetCurveAnchorsToMeasuredLevel() {
     return true;
 }
 
+bool expectRoonExportSupportsCommonSampleRates() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.maxBoostDb = 6.0;
+    filterSettings.maxCutDb = 12.0;
+
+    const wolfie::SmoothedResponse response = buildSyntheticResponse();
+    const std::filesystem::path exportDirectory =
+        std::filesystem::temp_directory_path() / "wolfie-roon-export-test";
+    std::filesystem::remove_all(exportDirectory);
+
+    std::vector<std::filesystem::path> generatedFiles;
+    std::wstring errorMessage;
+    const bool exported = wolfie::measurement::exportRoonFilterWavSet(exportDirectory,
+                                                                      response,
+                                                                      measurement,
+                                                                      targetCurve,
+                                                                      filterSettings,
+                                                                      generatedFiles,
+                                                                      errorMessage);
+    if (!exported) {
+        std::wcerr << L"Roon export failed: " << errorMessage << L"\n";
+        return false;
+    }
+
+    if (generatedFiles.size() != wolfie::measurement::roonCommonSampleRates().size() * 2) {
+        std::cerr << "Roon export did not generate the expected number of files\n";
+        return false;
+    }
+
+    for (const int sampleRate : wolfie::measurement::roonCommonSampleRates()) {
+        const std::filesystem::path wavPath =
+            wolfie::measurement::roonFilterWavPath(exportDirectory, sampleRate);
+        if (!std::filesystem::exists(wavPath) || std::filesystem::file_size(wavPath) <= 44) {
+            std::cerr << "Roon export did not write a valid WAV for " << sampleRate << " Hz\n";
+            return false;
+        }
+
+        const std::filesystem::path cfgPath =
+            wolfie::measurement::roonFilterConfigPath(exportDirectory, sampleRate);
+        if (!std::filesystem::exists(cfgPath) || std::filesystem::file_size(cfgPath) == 0) {
+            std::cerr << "Roon export did not write a config for " << sampleRate << " Hz\n";
+            return false;
+        }
+
+        std::ifstream cfg(cfgPath, std::ios::binary);
+        std::ostringstream cfgText;
+        cfgText << cfg.rdbuf();
+        const std::string expected =
+            std::to_string(sampleRate) + " 2 2 0\n"
+            "0 0\n"
+            "0 0\n" +
+            wavPath.filename().string() + "\n"
+            "0\n"
+            "0.0\n"
+            "0.0\n" +
+            wavPath.filename().string() + "\n"
+            "1\n"
+            "1.0\n"
+            "1.0\n";
+        if (cfgText.str() != expected) {
+            std::cerr << "Roon config contents were unexpected for " << sampleRate << " Hz\n";
+            return false;
+        }
+    }
+
+    std::filesystem::remove_all(exportDirectory);
+    return true;
+}
+
 }  // namespace
 
 bool runFilterDesignTests() {
     return expectDesignedFilterLooksSane() &&
            expectExactTargetCurveEvaluationCapturesBellPeak() &&
-           expectTargetCurveAnchorsToMeasuredLevel();
+           expectTargetCurveAnchorsToMeasuredLevel() &&
+           expectRoonExportSupportsCommonSampleRates();
 }
