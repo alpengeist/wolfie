@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <fstream>
+#include <string>
 
 #include "measurement/filter_designer.h"
 
@@ -81,8 +82,16 @@ std::filesystem::path roonFilePath(const std::filesystem::path& directory, int s
     return directory / ("wolfie_stereo_" + std::to_string(sampleRate) + ".wav");
 }
 
+std::string roonConfigSampleRateToken(int sampleRate) {
+    int token = sampleRate / 100;
+    while (token > 0 && token % 10 == 0) {
+        token /= 10;
+    }
+    return std::to_string(token);
+}
+
 std::filesystem::path roonConfigFilePath(const std::filesystem::path& directory, int sampleRate) {
-    return directory / ("wolfie_stereo_" + std::to_string(sampleRate) + ".cfg");
+    return directory / ("roon 2.0_" + roonConfigSampleRateToken(sampleRate) + ".cfg");
 }
 
 }  // namespace
@@ -117,7 +126,8 @@ bool exportRoonFilterWavSet(const std::filesystem::path& directory,
                             const TargetCurveSettings& targetCurve,
                             const FilterDesignSettings& filterSettings,
                             std::vector<std::filesystem::path>& generatedFiles,
-                            std::wstring& errorMessage) {
+                            std::wstring& errorMessage,
+                            const RoonFilterExportProgressCallback& progressCallback) {
     generatedFiles.clear();
     errorMessage.clear();
 
@@ -135,7 +145,14 @@ bool exportRoonFilterWavSet(const std::filesystem::path& directory,
         return false;
     }
 
-    for (const int sampleRate : roonCommonSampleRates()) {
+    const std::vector<int>& sampleRates = roonCommonSampleRates();
+    const std::size_t totalSampleRates = sampleRates.size();
+    for (std::size_t index = 0; index < totalSampleRates; ++index) {
+        const int sampleRate = sampleRates[index];
+        if (progressCallback) {
+            progressCallback(sampleRate, index + 1, totalSampleRates);
+        }
+
         const FilterDesignResult filterResult =
             designFiltersForSampleRate(response, measurement, targetCurve, filterSettings, sampleRate);
         if (!filterResult.valid ||

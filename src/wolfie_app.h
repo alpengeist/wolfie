@@ -60,6 +60,8 @@ private:
     void ensureSmoothedResponseReady();
     void invalidateFilterDesign();
     void ensureFilterDesignReady();
+    void setExportInProgress(bool running);
+    void showExportProgress(const std::wstring& message) const;
     void updateExportControls();
     void exportRoonFilters();
     void onCommand(WORD commandId, WORD notificationCode);
@@ -92,10 +94,12 @@ private:
     HWND exportTitle_ = nullptr;
     HWND exportBody_ = nullptr;
     HWND exportButton_ = nullptr;
+    HWND exportProgress_ = nullptr;
     HWND exportStatus_ = nullptr;
     HWND logLabel_ = nullptr;
     HWND logEdit_ = nullptr;
     HWND logSplitter_ = nullptr;
+    bool exportRunning_ = false;
     bool resizingLog_ = false;
     bool measurementCompletionHandled_ = true;
     RECT logSplitterRect_{};

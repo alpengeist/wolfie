@@ -11,6 +11,7 @@
 #include <windowsx.h>
 
 #include "audio/asio_audio_backend.h"
+#include "core/text_utils.h"
 #include "measurement/response_analyzer.h"
 #include "measurement/filter_designer.h"
 #include "measurement/filter_wav_export.h"
@@ -70,6 +71,11 @@ std::filesystem::path appStatePath() {
         std::filesystem::rename(legacyPath, newPath, error);
     }
     return error ? legacyPath : newPath;
+}
+
+std::wstring formatSampleRateLabel(int sampleRate) {
+    const int decimals = sampleRate % 1000 == 0 ? 0 : 1;
+    return formatWideDouble(static_cast<double>(sampleRate) / 1000.0, decimals) + L" kHz";
 }
 
 }  // namespace
@@ -306,6 +312,17 @@ void WolfieApp::createLayout() {
                                   reinterpret_cast<HMENU>(kButtonExportRoon),
                                   instance_,
                                   nullptr);
+    exportProgress_ = CreateWindowW(L"STATIC",
+                                    L"",
+                                    WS_CHILD | SS_CENTERIMAGE,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    pageExport_,
+                                    nullptr,
+                                    instance_,
+                                    nullptr);
     exportStatus_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
                                   0, 0, 0, 0, pageExport_, nullptr, instance_, nullptr);
     logSplitter_ = CreateWindowW(L"STATIC", nullptr, WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
@@ -381,6 +398,7 @@ void WolfieApp::layoutContent() {
     MoveWindow(exportTitle_, 24, 28, exportWidth, 24, TRUE);
     MoveWindow(exportBody_, 24, 62, exportWidth, 44, TRUE);
     MoveWindow(exportButton_, 24, 120, 220, 28, TRUE);
+    MoveWindow(exportProgress_, 24, 120, exportWidth, 28, TRUE);
     MoveWindow(exportStatus_, 24, 164, exportWidth, 48, TRUE);
     measurementPage_.layout();
     smoothingPage_.layout();
@@ -569,8 +587,41 @@ void WolfieApp::ensureFilterDesignReady() {
                                                          workspace_.filters);
 }
 
+void WolfieApp::setExportInProgress(bool running) {
+    exportRunning_ = running;
+    if (exportButton_ == nullptr || exportProgress_ == nullptr) {
+        return;
+    }
+
+    ShowWindow(exportButton_, running ? SW_HIDE : SW_SHOW);
+    ShowWindow(exportProgress_, running ? SW_SHOW : SW_HIDE);
+    if (!running) {
+        SetWindowTextW(exportProgress_, L"");
+    }
+
+    RedrawWindow(pageExport_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+}
+
+void WolfieApp::showExportProgress(const std::wstring& message) const {
+    if (exportProgress_ == nullptr) {
+        return;
+    }
+
+    SetWindowTextW(exportProgress_, message.c_str());
+    RedrawWindow(exportProgress_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+    if (exportStatus_ != nullptr) {
+        RedrawWindow(exportStatus_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+    }
+}
+
 void WolfieApp::updateExportControls() {
-    if (exportButton_ == nullptr || exportStatus_ == nullptr) {
+    if (exportButton_ == nullptr || exportProgress_ == nullptr || exportStatus_ == nullptr) {
+        return;
+    }
+
+    ShowWindow(exportButton_, exportRunning_ ? SW_HIDE : SW_SHOW);
+    ShowWindow(exportProgress_, exportRunning_ ? SW_SHOW : SW_HIDE);
+    if (exportRunning_) {
         return;
     }
 
@@ -604,6 +655,12 @@ void WolfieApp::exportRoonFilters() {
     }
 
     const std::filesystem::path exportDirectory = workspace_.rootPath / "export" / "roon";
+    appendLog(L"Roon export started: writing filter set to " + exportDirectory.wstring());
+    setExportInProgress(true);
+    SetWindowTextW(exportStatus_,
+                   (L"Writing the Roon filter set to:\r\n" + exportDirectory.wstring()).c_str());
+    showExportProgress(L"Preparing sample-rate export...");
+
     std::vector<std::filesystem::path> generatedFiles;
     std::wstring errorMessage;
     if (!measurement::exportRoonFilterWavSet(exportDirectory,
@@ -612,19 +669,33 @@ void WolfieApp::exportRoonFilters() {
                                              workspace_.targetCurve,
                                              workspace_.filters,
                                              generatedFiles,
-                                             errorMessage)) {
+                                             errorMessage,
+                                             [this](int sampleRate, std::size_t sampleRateIndex, std::size_t totalSampleRates) {
+                                                 const std::wstring sampleRateLabel = formatSampleRateLabel(sampleRate);
+                                                 appendLog(L"Roon export: processing " +
+                                                           sampleRateLabel +
+                                                           L" (" + std::to_wstring(sampleRateIndex) +
+                                                           L"/" + std::to_wstring(totalSampleRates) + L")");
+                                                 showExportProgress(L"Processing " +
+                                                                    sampleRateLabel +
+                                                                    L" (" + std::to_wstring(sampleRateIndex) +
+                                                                    L"/" + std::to_wstring(totalSampleRates) + L")");
+                                             })) {
+        setExportInProgress(false);
         SetWindowTextW(exportStatus_, errorMessage.c_str());
         appendLog(L"Roon export failed: " + errorMessage, LogSeverity::Error);
         return;
     }
 
+    setExportInProgress(false);
+    const std::size_t exportedSampleRateCount = generatedFiles.size() / 2;
     const std::wstring status =
-        L"Generated " + std::to_wstring(generatedFiles.size()) +
-        L" stereo float WAV files in:\r\n" + exportDirectory.wstring();
+        L"Generated " + std::to_wstring(exportedSampleRateCount) +
+        L" WAV/config pairs in:\r\n" + exportDirectory.wstring();
     SetWindowTextW(exportStatus_, status.c_str());
     appendLog(L"Roon export completed: wrote " +
-              std::to_wstring(generatedFiles.size()) +
-              L" filter WAV files to " + exportDirectory.wstring());
+              std::to_wstring(exportedSampleRateCount) +
+              L" WAV/config pairs to " + exportDirectory.wstring());
 }
 
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
