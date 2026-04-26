@@ -17,12 +17,14 @@ using RoonFilterExportProgressCallback = std::function<void(int sampleRate,
 [[nodiscard]] const std::vector<int>& roonCommonSampleRates();
 [[nodiscard]] std::filesystem::path roonFilterWavPath(const std::filesystem::path& directory, int sampleRate);
 [[nodiscard]] std::filesystem::path roonFilterConfigPath(const std::filesystem::path& directory, int sampleRate);
+[[nodiscard]] std::filesystem::path roonFilterArchivePath(const std::filesystem::path& directory);
 
 bool exportRoonFilterWavSet(const std::filesystem::path& directory,
                             const SmoothedResponse& response,
                             const MeasurementSettings& measurement,
                             const TargetCurveSettings& targetCurve,
                             const FilterDesignSettings& filterSettings,
+                            const std::vector<int>& sampleRates,
                             std::vector<std::filesystem::path>& generatedFiles,
                             std::wstring& errorMessage,
                             const RoonFilterExportProgressCallback& progressCallback = {});

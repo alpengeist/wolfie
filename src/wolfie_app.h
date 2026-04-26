@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <vector>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -63,6 +64,7 @@ private:
     void setExportInProgress(bool running);
     void showExportProgress(const std::wstring& message) const;
     void updateExportControls();
+    [[nodiscard]] std::vector<int> selectedExportSampleRates() const;
     void exportRoonFilters();
     void onCommand(WORD commandId, WORD notificationCode);
     void onHScroll(HWND source);
@@ -91,11 +93,10 @@ private:
     HWND pageSmoothing_ = nullptr;
     HWND pageTargetCurve_ = nullptr;
     HWND pageExport_ = nullptr;
-    HWND exportTitle_ = nullptr;
-    HWND exportBody_ = nullptr;
     HWND exportButton_ = nullptr;
     HWND exportProgress_ = nullptr;
     HWND exportStatus_ = nullptr;
+    std::vector<HWND> exportSampleRateChecks_;
     HWND logLabel_ = nullptr;
     HWND logEdit_ = nullptr;
     HWND logSplitter_ = nullptr;

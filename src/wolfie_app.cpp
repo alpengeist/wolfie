@@ -39,6 +39,7 @@ constexpr int kTabMain = 3013;
 constexpr int kProcessLog = 3015;
 constexpr int kProcessLogSplitter = 3016;
 constexpr int kButtonExportRoon = 3017;
+constexpr int kExportSampleRateCheckboxBase = 3020;
 constexpr wchar_t kMainClassName[] = L"WolfieMainWindow";
 constexpr int kLogSplitterHeight = 6;
 constexpr int kLogLabelHeight = 20;
@@ -287,22 +288,25 @@ void WolfieApp::createLayout() {
     pageTargetCurve_ = targetCurvePage_.window();
     pageExport_ = CreateWindowExW(0, ui::MeasurementPage::pageWindowClassName(), nullptr, WS_CHILD | WS_CLIPCHILDREN,
                                   0, 0, 0, 0, tabControl_, nullptr, instance_, nullptr);
-    exportTitle_ = CreateWindowW(L"STATIC", L"Roon Convolution Export", WS_CHILD | WS_VISIBLE,
-                                 0, 0, 0, 0, pageExport_, nullptr, instance_, nullptr);
-    exportBody_ = CreateWindowW(L"STATIC",
-                                L"Generates stereo 32-bit float WAV filters for 44.1, 48, 88.2, 96, "
-                                L"176.4, 192, 352.8, 384, 705.6, and 768 kHz in the current workspace.",
-                                WS_CHILD | WS_VISIBLE,
-                                0,
-                                0,
-                                0,
-                                0,
-                                pageExport_,
-                                nullptr,
-                                instance_,
-                                nullptr);
+    const std::vector<int>& exportSampleRates = measurement::roonCommonSampleRates();
+    exportSampleRateChecks_.reserve(exportSampleRates.size());
+    for (std::size_t index = 0; index < exportSampleRates.size(); ++index) {
+        HWND checkbox = CreateWindowW(L"BUTTON",
+                                      formatSampleRateLabel(exportSampleRates[index]).c_str(),
+                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      pageExport_,
+                                      reinterpret_cast<HMENU>(kExportSampleRateCheckboxBase + static_cast<int>(index)),
+                                      instance_,
+                                      nullptr);
+        SendMessageW(checkbox, BM_SETCHECK, BST_CHECKED, 0);
+        exportSampleRateChecks_.push_back(checkbox);
+    }
     exportButton_ = CreateWindowW(L"BUTTON",
-                                  L"Generate Roon WAV Set",
+                                  L"Generate Roon ZIP",
                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP,
                                   0,
                                   0,
@@ -395,11 +399,37 @@ void WolfieApp::layoutMainWindow() {
 void WolfieApp::layoutContent() {
     RECT exportRect = clientRect(pageExport_);
     const int exportWidth = std::max(320L, exportRect.right - 48);
-    MoveWindow(exportTitle_, 24, 28, exportWidth, 24, TRUE);
-    MoveWindow(exportBody_, 24, 62, exportWidth, 44, TRUE);
-    MoveWindow(exportButton_, 24, 120, 220, 28, TRUE);
-    MoveWindow(exportProgress_, 24, 120, exportWidth, 28, TRUE);
-    MoveWindow(exportStatus_, 24, 164, exportWidth, 48, TRUE);
+    const int checkboxLeft = 24;
+    const int checkboxTop = 28;
+    const int checkboxHeight = 22;
+    const int checkboxGapX = 12;
+    const int checkboxGapY = 8;
+    const int minCheckboxWidth = 112;
+    const int checkboxColumns = std::max(
+        1,
+        std::min(static_cast<int>(exportSampleRateChecks_.size()),
+                 (exportWidth + checkboxGapX) / (minCheckboxWidth + checkboxGapX)));
+    const int checkboxWidth = std::max(
+        minCheckboxWidth,
+        (exportWidth - ((checkboxColumns - 1) * checkboxGapX)) / checkboxColumns);
+    for (std::size_t index = 0; index < exportSampleRateChecks_.size(); ++index) {
+        const int row = static_cast<int>(index) / checkboxColumns;
+        const int column = static_cast<int>(index) % checkboxColumns;
+        const int x = checkboxLeft + (column * (checkboxWidth + checkboxGapX));
+        const int y = checkboxTop + (row * (checkboxHeight + checkboxGapY));
+        MoveWindow(exportSampleRateChecks_[index], x, y, checkboxWidth, checkboxHeight, TRUE);
+    }
+
+    const int checkboxRowCount =
+        exportSampleRateChecks_.empty() ? 0 : ((static_cast<int>(exportSampleRateChecks_.size()) + checkboxColumns - 1) /
+                                               checkboxColumns);
+    const int buttonTop = checkboxTop +
+                          (checkboxRowCount * checkboxHeight) +
+                          (std::max(0, checkboxRowCount - 1) * checkboxGapY) +
+                          18;
+    MoveWindow(exportButton_, 24, buttonTop, 180, 28, TRUE);
+    MoveWindow(exportProgress_, 24, buttonTop, exportWidth, 28, TRUE);
+    MoveWindow(exportStatus_, 24, buttonTop + 44, exportWidth, 48, TRUE);
     measurementPage_.layout();
     smoothingPage_.layout();
     targetCurvePage_.layout();
@@ -593,6 +623,10 @@ void WolfieApp::setExportInProgress(bool running) {
         return;
     }
 
+    for (HWND checkbox : exportSampleRateChecks_) {
+        EnableWindow(checkbox, running ? FALSE : TRUE);
+    }
+
     ShowWindow(exportButton_, running ? SW_HIDE : SW_SHOW);
     ShowWindow(exportProgress_, running ? SW_SHOW : SW_HIDE);
     if (!running) {
@@ -614,9 +648,26 @@ void WolfieApp::showExportProgress(const std::wstring& message) const {
     }
 }
 
+std::vector<int> WolfieApp::selectedExportSampleRates() const {
+    std::vector<int> selectedSampleRates;
+    const std::vector<int>& allSampleRates = measurement::roonCommonSampleRates();
+    const std::size_t checkboxCount = std::min(exportSampleRateChecks_.size(), allSampleRates.size());
+    selectedSampleRates.reserve(checkboxCount);
+    for (std::size_t index = 0; index < checkboxCount; ++index) {
+        if (SendMessageW(exportSampleRateChecks_[index], BM_GETCHECK, 0, 0) == BST_CHECKED) {
+            selectedSampleRates.push_back(allSampleRates[index]);
+        }
+    }
+    return selectedSampleRates;
+}
+
 void WolfieApp::updateExportControls() {
     if (exportButton_ == nullptr || exportProgress_ == nullptr || exportStatus_ == nullptr) {
         return;
+    }
+
+    for (HWND checkbox : exportSampleRateChecks_) {
+        EnableWindow(checkbox, exportRunning_ ? FALSE : TRUE);
     }
 
     ShowWindow(exportButton_, exportRunning_ ? SW_HIDE : SW_SHOW);
@@ -625,18 +676,20 @@ void WolfieApp::updateExportControls() {
         return;
     }
 
-    const bool canExport = !workspace_.rootPath.empty() && workspace_.result.hasAnyValues();
+    const std::vector<int> selectedSampleRates = selectedExportSampleRates();
+    const bool hasSelection = !selectedSampleRates.empty();
+    const bool canExport = !workspace_.rootPath.empty() && workspace_.result.hasAnyValues() && hasSelection;
     EnableWindow(exportButton_, canExport ? TRUE : FALSE);
-    if (!canExport) {
+    if (workspace_.rootPath.empty() || !workspace_.result.hasAnyValues()) {
         SetWindowTextW(exportStatus_, L"Open a workspace and complete a measurement before exporting.");
         return;
     }
+    if (!hasSelection) {
+        SetWindowTextW(exportStatus_, L"Select at least one sample rate to export.");
+        return;
+    }
 
-    const std::wstring exportPath = (workspace_.rootPath / "export" / "roon").wstring();
-    SetWindowTextW(exportStatus_,
-                   (L"Ready to write the Roon filter set to:\r\n" + exportPath +
-                    L"\r\nZip that folder in Roon if you want exact per-rate matching.")
-                       .c_str());
+    SetWindowTextW(exportStatus_, L"");
 }
 
 void WolfieApp::exportRoonFilters() {
@@ -654,6 +707,14 @@ void WolfieApp::exportRoonFilters() {
         return;
     }
 
+    const std::vector<int> selectedSampleRates = selectedExportSampleRates();
+    if (selectedSampleRates.empty()) {
+        SetWindowTextW(exportStatus_, L"Select at least one sample rate to export.");
+        appendLog(L"Roon export failed: no sample rates are selected.", LogSeverity::Error);
+        updateExportControls();
+        return;
+    }
+
     const std::filesystem::path exportDirectory = workspace_.rootPath / "export" / "roon";
     appendLog(L"Roon export started: writing filter set to " + exportDirectory.wstring());
     setExportInProgress(true);
@@ -668,6 +729,7 @@ void WolfieApp::exportRoonFilters() {
                                              workspace_.measurement,
                                              workspace_.targetCurve,
                                              workspace_.filters,
+                                             selectedSampleRates,
                                              generatedFiles,
                                              errorMessage,
                                              [this](int sampleRate, std::size_t sampleRateIndex, std::size_t totalSampleRates) {
@@ -688,14 +750,16 @@ void WolfieApp::exportRoonFilters() {
     }
 
     setExportInProgress(false);
-    const std::size_t exportedSampleRateCount = generatedFiles.size() / 2;
+    const std::size_t exportedSampleRateCount = selectedSampleRates.size();
+    const std::filesystem::path zipPath = measurement::roonFilterArchivePath(exportDirectory);
     const std::wstring status =
         L"Generated " + std::to_wstring(exportedSampleRateCount) +
-        L" WAV/config pairs in:\r\n" + exportDirectory.wstring();
+        L" WAV/config pairs and packed them into:\r\n" + zipPath.wstring();
     SetWindowTextW(exportStatus_, status.c_str());
     appendLog(L"Roon export completed: wrote " +
               std::to_wstring(exportedSampleRateCount) +
-              L" WAV/config pairs to " + exportDirectory.wstring());
+              L" WAV/config pairs and " + zipPath.filename().wstring() +
+              L" to " + exportDirectory.wstring());
 }
 
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
@@ -784,6 +848,14 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             filtersPage_.populate(workspace_);
             syncStateFromControls();
             workspaceRepository_.save(workspace_);
+        }
+        return;
+    }
+
+    if (commandId >= kExportSampleRateCheckboxBase &&
+        commandId < kExportSampleRateCheckboxBase + static_cast<WORD>(exportSampleRateChecks_.size())) {
+        if (notificationCode == BN_CLICKED) {
+            updateExportControls();
         }
         return;
     }
@@ -881,7 +953,7 @@ void WolfieApp::onResize() {
 
 void WolfieApp::updateVisibleTab() {
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
-    if (selected == 1 || selected == 2 || selected == 3) {
+    if (selected == 1 || selected == 2 || selected == 3 || selected == 4) {
         ensureSmoothedResponseReady();
         if (selected == 1) {
             smoothingPage_.populate(workspace_);

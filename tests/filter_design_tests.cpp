@@ -234,7 +234,8 @@ bool expectRoonExportSupportsCommonSampleRates() {
     const wolfie::SmoothedResponse response = buildSyntheticResponse();
     const std::filesystem::path exportDirectory =
         std::filesystem::temp_directory_path() / "wolfie-roon-export-test";
-    std::filesystem::remove_all(exportDirectory);
+    std::error_code cleanupError;
+    std::filesystem::remove_all(exportDirectory, cleanupError);
 
     std::vector<std::filesystem::path> generatedFiles;
     std::wstring errorMessage;
@@ -243,6 +244,7 @@ bool expectRoonExportSupportsCommonSampleRates() {
                                                                       measurement,
                                                                       targetCurve,
                                                                       filterSettings,
+                                                                      wolfie::measurement::roonCommonSampleRates(),
                                                                       generatedFiles,
                                                                       errorMessage);
     if (!exported) {
@@ -250,7 +252,7 @@ bool expectRoonExportSupportsCommonSampleRates() {
         return false;
     }
 
-    if (generatedFiles.size() != wolfie::measurement::roonCommonSampleRates().size() * 2) {
+    if (generatedFiles.size() != (wolfie::measurement::roonCommonSampleRates().size() * 2) + 1) {
         std::cerr << "Roon export did not generate the expected number of files\n";
         return false;
     }
@@ -291,7 +293,29 @@ bool expectRoonExportSupportsCommonSampleRates() {
         }
     }
 
-    std::filesystem::remove_all(exportDirectory);
+    const std::filesystem::path zipPath = wolfie::measurement::roonFilterArchivePath(exportDirectory);
+    if (!std::filesystem::exists(zipPath) || std::filesystem::file_size(zipPath) == 0) {
+        std::cerr << "Roon export did not write roon.zip\n";
+        return false;
+    }
+
+    {
+        std::ifstream zip(zipPath, std::ios::binary);
+        std::ostringstream zipText;
+        zipText << zip.rdbuf();
+        const std::string zipContents = zipText.str();
+        for (const int sampleRate : wolfie::measurement::roonCommonSampleRates()) {
+            const std::string wavName = wolfie::measurement::roonFilterWavPath(exportDirectory, sampleRate).filename().string();
+            const std::string cfgName = wolfie::measurement::roonFilterConfigPath(exportDirectory, sampleRate).filename().string();
+            if (zipContents.find(wavName) == std::string::npos || zipContents.find(cfgName) == std::string::npos) {
+                std::cerr << "Roon archive is missing an exported file name for " << sampleRate << " Hz\n";
+                return false;
+            }
+        }
+    }
+
+    cleanupError.clear();
+    std::filesystem::remove_all(exportDirectory, cleanupError);
     return true;
 }
 
