@@ -198,6 +198,17 @@ void FiltersPage::createControls() {
     controls_.valueSmoothness = CreateWindowW(L"STATIC", L"1", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonRecalculate), instance_, nullptr);
+    controls_.checkboxSyncHoverFrequency = CreateWindowW(L"BUTTON",
+                                                         L"Sync hover cursor",
+                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         window_,
+                                                         reinterpret_cast<HMENU>(kCheckboxSyncHoverFrequency),
+                                                         instance_,
+                                                         nullptr);
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.inversionLegendFrame = CreateWindowW(L"STATIC",
@@ -337,10 +348,11 @@ void FiltersPage::createControls() {
     SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    correctionGraph_.create(window_, instance_);
-    correctedGraph_.create(window_, instance_);
-    groupDelayGraph_.create(window_, instance_);
-    impulseGraph_.create(window_, instance_);
+    SendMessageW(controls_.checkboxSyncHoverFrequency, BM_SETCHECK, syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    correctionGraph_.create(window_, instance_, kCorrectionGraph);
+    correctedGraph_.create(window_, instance_, kCorrectedGraph);
+    groupDelayGraph_.create(window_, instance_, kGroupDelayGraph);
+    impulseGraph_.create(window_, instance_, kImpulseGraph);
     refreshRecalculateButton();
 }
 
@@ -381,9 +393,10 @@ void FiltersPage::layout() {
     MoveWindow(controls_.buttonRecalculate, contentLeft, top + 62, contentWidth, 32, TRUE);
 
     int y = top + 112;
-    MoveWindow(controls_.inversionTitle, contentLeft, y, 120, 18, TRUE);
     const int legendLeft = contentLeft + contentWidth - legendWidth;
     const int graphRight = legendLeft - legendGap;
+    MoveWindow(controls_.checkboxSyncHoverFrequency, graphRight - 168, y - 2, 168, 20, TRUE);
+    MoveWindow(controls_.inversionTitle, contentLeft, y, 120, 18, TRUE);
     const int frameTop = y + 24;
     MoveWindow(controls_.inversionLegendFrame, legendLeft, frameTop, legendWidth, graphHeight, TRUE);
     correctionGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
@@ -467,6 +480,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxSyncHoverFrequency, BM_SETCHECK, syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED, 0);
     appliedSettings_ = settings;
     filterDesignValid_ = workspace.filterResult.valid;
     refreshRecalculateButton();
@@ -475,6 +489,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
     groupDelayGraph_.setData(buildGroupDelayGraphData(workspace));
     impulseGraph_.setData(buildImpulseGraphData(workspace));
+    applySharedFrequencyHoverMarker();
 }
 
 void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
@@ -606,6 +621,25 @@ bool FiltersPage::handleCommand(WORD commandId,
                                 WorkspaceState& workspace,
                                 bool& settingsChanged,
                                 bool& recalculateRequested) {
+    if ((commandId == kCorrectionGraph ||
+         commandId == kCorrectedGraph ||
+         commandId == kGroupDelayGraph) &&
+        notificationCode == PlotGraph::kHoverChangedNotification) {
+        if (!syncHoverFrequencyEnabled_) {
+            return true;
+        }
+
+        const PlotGraph* sourceGraph = commandId == kCorrectionGraph ? &correctionGraph_
+                                     : commandId == kCorrectedGraph ? &correctedGraph_
+                                                                    : &groupDelayGraph_;
+        sharedFrequencyHoverActive_ = sourceGraph->hasHoveredXValue();
+        if (sharedFrequencyHoverActive_) {
+            sharedFrequencyHoverHz_ = sourceGraph->hoveredXValue();
+        }
+        applySharedFrequencyHoverMarker();
+        return true;
+    }
+
     if (commandId == kComboTapCount && notificationCode == CBN_SELCHANGE) {
         workspace.filters.tapCount =
             tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
@@ -630,7 +664,8 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowInversionRight ||
          commandId == kCheckboxShowInversionLeft ||
          commandId == kCheckboxShowCorrectedLeft ||
-         commandId == kCheckboxShowCorrectedRight) &&
+         commandId == kCheckboxShowCorrectedRight ||
+         commandId == kCheckboxSyncHoverFrequency) &&
         notificationCode == BN_CLICKED) {
         showInputRight_ = SendMessageW(controls_.checkboxShowInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showInputLeft_ = SendMessageW(controls_.checkboxShowInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -638,8 +673,13 @@ bool FiltersPage::handleCommand(WORD commandId,
         showInversionLeft_ = SendMessageW(controls_.checkboxShowInversionLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showCorrectedLeft_ = SendMessageW(controls_.checkboxShowCorrectedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showCorrectedRight_ = SendMessageW(controls_.checkboxShowCorrectedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        syncHoverFrequencyEnabled_ = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        if (!syncHoverFrequencyEnabled_) {
+            sharedFrequencyHoverActive_ = false;
+        }
         correctionGraph_.setData(buildCorrectionGraphData(workspace));
         correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
+        applySharedFrequencyHoverMarker();
         return true;
     }
 
@@ -928,6 +968,12 @@ void FiltersPage::handleVScroll(WORD code, WORD thumbPosition) {
     }
 
     setScrollOffset(nextScrollOffset);
+}
+
+void FiltersPage::applySharedFrequencyHoverMarker() {
+    correctionGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    correctedGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    groupDelayGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
 }
 
 PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& workspace) const {

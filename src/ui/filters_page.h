@@ -53,6 +53,7 @@ private:
         HWND sliderSmoothness = nullptr;
         HWND valueSmoothness = nullptr;
         HWND buttonRecalculate = nullptr;
+        HWND checkboxSyncHoverFrequency = nullptr;
         HWND inversionTitle = nullptr;
         HWND inversionLegendFrame = nullptr;
         HWND checkboxShowInputRight = nullptr;
@@ -100,6 +101,11 @@ private:
     static constexpr int kCheckboxShowInversionLeft = 3410;
     static constexpr int kCheckboxShowCorrectedLeft = 3412;
     static constexpr int kCheckboxShowCorrectedRight = 3413;
+    static constexpr int kCheckboxSyncHoverFrequency = 3414;
+    static constexpr int kCorrectionGraph = 3420;
+    static constexpr int kCorrectedGraph = 3421;
+    static constexpr int kGroupDelayGraph = 3422;
+    static constexpr int kImpulseGraph = 3423;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
@@ -121,6 +127,7 @@ private:
     void setScrollOffset(int scrollOffset);
     bool handleMouseWheel(WPARAM wParam);
     void handleVScroll(WORD code, WORD thumbPosition);
+    void applySharedFrequencyHoverMarker();
     PlotGraphData buildCorrectionGraphData(const WorkspaceState& workspace) const;
     PlotGraphData buildCorrectedResponseGraphData(const WorkspaceState& workspace) const;
     PlotGraphData buildGroupDelayGraphData(const WorkspaceState& workspace) const;
@@ -139,6 +146,9 @@ private:
     bool showInversionLeft_ = true;
     bool showCorrectedLeft_ = true;
     bool showCorrectedRight_ = true;
+    bool syncHoverFrequencyEnabled_ = false;
+    bool sharedFrequencyHoverActive_ = false;
+    double sharedFrequencyHoverHz_ = 1000.0;
     FilterDesignSettings appliedSettings_{};
     bool filterDesignValid_ = false;
     bool recalculatePending_ = true;

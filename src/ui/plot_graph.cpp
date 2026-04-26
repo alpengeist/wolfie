@@ -489,6 +489,25 @@ void fillSelectionOverlay(HDC hdc, const RECT& selection) {
     DeleteDC(overlayDc);
 }
 
+void drawSharedHoverMarker(HDC hdc, const GraphLayout& layout, const PlotGraphData& data, double xValue) {
+    if (data.xValues.empty() || xValue < layout.visibleMinX || xValue > layout.visibleMaxX) {
+        return;
+    }
+
+    const int x = graphXFromValue(layout.graph, data.xAxisMode, layout.visibleMinX, layout.visibleMaxX, xValue);
+    HPEN markerPen = CreatePen(PS_DOT, 1, ui_theme::kAccent);
+    if (markerPen == nullptr) {
+        return;
+    }
+
+    const int savedDc = SaveDC(hdc);
+    SelectObject(hdc, markerPen);
+    MoveToEx(hdc, x, layout.graph.top, nullptr);
+    LineTo(hdc, x, layout.graph.bottom);
+    RestoreDC(hdc, savedDc);
+    DeleteObject(markerPen);
+}
+
 }  // namespace
 
 void PlotGraph::registerWindowClass(HINSTANCE instance) {
@@ -523,6 +542,20 @@ void PlotGraph::setData(PlotGraphData data) {
         resetView();
     }
     invalidateBackgroundCache();
+    invalidate();
+}
+
+void PlotGraph::setSharedHoverMarker(bool enabled, bool active, double xValue) {
+    const bool nextActive = enabled && active;
+    if (sharedHoverMarker_.enabled == enabled &&
+        sharedHoverMarker_.active == nextActive &&
+        std::abs(sharedHoverMarker_.xValue - xValue) < 1.0e-9) {
+        return;
+    }
+
+    sharedHoverMarker_.enabled = enabled;
+    sharedHoverMarker_.active = nextActive;
+    sharedHoverMarker_.xValue = xValue;
     invalidate();
 }
 
@@ -580,6 +613,9 @@ LRESULT CALLBACK PlotGraph::WindowProc(HWND window, UINT message, WPARAM wParam,
         return 0;
     case WM_MOUSEMOVE:
         graph->onMouseMove(lParam);
+        return 0;
+    case WM_MOUSELEAVE:
+        graph->onMouseLeave();
         return 0;
     case WM_LBUTTONUP:
         graph->onLButtonUp(lParam);
@@ -671,6 +707,22 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
     drawResetButton(hdc, layout.resetButton, hasCustomXRange_);
 }
 
+void PlotGraph::notifyHoverChanged() const {
+    if (window_ == nullptr) {
+        return;
+    }
+
+    HWND parent = GetParent(window_);
+    if (parent == nullptr) {
+        return;
+    }
+
+    SendMessageW(parent,
+                 WM_COMMAND,
+                 MAKEWPARAM(GetDlgCtrlID(window_), kHoverChangedNotification),
+                 reinterpret_cast<LPARAM>(window_));
+}
+
 void PlotGraph::onLButtonDown(LPARAM lParam) {
     if (window_ == nullptr) {
         return;
@@ -717,17 +769,69 @@ void PlotGraph::onLButtonUp(LPARAM lParam) {
 }
 
 void PlotGraph::onMouseMove(LPARAM lParam) {
+    if (window_ == nullptr) {
+        return;
+    }
+
+    if (!hover_.tracking) {
+        TRACKMOUSEEVENT tracking{};
+        tracking.cbSize = sizeof(tracking);
+        tracking.dwFlags = TME_LEAVE;
+        tracking.hwndTrack = window_;
+        TrackMouseEvent(&tracking);
+        hover_.tracking = true;
+    }
+
+    HDC hdc = GetDC(window_);
+    if (hdc == nullptr) {
+        return;
+    }
+    RECT rect{};
+    GetClientRect(window_, &rect);
+    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
+    ReleaseDC(window_, hdc);
+
+    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    const bool insideGraph = PtInRect(&layout.graph, position) != FALSE;
+    const double hoveredX =
+        insideGraph ? valueFromGraphX(layout.graph, data_.xAxisMode, layout.visibleMinX, layout.visibleMaxX, position.x)
+                    : hover_.xValue;
+    const bool hoverChanged = hover_.active != insideGraph ||
+                              hover_.position.x != position.x ||
+                              hover_.position.y != position.y ||
+                              std::abs(hover_.xValue - hoveredX) >= 1.0e-9;
+    hover_.active = insideGraph;
+    hover_.position = position;
+    hover_.xValue = hoveredX;
+    if (hoverChanged) {
+        notifyHoverChanged();
+        if (!brush_.active && sharedHoverMarker_.enabled) {
+            invalidate();
+        }
+    }
+
     if (!brush_.active) {
         return;
     }
 
-    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
     if (position.x == brush_.current.x && position.y == brush_.current.y) {
         return;
     }
 
     brush_.current = position;
     invalidate();
+}
+
+void PlotGraph::onMouseLeave() {
+    const bool hoverWasActive = hover_.active;
+    hover_.active = false;
+    hover_.tracking = false;
+    if (hoverWasActive) {
+        notifyHoverChanged();
+        if (!brush_.active && sharedHoverMarker_.enabled) {
+            invalidate();
+        }
+    }
 }
 
 void PlotGraph::onCaptureChanged() {
@@ -872,6 +976,10 @@ void PlotGraph::onPaint() const {
         SelectObject(frameDc, oldBrush);
         SelectObject(frameDc, oldPen);
         DeleteObject(selectionPen);
+    }
+
+    if (sharedHoverMarker_.enabled && sharedHoverMarker_.active) {
+        drawSharedHoverMarker(frameDc, layout, data_, sharedHoverMarker_.xValue);
     }
 
     BitBlt(hdc, 0, 0, rect.right - rect.left, rect.bottom - rect.top, frameDc, 0, 0, SRCCOPY);

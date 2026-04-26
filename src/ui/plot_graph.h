@@ -37,20 +37,38 @@ struct PlotGraphData {
 
 class PlotGraph {
 public:
+    static constexpr WORD kHoverChangedNotification = 0x7F11;
+
     static void registerWindowClass(HINSTANCE instance);
 
     void create(HWND parent, HINSTANCE instance, int controlId = 0);
     void setData(PlotGraphData data);
+    void setSharedHoverMarker(bool enabled, bool active, double xValue);
     void layout(const RECT& bounds) const;
     void invalidate() const;
 
     [[nodiscard]] HWND window() const { return window_; }
+    [[nodiscard]] bool hasHoveredXValue() const { return hover_.active; }
+    [[nodiscard]] double hoveredXValue() const { return hover_.xValue; }
 
 private:
+    struct HoverState {
+        bool active = false;
+        bool tracking = false;
+        POINT position{};
+        double xValue = 0.0;
+    };
+
     struct BrushState {
         bool active = false;
         POINT anchor{};
         POINT current{};
+    };
+
+    struct SharedHoverMarkerState {
+        bool enabled = false;
+        bool active = false;
+        double xValue = 0.0;
     };
 
     static constexpr wchar_t kWindowClassName[] = L"WolfiePlotGraph";
@@ -60,9 +78,11 @@ private:
     void invalidateBackgroundCache() const;
     void releaseBackgroundCache() const;
     void drawStaticLayer(HDC hdc, const RECT& rect) const;
+    void notifyHoverChanged() const;
     void onLButtonDown(LPARAM lParam);
     void onLButtonUp(LPARAM lParam);
     void onMouseMove(LPARAM lParam);
+    void onMouseLeave();
     void onCaptureChanged();
     void onLButtonDblClk(LPARAM lParam);
     void resetView();
@@ -70,10 +90,12 @@ private:
 
     HWND window_ = nullptr;
     PlotGraphData data_;
+    HoverState hover_;
     bool hasCustomXRange_ = false;
     double visibleMinX_ = 0.0;
     double visibleMaxX_ = 1.0;
     BrushState brush_;
+    SharedHoverMarkerState sharedHoverMarker_;
     mutable HBITMAP backgroundCacheBitmap_ = nullptr;
     mutable SIZE backgroundCacheSize_{};
     mutable bool backgroundCacheValid_ = false;
