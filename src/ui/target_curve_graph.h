@@ -30,14 +30,15 @@ public:
                   const MeasurementSettings& measurement,
                   const TargetCurveSettings& settings,
                   int selectedBandIndex);
-    void setExtraVisibleRangeDb(double extraVisibleRangeDb);
-    void setVerticalOffsetDb(double verticalOffsetDb);
+    void setVisibleDbRange(bool hasCustomRange, double minDb, double maxDb);
+    void resetVisibleDbRange();
     void layout(const RECT& bounds) const;
     void invalidate() const;
 
     [[nodiscard]] HWND window() const { return window_; }
-    [[nodiscard]] double extraVisibleRangeDb() const { return extraVisibleRangeDb_; }
-    [[nodiscard]] double verticalOffsetDb() const { return verticalOffsetDb_; }
+    [[nodiscard]] bool hasCustomVisibleDbRange() const { return hasCustomVisibleDbRange_; }
+    [[nodiscard]] double visibleMinDb() const { return visibleMinDb_; }
+    [[nodiscard]] double visibleMaxDb() const { return visibleMaxDb_; }
     [[nodiscard]] const SmoothedResponse& response() const { return response_; }
     [[nodiscard]] const TargetCurveSettings& settings() const { return settings_; }
     [[nodiscard]] const measurement::TargetCurvePlotData& plot() const { return plot_; }
@@ -67,6 +68,12 @@ private:
         POINT position{};
     };
 
+    struct BrushState {
+        bool active = false;
+        POINT anchor{};
+        POINT current{};
+    };
+
     static constexpr wchar_t kWindowClassName[] = L"WolfieTargetCurveGraph";
 
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -79,11 +86,12 @@ private:
     void notifyParent(WORD code) const;
     void rebuildPlot();
     void onPaint() const;
-    bool onMouseWheel(WPARAM wParam, LPARAM lParam);
     void onMouseMove(LPARAM lParam);
     void onMouseLeave();
     void onLButtonDown(LPARAM lParam);
-    void onLButtonUp();
+    void onLButtonUp(LPARAM lParam);
+    void onCaptureChanged();
+    void onLButtonDblClk(LPARAM lParam);
     void updateDrag(const POINT& position);
     void finishDrag(bool notifyCommit);
 
@@ -96,9 +104,11 @@ private:
     measurement::TargetCurvePlotData plot_;
     DragState drag_;
     HoverState hover_;
+    BrushState brush_;
     int selectedBandIndex_ = -1;
-    double extraVisibleRangeDb_ = 0.0;
-    double verticalOffsetDb_ = 0.0;
+    bool hasCustomVisibleDbRange_ = false;
+    double visibleMinDb_ = -12.0;
+    double visibleMaxDb_ = 12.0;
     mutable HBITMAP backgroundCacheBitmap_ = nullptr;
     mutable SIZE backgroundCacheSize_{};
     mutable bool backgroundCacheValid_ = false;

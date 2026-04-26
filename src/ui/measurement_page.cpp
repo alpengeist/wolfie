@@ -379,8 +379,9 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
     SendMessageW(controls_.comboSampleRate, CB_SETCURSEL, comboIndexFromMeasurementSampleRate(workspace.measurement.sampleRate), 0);
     setWindowTextValue(controls_.outputVolumeValue, formatOutputVolumeLabel(workspace.audio.outputVolumeDb));
     SendMessageW(controls_.outputVolumeSlider, TBM_SETPOS, TRUE, outputVolumeDbToSliderPosition(workspace.audio.outputVolumeDb));
-    responseGraph_.setExtraVisibleRangeDb(workspace.ui.measurementGraphExtraRangeDb);
-    responseGraph_.setVerticalOffsetDb(workspace.ui.measurementGraphVerticalOffsetDb);
+    responseGraph_.setVisibleFrequencyRange(workspace.ui.measurementGraphHasCustomFrequencyRange,
+                                            workspace.ui.measurementGraphVisibleMinFrequencyHz,
+                                            workspace.ui.measurementGraphVisibleMaxFrequencyHz);
     SendMessageW(controls_.comboPlot, CB_SETCURSEL, comboIndexFromPlotMode(workspace.ui.measurementPlotMode), 0);
     SendMessageW(controls_.comboWaterfallChannel,
                  CB_SETCURSEL,
@@ -400,8 +401,11 @@ void MeasurementPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.measurement.startFrequencyHz = std::stod(getWindowTextValue(controls_.editStartFrequency));
     workspace.measurement.targetLengthSamples = std::stoi(getWindowTextValue(controls_.editTargetLength));
     workspace.measurement.leadInSamples = std::stoi(getWindowTextValue(controls_.editLeadIn));
-    workspace.ui.measurementGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
-    workspace.ui.measurementGraphVerticalOffsetDb = responseGraph_.verticalOffsetDb();
+    workspace.ui.measurementGraphExtraRangeDb = 0.0;
+    workspace.ui.measurementGraphVerticalOffsetDb = 0.0;
+    workspace.ui.measurementGraphHasCustomFrequencyRange = responseGraph_.hasCustomVisibleFrequencyRange();
+    workspace.ui.measurementGraphVisibleMinFrequencyHz = responseGraph_.visibleMinFrequencyHz();
+    workspace.ui.measurementGraphVisibleMaxFrequencyHz = responseGraph_.visibleMaxFrequencyHz();
     workspace.ui.measurementPlotMode =
         plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0)));
     workspace.ui.measurementWaterfallChannel = waterfallChannelFromComboIndex(
@@ -549,8 +553,11 @@ bool MeasurementPage::handleCommand(WORD commandId,
     }
 
     if (commandId == kResponseGraph && notificationCode == ResponseGraph::kZoomChangedNotification) {
-        workspace.ui.measurementGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
-        workspace.ui.measurementGraphVerticalOffsetDb = responseGraph_.verticalOffsetDb();
+        workspace.ui.measurementGraphExtraRangeDb = 0.0;
+        workspace.ui.measurementGraphVerticalOffsetDb = 0.0;
+        workspace.ui.measurementGraphHasCustomFrequencyRange = responseGraph_.hasCustomVisibleFrequencyRange();
+        workspace.ui.measurementGraphVisibleMinFrequencyHz = responseGraph_.visibleMinFrequencyHz();
+        workspace.ui.measurementGraphVisibleMaxFrequencyHz = responseGraph_.visibleMaxFrequencyHz();
         graphZoomChanged = true;
         return true;
     }

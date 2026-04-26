@@ -17,8 +17,10 @@ namespace wolfie::ui {
 namespace {
 
 constexpr double kMinVisibleRangeDb = 2.0;
-constexpr double kWheelZoomScalePerStep = 0.8;
 constexpr int kHandleHalfSize = 5;
+constexpr int kMinBrushPixels = 6;
+constexpr int kResetButtonWidth = 54;
+constexpr int kResetButtonHeight = 20;
 
 template <typename T>
 T clampValue(T value, T low, T high) {
@@ -35,14 +37,11 @@ struct AxisLabel {
 
 struct GraphLayout {
     RECT graph{};
+    RECT resetButton{};
     int textHeight = 12;
-    double baseAxisMaxDb = 12.0;
     double axisMinDb = -12.0;
     double axisMaxDb = 12.0;
     double dbStep = 1.0;
-    double currentVisibleRangeDb = 24.0;
-    double defaultVisibleRangeDb = 24.0;
-    double minVisibleRangeDb = kMinVisibleRangeDb;
     double minFrequencyHz = 20.0;
     double maxFrequencyHz = 20000.0;
     std::vector<double> yTickValues;
@@ -179,9 +178,7 @@ std::vector<double> buildDbTickValues(double minDb, double maxDb) {
 
 GraphLayout buildLayout(HDC hdc,
                         const RECT& rect,
-                        const TargetCurveGraph& graph,
-                        double extraVisibleRangeDb,
-                        double verticalOffsetDb);
+                        const TargetCurveGraph& graph);
 
 double sampleSeriesAtFrequency(const std::vector<double>& axis,
                                const std::vector<double>& values,
@@ -307,11 +304,45 @@ bool pointHitsHandle(const POINT& position, const POINT& handle) {
            position.y <= handle.y + (kHandleHalfSize + 3);
 }
 
+void drawResetButton(HDC hdc, const RECT& rect, bool enabled) {
+    const COLORREF fill = enabled ? RGB(235, 240, 247) : RGB(243, 246, 250);
+    const COLORREF textColor = enabled ? ui_theme::kText : ui_theme::kMuted;
+    HBRUSH fillBrush = CreateSolidBrush(fill);
+    FillRect(hdc, &rect, fillBrush);
+    DeleteObject(fillBrush);
+
+    HPEN borderPen = CreatePen(PS_SOLID, 1, ui_theme::kBorder);
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, borderPen));
+    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)));
+    Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(borderPen);
+
+    RECT textRect = rect;
+    SetTextColor(hdc, textColor);
+    DrawTextW(hdc, L"Reset", -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+RECT brushRect(const RECT& graph, const POINT& anchor, const POINT& current) {
+    RECT rect{
+        graph.left,
+        std::min(anchor.y, current.y),
+        graph.right,
+        std::max(anchor.y, current.y),
+    };
+    rect.top = clampValue(rect.top, graph.top, graph.bottom);
+    rect.bottom = clampValue(rect.bottom, graph.top, graph.bottom);
+    return rect;
+}
+
+bool hasBrushHeight(const POINT& anchor, const POINT& current) {
+    return std::abs(current.y - anchor.y) >= kMinBrushPixels;
+}
+
 GraphLayout buildLayout(HDC hdc,
                         const RECT& rect,
-                        const TargetCurveGraph& graph,
-                        double extraVisibleRangeDb,
-                        double verticalOffsetDb) {
+                        const TargetCurveGraph& graph) {
     GraphLayout layout;
 
     TEXTMETRICW metrics{};
@@ -343,11 +374,20 @@ GraphLayout buildLayout(HDC hdc,
 
     minDb = std::floor(minDb - 2.0);
     maxDb = std::ceil(maxDb + 2.0);
-    layout.baseAxisMaxDb = maxDb;
-    layout.defaultVisibleRangeDb = std::max(layout.baseAxisMaxDb - minDb, 6.0);
-    layout.currentVisibleRangeDb = std::max(layout.defaultVisibleRangeDb + extraVisibleRangeDb, layout.minVisibleRangeDb);
-    layout.axisMaxDb = layout.baseAxisMaxDb + verticalOffsetDb;
-    layout.axisMinDb = layout.axisMaxDb - layout.currentVisibleRangeDb;
+    if (graph.hasCustomVisibleDbRange()) {
+        layout.axisMinDb = std::min(graph.visibleMinDb(), graph.visibleMaxDb());
+        layout.axisMaxDb = std::max(graph.visibleMinDb(), graph.visibleMaxDb());
+    } else {
+        const double defaultMinDb = minDb;
+        const double defaultMaxDb = std::max(maxDb, defaultMinDb + kMinVisibleRangeDb);
+        layout.axisMinDb = defaultMinDb;
+        layout.axisMaxDb = defaultMaxDb;
+    }
+    if ((layout.axisMaxDb - layout.axisMinDb) < kMinVisibleRangeDb) {
+        const double center = (layout.axisMinDb + layout.axisMaxDb) * 0.5;
+        layout.axisMinDb = center - (kMinVisibleRangeDb * 0.5);
+        layout.axisMaxDb = center + (kMinVisibleRangeDb * 0.5);
+    }
     layout.dbStep = preferredDbStep(layout.axisMinDb, layout.axisMaxDb);
     layout.minFrequencyHz = plotData.minFrequencyHz;
     layout.maxFrequencyHz = plotData.maxFrequencyHz;
@@ -358,9 +398,17 @@ GraphLayout buildLayout(HDC hdc,
         widestYLabel = std::max(widestYLabel, measureTextWidth(hdc, formatDbLabel(tickValue)));
     }
 
+    layout.resetButton = RECT{
+        rect.right - kResetButtonWidth - 8,
+        rect.top + 2,
+        rect.right - 8,
+        rect.top + 2 + kResetButtonHeight
+    };
+
+    const int infoLineHeight = std::max(layout.textHeight, kResetButtonHeight) + 6;
     layout.graph = RECT{
         rect.left + std::max(50, widestYLabel + 14),
-        rect.top + layout.textHeight + 10,
+        rect.top + infoLineHeight + 8,
         rect.right - 10,
         rect.bottom - (layout.textHeight + 18)
     };
@@ -385,6 +433,7 @@ COLORREF targetCurveBandColor(int colorIndex) {
 
 void TargetCurveGraph::registerWindowClass(HINSTANCE instance) {
     WNDCLASSW graphClass{};
+    graphClass.style = CS_DBLCLKS;
     graphClass.lpfnWndProc = WindowProc;
     graphClass.hInstance = instance;
     graphClass.lpszClassName = kWindowClassName;
@@ -428,22 +477,34 @@ void TargetCurveGraph::setModel(const SmoothedResponse& response,
     invalidate();
 }
 
-void TargetCurveGraph::setExtraVisibleRangeDb(double extraVisibleRangeDb) {
-    if (std::abs(extraVisibleRangeDb_ - extraVisibleRangeDb) < 0.001) {
+void TargetCurveGraph::setVisibleDbRange(bool hasCustomRange, double minDb, double maxDb) {
+    if (!hasCustomRange) {
+        resetVisibleDbRange();
+        invalidateBackgroundCache();
+        invalidate();
         return;
     }
-    extraVisibleRangeDb_ = extraVisibleRangeDb;
+
+    const double nextMinDb = std::min(minDb, maxDb);
+    const double nextMaxDb = std::max(minDb, maxDb);
+    if (hasCustomVisibleDbRange_ &&
+        std::abs(visibleMinDb_ - nextMinDb) < 0.001 &&
+        std::abs(visibleMaxDb_ - nextMaxDb) < 0.001) {
+        return;
+    }
+
+    hasCustomVisibleDbRange_ = true;
+    visibleMinDb_ = nextMinDb;
+    visibleMaxDb_ = nextMaxDb;
     invalidateBackgroundCache();
     invalidate();
 }
 
-void TargetCurveGraph::setVerticalOffsetDb(double verticalOffsetDb) {
-    if (std::abs(verticalOffsetDb_ - verticalOffsetDb) < 0.001) {
-        return;
-    }
-    verticalOffsetDb_ = verticalOffsetDb;
-    invalidateBackgroundCache();
-    invalidate();
+void TargetCurveGraph::resetVisibleDbRange() {
+    hasCustomVisibleDbRange_ = false;
+    visibleMinDb_ = -12.0;
+    visibleMaxDb_ = 12.0;
+    brush_ = {};
 }
 
 void TargetCurveGraph::layout(const RECT& bounds) const {
@@ -485,12 +546,12 @@ RECT TargetCurveGraph::infoLineRect() const {
     }
 
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this);
     ReleaseDC(window_, hdc);
 
     rect.left = layout.graph.left;
     rect.top += 2;
-    rect.right -= 8;
+    rect.right = layout.resetButton.left - 8;
     rect.bottom = layout.graph.top - 4;
     return rect;
 }
@@ -521,7 +582,7 @@ void TargetCurveGraph::drawStaticLayer(HDC hdc, const RECT& rect, const RECT& pa
     DeleteObject(background);
 
     SetBkMode(hdc, TRANSPARENT);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this);
     const std::vector<double> xTicks = buildFrequencyTickValues(plot_.minFrequencyHz, plot_.maxFrequencyHz);
     const std::vector<AxisLabel> xLabels = buildFrequencyLabels(hdc, layout.graph, plot_.minFrequencyHz, plot_.maxFrequencyHz, xTicks);
 
@@ -632,11 +693,6 @@ LRESULT CALLBACK TargetCurveGraph::WindowProc(HWND window, UINT message, WPARAM 
         return 0;
     case WM_ERASEBKGND:
         return 1;
-    case WM_MOUSEWHEEL:
-        if (graph->onMouseWheel(wParam, lParam)) {
-            return 0;
-        }
-        break;
     case WM_MOUSEMOVE:
         graph->onMouseMove(lParam);
         return 0;
@@ -647,10 +703,13 @@ LRESULT CALLBACK TargetCurveGraph::WindowProc(HWND window, UINT message, WPARAM 
         graph->onLButtonDown(lParam);
         return 0;
     case WM_LBUTTONUP:
-        graph->onLButtonUp();
+        graph->onLButtonUp(lParam);
         return 0;
     case WM_CAPTURECHANGED:
-        graph->finishDrag(true);
+        graph->onCaptureChanged();
+        return 0;
+    case WM_LBUTTONDBLCLK:
+        graph->onLButtonDblClk(lParam);
         return 0;
     case WM_SIZE:
         graph->invalidateBackgroundCache();
@@ -663,64 +722,6 @@ LRESULT CALLBACK TargetCurveGraph::WindowProc(HWND window, UINT message, WPARAM 
     }
 
     return DefWindowProcW(window, message, wParam, lParam);
-}
-
-bool TargetCurveGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
-    if (window_ == nullptr) {
-        return false;
-    }
-
-    HDC hdc = GetDC(window_);
-    if (hdc == nullptr) {
-        return false;
-    }
-    RECT rect{};
-    GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
-    ReleaseDC(window_, hdc);
-
-    POINT cursor{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    ScreenToClient(window_, &cursor);
-    if (PtInRect(&layout.graph, cursor) == FALSE) {
-        return false;
-    }
-
-    const int wheelSteps = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
-    if (wheelSteps == 0) {
-        return true;
-    }
-
-    if ((GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0) {
-        const double cursorDb = dbFromGraphY(layout.graph, cursor.y, layout.axisMinDb, layout.axisMaxDb);
-        const double cursorT =
-            (cursorDb - layout.axisMinDb) / std::max(layout.currentVisibleRangeDb, layout.minVisibleRangeDb);
-        const double nextVisibleRangeDb = std::max(layout.currentVisibleRangeDb *
-                                                       std::pow(kWheelZoomScalePerStep, static_cast<double>(wheelSteps)),
-                                                   layout.minVisibleRangeDb);
-        const double nextAxisMinDb = cursorDb - (cursorT * nextVisibleRangeDb);
-        const double nextAxisMaxDb = nextAxisMinDb + nextVisibleRangeDb;
-        const double nextExtra = nextVisibleRangeDb - layout.defaultVisibleRangeDb;
-        const double nextVerticalOffsetDb = nextAxisMaxDb - layout.baseAxisMaxDb;
-        if (std::abs(nextExtra - extraVisibleRangeDb_) < 0.001 &&
-            std::abs(nextVerticalOffsetDb - verticalOffsetDb_) < 0.001) {
-            return true;
-        }
-
-        extraVisibleRangeDb_ = nextExtra;
-        verticalOffsetDb_ = nextVerticalOffsetDb;
-    } else {
-        const double nextVerticalOffsetDb = verticalOffsetDb_ + (layout.dbStep * static_cast<double>(wheelSteps));
-        if (std::abs(nextVerticalOffsetDb - verticalOffsetDb_) < 0.001) {
-            return true;
-        }
-
-        verticalOffsetDb_ = nextVerticalOffsetDb;
-    }
-
-    invalidateBackgroundCache();
-    invalidate();
-    notifyParent(kZoomChangedNotification);
-    return true;
 }
 
 void TargetCurveGraph::onMouseMove(LPARAM lParam) {
@@ -744,7 +745,7 @@ void TargetCurveGraph::onMouseMove(LPARAM lParam) {
     }
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this);
     ReleaseDC(window_, hdc);
 
     const bool insideGraph = PtInRect(&layout.graph, position) != FALSE;
@@ -754,6 +755,11 @@ void TargetCurveGraph::onMouseMove(LPARAM lParam) {
 
     if (drag_.active) {
         updateDrag(position);
+    } else if (brush_.active) {
+        if (position.x != brush_.current.x || position.y != brush_.current.y) {
+            brush_.current = position;
+            invalidate();
+        }
     } else if (changed) {
         invalidateInfoLine();
     }
@@ -763,7 +769,7 @@ void TargetCurveGraph::onMouseLeave() {
     const bool hadHover = hover_.active;
     hover_.active = false;
     hover_.tracking = false;
-    if (hadHover) {
+    if (hadHover && !brush_.active) {
         invalidateInfoLine();
     }
 }
@@ -774,34 +780,152 @@ void TargetCurveGraph::onLButtonDown(LPARAM lParam) {
     }
 
     const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    DragHandleType type = DragHandleType::None;
-    const int bandIndex = hitTestHandle(position, type);
-    if (type == DragHandleType::None) {
+    HDC hdc = GetDC(window_);
+    if (hdc == nullptr) {
+        return;
+    }
+    RECT rect{};
+    GetClientRect(window_, &rect);
+    const GraphLayout layout = buildLayout(hdc, rect, *this);
+    ReleaseDC(window_, hdc);
+
+    if (hasCustomVisibleDbRange_ && PtInRect(&layout.resetButton, position) != FALSE) {
+        resetVisibleDbRange();
+        invalidateBackgroundCache();
+        invalidate();
+        notifyParent(kZoomChangedNotification);
         return;
     }
 
-    if (type == DragHandleType::EqBand && bandIndex != selectedBandIndex_) {
-        selectedBandIndex_ = bandIndex;
-        rebuildPlot();
-        notifyParent(kSelectionChangedNotification);
+    DragHandleType type = DragHandleType::None;
+    const int bandIndex = hitTestHandle(position, type);
+    if (type == DragHandleType::None && PtInRect(&layout.graph, position) == FALSE) {
+        return;
     }
 
-    drag_.active = true;
-    drag_.type = type;
-    drag_.bandIndex = bandIndex;
-    drag_.origin = position;
-    drag_.changed = false;
-    drag_.originalSettings = settings_;
+    if (type != DragHandleType::None) {
+        if (type == DragHandleType::EqBand && bandIndex != selectedBandIndex_) {
+            selectedBandIndex_ = bandIndex;
+            rebuildPlot();
+            notifyParent(kSelectionChangedNotification);
+        }
+
+        drag_.active = true;
+        drag_.type = type;
+        drag_.bandIndex = bandIndex;
+        drag_.origin = position;
+        drag_.changed = false;
+        drag_.originalSettings = settings_;
+        SetCapture(window_);
+        invalidate();
+        return;
+    }
+
+    brush_.active = true;
+    brush_.anchor = position;
+    brush_.current = position;
     SetCapture(window_);
     invalidate();
 }
 
-void TargetCurveGraph::onLButtonUp() {
-    const bool hadCapture = window_ != nullptr && GetCapture() == window_;
-    finishDrag(true);
-    if (hadCapture) {
-        ReleaseCapture();
+void TargetCurveGraph::onLButtonUp(LPARAM lParam) {
+    if (drag_.active) {
+        const bool hadCapture = window_ != nullptr && GetCapture() == window_;
+        finishDrag(true);
+        if (hadCapture) {
+            ReleaseCapture();
+        }
+        return;
     }
+
+    if (!brush_.active) {
+        return;
+    }
+
+    brush_.current = POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (GetCapture() == window_) {
+        ReleaseCapture();
+    } else {
+        onCaptureChanged();
+    }
+}
+
+void TargetCurveGraph::onCaptureChanged() {
+    if (drag_.active) {
+        finishDrag(true);
+        return;
+    }
+
+    if (!brush_.active || window_ == nullptr) {
+        return;
+    }
+
+    HDC hdc = GetDC(window_);
+    if (hdc == nullptr) {
+        brush_ = {};
+        invalidate();
+        return;
+    }
+    RECT rect{};
+    GetClientRect(window_, &rect);
+    const GraphLayout layout = buildLayout(hdc, rect, *this);
+    ReleaseDC(window_, hdc);
+
+    bool changed = false;
+    if (hasBrushHeight(brush_.anchor, brush_.current)) {
+        const double nextMaxDb = dbFromGraphY(layout.graph,
+                                              std::min(brush_.anchor.y, brush_.current.y),
+                                              layout.axisMinDb,
+                                              layout.axisMaxDb);
+        const double nextMinDb = dbFromGraphY(layout.graph,
+                                              std::max(brush_.anchor.y, brush_.current.y),
+                                              layout.axisMinDb,
+                                              layout.axisMaxDb);
+        if ((nextMaxDb - nextMinDb) >= kMinVisibleRangeDb) {
+            hasCustomVisibleDbRange_ = true;
+            visibleMinDb_ = nextMinDb;
+            visibleMaxDb_ = nextMaxDb;
+            changed = true;
+        }
+    }
+
+    brush_ = {};
+    invalidateBackgroundCache();
+    invalidate();
+    if (changed) {
+        notifyParent(kZoomChangedNotification);
+    }
+}
+
+void TargetCurveGraph::onLButtonDblClk(LPARAM lParam) {
+    if (window_ == nullptr || !hasCustomVisibleDbRange_) {
+        return;
+    }
+
+    HDC hdc = GetDC(window_);
+    if (hdc == nullptr) {
+        return;
+    }
+    RECT rect{};
+    GetClientRect(window_, &rect);
+    const GraphLayout layout = buildLayout(hdc, rect, *this);
+    ReleaseDC(window_, hdc);
+
+    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    DragHandleType type = DragHandleType::None;
+    const int hitIndex = hitTestHandle(position, type);
+    (void)hitIndex;
+    if (type != DragHandleType::None) {
+        return;
+    }
+    if (PtInRect(&layout.graph, position) == FALSE && PtInRect(&layout.resetButton, position) == FALSE) {
+        return;
+    }
+
+    resetVisibleDbRange();
+    invalidateBackgroundCache();
+    invalidate();
+    notifyParent(kZoomChangedNotification);
 }
 
 void TargetCurveGraph::updateDrag(const POINT& position) {
@@ -815,7 +939,7 @@ void TargetCurveGraph::updateDrag(const POINT& position) {
     }
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this);
     ReleaseDC(window_, hdc);
 
     const double currentDb = dbFromGraphY(layout.graph, position.y, layout.axisMinDb, layout.axisMaxDb);
@@ -878,7 +1002,7 @@ int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type)
     }
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this);
     ReleaseDC(window_, hdc);
 
     const double lowHandleDb = plot_.basicCurveDb.empty() ? settings_.lowGainDb : plot_.basicCurveDb.front();
@@ -952,7 +1076,7 @@ void TargetCurveGraph::onPaint() const {
 
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, *this, extraVisibleRangeDb_, verticalOffsetDb_);
+    const GraphLayout layout = buildLayout(hdc, rect, *this);
     HDC cacheSource = CreateCompatibleDC(hdc);
     if (cacheSource == nullptr) {
         EndPaint(window_, &paint);
@@ -1043,14 +1167,43 @@ void TargetCurveGraph::onPaint() const {
         }
     }
 
-    if (hover_.active && PtInRect(&layout.graph, hover_.position) != FALSE) {
+    RECT infoRect{layout.graph.left, rect.top + 2, layout.resetButton.left - 8, layout.graph.top - 4};
+    if (brush_.active && hasBrushHeight(brush_.anchor, brush_.current)) {
+        const double brushMaxDb = dbFromGraphY(layout.graph,
+                                               std::min(brush_.anchor.y, brush_.current.y),
+                                               layout.axisMinDb,
+                                               layout.axisMaxDb);
+        const double brushMinDb = dbFromGraphY(layout.graph,
+                                               std::max(brush_.anchor.y, brush_.current.y),
+                                               layout.axisMinDb,
+                                               layout.axisMaxDb);
+        const std::wstring info = L"Zoom " + formatDbLabel(brushMinDb) + L" dB to " + formatDbLabel(brushMaxDb) + L" dB";
+        SetTextColor(frameDc, ui_theme::kAccent);
+        DrawTextW(frameDc, info.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    } else if (hover_.active && PtInRect(&layout.graph, hover_.position) != FALSE) {
         const double frequencyHz = frequencyFromGraphX(layout.graph, plot_.minFrequencyHz, plot_.maxFrequencyHz, hover_.position.x);
         const double db = dbFromGraphY(layout.graph, hover_.position.y, layout.axisMinDb, layout.axisMaxDb);
         const std::wstring info = formatWideDouble(db, 1) + L" dB @ " + formatWideDouble(frequencyHz, frequencyHz < 100.0 ? 1 : 0) + L" Hz";
-        RECT infoRect{layout.graph.left, rect.top + 2, rect.right - 8, layout.graph.top - 4};
         SetTextColor(frameDc, ui_theme::kAccent);
         DrawTextW(frameDc, info.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
+
+    if (brush_.active && hasBrushHeight(brush_.anchor, brush_.current)) {
+        const RECT selection = brushRect(layout.graph, brush_.anchor, brush_.current);
+        HBRUSH selectionBrush = CreateSolidBrush(RGB(214, 227, 244));
+        FillRect(frameDc, &selection, selectionBrush);
+        DeleteObject(selectionBrush);
+
+        HPEN selectionPen = CreatePen(PS_SOLID, 1, ui_theme::kAccent);
+        HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(frameDc, selectionPen));
+        HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(frameDc, GetStockObject(HOLLOW_BRUSH)));
+        Rectangle(frameDc, selection.left, selection.top, selection.right, selection.bottom);
+        SelectObject(frameDc, oldBrush);
+        SelectObject(frameDc, oldPen);
+        DeleteObject(selectionPen);
+    }
+
+    drawResetButton(frameDc, layout.resetButton, hasCustomVisibleDbRange_);
 
     BitBlt(hdc, 0, 0, rect.right - rect.left, rect.bottom - rect.top, frameDc, 0, 0, SRCCOPY);
     SelectObject(frameDc, oldFrameBitmap);

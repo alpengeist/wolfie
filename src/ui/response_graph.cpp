@@ -16,8 +16,10 @@ namespace {
 
 constexpr double kMinFrequencyHz = 10.0;
 constexpr double kMaxFrequencyHz = 20000.0;
-constexpr double kMinVisibleRangeDb = 0.05;
-constexpr double kWheelZoomScalePerStep = 0.8;
+constexpr double kMinimumVisibleDbSpan = 1.0;
+constexpr int kMinBrushPixels = 6;
+constexpr int kResetButtonWidth = 54;
+constexpr int kResetButtonHeight = 20;
 
 struct AxisLabel {
     double value = 0.0;
@@ -29,28 +31,33 @@ struct AxisLabel {
 
 struct GraphLayout {
     RECT graph{};
+    RECT resetButton{};
     int textHeight = 12;
-    double baseAxisMaxDb = 1.0;
     double axisMinDb = 0.0;
     double axisMaxDb = 1.0;
     double dbStep = 1.0;
-    double minVisibleRangeDb = 1.0;
-    double defaultVisibleRangeDb = 1.0;
-    double currentVisibleRangeDb = 1.0;
+    double visibleMinFrequencyHz = kMinFrequencyHz;
+    double visibleMaxFrequencyHz = kMaxFrequencyHz;
     std::vector<double> yTickValues;
 };
-
-bool isMajorFrequencyTick(double frequencyHz) {
-    return frequencyHz == 10.0 || frequencyHz == 100.0 || frequencyHz == 1000.0 || frequencyHz == 10000.0 ||
-           frequencyHz == kMaxFrequencyHz;
-}
 
 template <typename T>
 T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
 }
 
-double responseGraphXT(double frequencyHz) {
+bool isMajorFrequencyTick(double frequencyHz) {
+    return frequencyHz == 10.0 || frequencyHz == 100.0 || frequencyHz == 1000.0 || frequencyHz == 10000.0 ||
+           frequencyHz == kMaxFrequencyHz;
+}
+
+int measureTextWidth(HDC hdc, const std::wstring& text) {
+    SIZE size{};
+    GetTextExtentPoint32W(hdc, text.c_str(), static_cast<int>(text.size()), &size);
+    return size.cx;
+}
+
+double responseGraphFullXT(double frequencyHz) {
     const double clamped = clampValue(frequencyHz, kMinFrequencyHz, 24000.0);
     if (clamped < 100.0) {
         return std::log10(clamped / 10.0) / 3.5;
@@ -87,33 +94,10 @@ std::wstring formatDbTickLabel(double valueDb) {
         return formatWideDouble(valueDb, 2);
     }
 
-    const int decimals = 3;
-    return formatWideDouble(valueDb, decimals);
+    return formatWideDouble(valueDb, 3);
 }
 
-int measureTextWidth(HDC hdc, const std::wstring& text) {
-    SIZE size{};
-    GetTextExtentPoint32W(hdc, text.c_str(), static_cast<int>(text.size()), &size);
-    return size.cx;
-}
-
-int graphXFromFrequency(const RECT& graph, double frequencyHz) {
-    return graph.left + static_cast<int>(std::lround(responseGraphXT(frequencyHz) * (graph.right - graph.left)));
-}
-
-int graphYFromDb(const RECT& graph, double valueDb, double minDb, double maxDb) {
-    const double range = std::max(maxDb - minDb, 1e-6);
-    const double yT = clampValue((valueDb - minDb) / range, 0.0, 1.0);
-    return graph.bottom - static_cast<int>(std::lround(yT * (graph.bottom - graph.top)));
-}
-
-int unclampedGraphYFromDb(const RECT& graph, double valueDb, double minDb, double maxDb) {
-    const double range = std::max(maxDb - minDb, 1e-6);
-    const double yT = (valueDb - minDb) / range;
-    return graph.bottom - static_cast<int>(std::lround(yT * (graph.bottom - graph.top)));
-}
-
-double responseGraphFrequencyAtT(double xT) {
+double responseGraphFrequencyAtFullT(double xT) {
     const double scaled = clampValue(xT, 0.0, 1.0) * 3.5;
     if (scaled < 1.0) {
         return 10.0 * std::pow(10.0, scaled);
@@ -127,11 +111,41 @@ double responseGraphFrequencyAtT(double xT) {
     return 10000.0 * std::pow(2.0, (scaled - 3.0) / 0.5);
 }
 
-double frequencyFromGraphX(const RECT& graph, int x) {
+double visibleResponseXT(double frequencyHz, double minVisibleFrequencyHz, double maxVisibleFrequencyHz) {
+    const double startXT = responseGraphFullXT(minVisibleFrequencyHz);
+    const double endXT = responseGraphFullXT(maxVisibleFrequencyHz);
+    return (responseGraphFullXT(frequencyHz) - startXT) / std::max(endXT - startXT, 1.0e-9);
+}
+
+int graphXFromFrequency(const RECT& graph,
+                        double minVisibleFrequencyHz,
+                        double maxVisibleFrequencyHz,
+                        double frequencyHz,
+                        bool clampToGraph = true) {
+    const double xT = clampToGraph ? clampValue(visibleResponseXT(frequencyHz, minVisibleFrequencyHz, maxVisibleFrequencyHz), 0.0, 1.0)
+                                   : visibleResponseXT(frequencyHz, minVisibleFrequencyHz, maxVisibleFrequencyHz);
+    return graph.left + static_cast<int>(std::lround(xT * (graph.right - graph.left)));
+}
+
+int graphYFromDb(const RECT& graph, double valueDb, double minDb, double maxDb) {
+    const double range = std::max(maxDb - minDb, 1.0e-6);
+    const double yT = clampValue((valueDb - minDb) / range, 0.0, 1.0);
+    return graph.bottom - static_cast<int>(std::lround(yT * (graph.bottom - graph.top)));
+}
+
+int unclampedGraphYFromDb(const RECT& graph, double valueDb, double minDb, double maxDb) {
+    const double range = std::max(maxDb - minDb, 1.0e-6);
+    const double yT = (valueDb - minDb) / range;
+    return graph.bottom - static_cast<int>(std::lround(yT * (graph.bottom - graph.top)));
+}
+
+double frequencyFromGraphX(const RECT& graph, double minVisibleFrequencyHz, double maxVisibleFrequencyHz, int x) {
     const int width = std::max(static_cast<int>(graph.right - graph.left), 1);
     const double xT =
         static_cast<double>(clampValue(static_cast<int>(x - graph.left), 0, width)) / static_cast<double>(width);
-    return clampValue(responseGraphFrequencyAtT(xT), kMinFrequencyHz, kMaxFrequencyHz);
+    const double startXT = responseGraphFullXT(minVisibleFrequencyHz);
+    const double endXT = responseGraphFullXT(maxVisibleFrequencyHz);
+    return clampValue(responseGraphFrequencyAtFullT(startXT + ((endXT - startXT) * xT)), kMinFrequencyHz, kMaxFrequencyHz);
 }
 
 double dbFromGraphY(const RECT& graph, int y, double minDb, double maxDb) {
@@ -163,15 +177,167 @@ double nextNiceStep(double rawStep) {
     return 10.0 * magnitude;
 }
 
-std::vector<double> buildFrequencyTickValues(const RECT& graph) {
+bool scanVisibleDbRange(const ResponseGraphData& data,
+                        double minVisibleFrequencyHz,
+                        double maxVisibleFrequencyHz,
+                        double& minDb,
+                        double& maxDb) {
+    bool found = false;
+    for (const ResponseGraphSeries& series : data.series) {
+        const size_t count = std::min(data.frequencyAxisHz.size(), series.values.size());
+        for (size_t index = 0; index < count; ++index) {
+            const double frequencyHz = data.frequencyAxisHz[index];
+            if (frequencyHz < minVisibleFrequencyHz || frequencyHz > maxVisibleFrequencyHz) {
+                continue;
+            }
+
+            const double valueDb = series.values[index];
+            minDb = found ? std::min(minDb, valueDb) : valueDb;
+            maxDb = found ? std::max(maxDb, valueDb) : valueDb;
+            found = true;
+        }
+    }
+    return found;
+}
+
+void expandVisibleDbRange(double& minDb, double& maxDb) {
+    if (!std::isfinite(minDb) || !std::isfinite(maxDb)) {
+        minDb = -1.0;
+        maxDb = 1.0;
+        return;
+    }
+
+    if (std::abs(maxDb - minDb) < 1.0e-9) {
+        const double halfSpan = kMinimumVisibleDbSpan * 0.5;
+        minDb -= halfSpan;
+        maxDb += halfSpan;
+        return;
+    }
+
+    const double range = maxDb - minDb;
+    const double pad = std::max(range * 0.08, kMinimumVisibleDbSpan * 0.05);
+    minDb -= pad;
+    maxDb += pad;
+}
+
+std::vector<double> buildDbTickValues(double minDb, double maxDb, double stepDb) {
+    std::vector<double> ticks;
+    if (stepDb <= 0.0 || maxDb < minDb) {
+        return ticks;
+    }
+
+    const double first = std::floor(minDb / stepDb) * stepDb;
+    const double last = std::ceil(maxDb / stepDb) * stepDb;
+    for (double value = first; value <= last + (stepDb * 0.25); value += stepDb) {
+        ticks.push_back(value);
+    }
+    return ticks;
+}
+
+GraphLayout buildGraphLayout(HDC hdc,
+                             const RECT& rect,
+                             const ResponseGraphData& data,
+                             bool hasCustomVisibleFrequencyRange,
+                             double customMinFrequencyHz,
+                             double customMaxFrequencyHz) {
+    GraphLayout layout;
+
+    TEXTMETRICW metrics{};
+    GetTextMetricsW(hdc, &metrics);
+    layout.textHeight = std::max(static_cast<int>(metrics.tmHeight), 12);
+
+    double fullMinFrequencyHz = kMinFrequencyHz;
+    double fullMaxFrequencyHz = kMaxFrequencyHz;
+    if (!data.frequencyAxisHz.empty()) {
+        fullMinFrequencyHz = clampValue(data.frequencyAxisHz.front(), kMinFrequencyHz, kMaxFrequencyHz);
+        fullMaxFrequencyHz = clampValue(data.frequencyAxisHz.back(), fullMinFrequencyHz + 1.0, kMaxFrequencyHz);
+    }
+
+    layout.visibleMinFrequencyHz = fullMinFrequencyHz;
+    layout.visibleMaxFrequencyHz = fullMaxFrequencyHz;
+    if (hasCustomVisibleFrequencyRange) {
+        layout.visibleMinFrequencyHz =
+            clampValue(std::min(customMinFrequencyHz, customMaxFrequencyHz), fullMinFrequencyHz, fullMaxFrequencyHz);
+        layout.visibleMaxFrequencyHz =
+            clampValue(std::max(customMinFrequencyHz, customMaxFrequencyHz), fullMinFrequencyHz, fullMaxFrequencyHz);
+        if (std::abs(layout.visibleMaxFrequencyHz - layout.visibleMinFrequencyHz) < 1.0e-9) {
+            layout.visibleMinFrequencyHz = fullMinFrequencyHz;
+            layout.visibleMaxFrequencyHz = fullMaxFrequencyHz;
+        }
+    }
+
+    double axisMinDb = std::numeric_limits<double>::max();
+    double axisMaxDb = std::numeric_limits<double>::lowest();
+    if (!scanVisibleDbRange(data, layout.visibleMinFrequencyHz, layout.visibleMaxFrequencyHz, axisMinDb, axisMaxDb)) {
+        axisMinDb = data.minDb;
+        axisMaxDb = data.minDb + 1.0;
+        for (const ResponseGraphSeries& series : data.series) {
+            for (const double value : series.values) {
+                axisMinDb = std::min(axisMinDb, value);
+                axisMaxDb = std::max(axisMaxDb, value);
+            }
+        }
+    }
+    expandVisibleDbRange(axisMinDb, axisMaxDb);
+    layout.axisMinDb = axisMinDb;
+    layout.axisMaxDb = axisMaxDb;
+
+    const int infoLineHeight = std::max(layout.textHeight, kResetButtonHeight) + 6;
+    const int estimatedGraphHeight = std::max(static_cast<int>(rect.bottom - rect.top) - (layout.textHeight + 22) -
+                                                  infoLineHeight,
+                                              80);
+    const double rawDbStep = (layout.axisMaxDb - layout.axisMinDb) * static_cast<double>(layout.textHeight + 10) /
+                             static_cast<double>(std::max(estimatedGraphHeight, 1));
+    layout.dbStep = nextNiceStep(rawDbStep);
+    layout.yTickValues = buildDbTickValues(layout.axisMinDb, layout.axisMaxDb, layout.dbStep);
+
+    int widestYLabel = 0;
+    for (const double tickValue : layout.yTickValues) {
+        widestYLabel = std::max(widestYLabel, measureTextWidth(hdc, formatDbTickLabel(tickValue)));
+    }
+
+    layout.resetButton = RECT{
+        rect.right - kResetButtonWidth - 8,
+        rect.top + 2,
+        rect.right - 8,
+        rect.top + 2 + kResetButtonHeight,
+    };
+    layout.graph = RECT{
+        rect.left + std::max(44, widestYLabel + 12),
+        rect.top + infoLineHeight + 8,
+        rect.right - 8,
+        rect.bottom - (layout.textHeight + 14),
+    };
+
+    if (layout.graph.right - layout.graph.left < 40) {
+        layout.graph.left = rect.left + 40;
+        layout.graph.right = rect.right - 4;
+    }
+    if (layout.graph.bottom - layout.graph.top < 40) {
+        layout.graph.top = rect.top + infoLineHeight + 4;
+        layout.graph.bottom = rect.bottom - (layout.textHeight + 8);
+    }
+
+    return layout;
+}
+
+std::vector<double> buildFrequencyTickValues(const RECT& graph,
+                                             double minVisibleFrequencyHz,
+                                             double maxVisibleFrequencyHz) {
     std::vector<double> candidates;
     for (double decade = 10.0; decade <= 1000.0; decade *= 10.0) {
         for (int multiplier = 1; multiplier <= 9; ++multiplier) {
-            candidates.push_back(decade * static_cast<double>(multiplier));
+            const double frequencyHz = decade * static_cast<double>(multiplier);
+            if (frequencyHz < minVisibleFrequencyHz || frequencyHz > maxVisibleFrequencyHz) {
+                continue;
+            }
+            candidates.push_back(frequencyHz);
         }
     }
     for (double frequencyHz = 10000.0; frequencyHz <= kMaxFrequencyHz; frequencyHz += 1000.0) {
-        candidates.push_back(frequencyHz);
+        if (frequencyHz >= minVisibleFrequencyHz && frequencyHz <= maxVisibleFrequencyHz) {
+            candidates.push_back(frequencyHz);
+        }
     }
 
     std::vector<double> ticks;
@@ -179,27 +345,34 @@ std::vector<double> buildFrequencyTickValues(const RECT& graph) {
     const int minPixelSpacing = clampValue(graphWidth / 60, 8, 12);
     int lastPixel = std::numeric_limits<int>::min() / 2;
     for (const double candidate : candidates) {
-        const int pixel = graphXFromFrequency(graph, candidate);
+        const int pixel = graphXFromFrequency(graph, minVisibleFrequencyHz, maxVisibleFrequencyHz, candidate);
         if (ticks.empty() || isMajorFrequencyTick(candidate) || pixel - lastPixel >= minPixelSpacing ||
-            candidate >= kMaxFrequencyHz) {
+            candidate >= maxVisibleFrequencyHz) {
             ticks.push_back(candidate);
             lastPixel = pixel;
         }
     }
 
-    if (ticks.empty() || ticks.back() < kMaxFrequencyHz) {
-        ticks.push_back(kMaxFrequencyHz);
+    if (ticks.empty() || ticks.front() > minVisibleFrequencyHz) {
+        ticks.insert(ticks.begin(), minVisibleFrequencyHz);
+    }
+    if (ticks.back() < maxVisibleFrequencyHz) {
+        ticks.push_back(maxVisibleFrequencyHz);
     }
     return ticks;
 }
 
-std::vector<AxisLabel> buildFrequencyLabels(HDC hdc, const RECT& graph, const std::vector<double>& tickValues) {
+std::vector<AxisLabel> buildFrequencyLabels(HDC hdc,
+                                            const RECT& graph,
+                                            double minVisibleFrequencyHz,
+                                            double maxVisibleFrequencyHz,
+                                            const std::vector<double>& tickValues) {
     std::vector<AxisLabel> candidates;
     candidates.reserve(tickValues.size());
     for (const double tickValue : tickValues) {
         AxisLabel label;
         label.value = tickValue;
-        label.pixel = graphXFromFrequency(graph, tickValue);
+        label.pixel = graphXFromFrequency(graph, minVisibleFrequencyHz, maxVisibleFrequencyHz, tickValue);
         label.text = formatResponseTickLabel(tickValue);
         const int width = measureTextWidth(hdc, label.text);
         label.left = clampValue(label.pixel - width / 2,
@@ -252,81 +425,6 @@ std::vector<AxisLabel> buildFrequencyLabels(HDC hdc, const RECT& graph, const st
     return labels.empty() ? candidates : labels;
 }
 
-std::vector<double> buildDbTickValues(double minDb, double maxDb, double stepDb) {
-    std::vector<double> ticks;
-    if (stepDb <= 0.0 || maxDb < minDb) {
-        return ticks;
-    }
-
-    const double rangeDb = maxDb - minDb;
-    const int steps = std::max(static_cast<int>(std::floor((rangeDb / stepDb) + 0.001)), 0);
-    ticks.reserve(static_cast<size_t>(steps + 1));
-    for (int index = steps; index >= 0; --index) {
-        ticks.push_back(maxDb - (stepDb * static_cast<double>(index)));
-    }
-    return ticks;
-}
-
-GraphLayout buildGraphLayout(HDC hdc,
-                             const RECT& rect,
-                             const ResponseGraphData& data,
-                             double extraVisibleRangeDb,
-                             double verticalOffsetDb) {
-    GraphLayout layout;
-
-    TEXTMETRICW metrics{};
-    GetTextMetricsW(hdc, &metrics);
-    layout.textHeight = std::max(static_cast<int>(metrics.tmHeight), 12);
-
-    const double dataMinDb = data.minDb;
-    double dataMaxDb = dataMinDb + 1.0;
-    for (const auto& series : data.series) {
-        for (const double value : series.values) {
-            dataMaxDb = std::max(dataMaxDb, value);
-        }
-    }
-    dataMaxDb = std::ceil(dataMaxDb);
-    layout.baseAxisMaxDb = dataMaxDb;
-
-    const int infoLineHeight = layout.textHeight + 6;
-    const int estimatedGraphHeight = std::max(static_cast<int>(rect.bottom - rect.top) - (layout.textHeight + 22) -
-                                                  infoLineHeight,
-                                              80);
-    const double fullVisibleRangeDb = std::max(layout.baseAxisMaxDb - dataMinDb, 1.0);
-    layout.defaultVisibleRangeDb = fullVisibleRangeDb;
-    layout.minVisibleRangeDb = kMinVisibleRangeDb;
-    layout.currentVisibleRangeDb = std::max(layout.defaultVisibleRangeDb + extraVisibleRangeDb, layout.minVisibleRangeDb);
-    layout.axisMaxDb = layout.baseAxisMaxDb + verticalOffsetDb;
-    layout.axisMinDb = layout.axisMaxDb - layout.currentVisibleRangeDb;
-    const double rawDbStep = layout.currentVisibleRangeDb * static_cast<double>(layout.textHeight + 10) /
-                             static_cast<double>(std::max(estimatedGraphHeight, 1));
-    layout.dbStep = nextNiceStep(rawDbStep);
-    layout.yTickValues = buildDbTickValues(layout.axisMinDb, layout.axisMaxDb, layout.dbStep);
-
-    int widestYLabel = 0;
-    for (const double tickValue : layout.yTickValues) {
-        widestYLabel = std::max(widestYLabel, measureTextWidth(hdc, formatDbTickLabel(tickValue)));
-    }
-
-    layout.graph = RECT{
-        rect.left + std::max(44, widestYLabel + 12),
-        rect.top + infoLineHeight + 8,
-        rect.right - 8,
-        rect.bottom - (layout.textHeight + 14),
-    };
-
-    if (layout.graph.right - layout.graph.left < 40) {
-        layout.graph.left = rect.left + 40;
-        layout.graph.right = rect.right - 4;
-    }
-    if (layout.graph.bottom - layout.graph.top < 40) {
-        layout.graph.top = rect.top + infoLineHeight + 4;
-        layout.graph.bottom = rect.bottom - (layout.textHeight + 8);
-    }
-
-    return layout;
-}
-
 std::wstring formatHoverFrequency(double frequencyHz) {
     const int decimals = frequencyHz < 100.0 ? 1 : 0;
     return formatWideDouble(frequencyHz, decimals) + L" Hz";
@@ -347,10 +445,36 @@ std::wstring formatHoverQuarterWavelength(double wavelengthMeters) {
     return L"lambda/4: " + formatWideDouble(quarterWavelengthMeters, decimals) + L" m";
 }
 
+std::wstring formatBrushFrequencyRange(double minFrequencyHz, double maxFrequencyHz) {
+    return L"Zoom " + formatHoverFrequency(minFrequencyHz) + L" - " + formatHoverFrequency(maxFrequencyHz);
+}
+
+void drawResetButton(HDC hdc, const RECT& rect, bool enabled) {
+    const COLORREF fill = enabled ? RGB(235, 240, 247) : RGB(243, 246, 250);
+    const COLORREF textColor = enabled ? ui_theme::kText : ui_theme::kMuted;
+    HBRUSH fillBrush = CreateSolidBrush(fill);
+    FillRect(hdc, &rect, fillBrush);
+    DeleteObject(fillBrush);
+
+    HPEN borderPen = CreatePen(PS_SOLID, 1, ui_theme::kBorder);
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, borderPen));
+    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)));
+    Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(borderPen);
+
+    RECT textRect = rect;
+    SetTextColor(hdc, textColor);
+    DrawTextW(hdc, L"Reset", -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
 void drawSeries(HDC hdc,
                 const RECT& graph,
                 double axisMinDb,
                 double axisMaxDb,
+                double minVisibleFrequencyHz,
+                double maxVisibleFrequencyHz,
                 const std::vector<double>& frequencyAxisHz,
                 const std::vector<double>& values,
                 COLORREF color) {
@@ -362,8 +486,11 @@ void drawSeries(HDC hdc,
     const int savedDc = SaveDC(hdc);
     IntersectClipRect(hdc, graph.left, graph.top, graph.right, graph.bottom);
     for (size_t i = 0; i < values.size() && i < frequencyAxisHz.size(); ++i) {
-        const double xT = responseGraphXT(frequencyAxisHz[i]);
-        const int x = graph.left + static_cast<int>(xT * (graph.right - graph.left));
+        const int x = graphXFromFrequency(graph,
+                                          minVisibleFrequencyHz,
+                                          maxVisibleFrequencyHz,
+                                          frequencyAxisHz[i],
+                                          false);
         const int y = unclampedGraphYFromDb(graph, values[i], axisMinDb, axisMaxDb);
         if (i == 0) {
             MoveToEx(hdc, x, y, nullptr);
@@ -374,10 +501,27 @@ void drawSeries(HDC hdc,
     RestoreDC(hdc, savedDc);
 }
 
+RECT brushRect(const RECT& graph, const POINT& anchor, const POINT& current) {
+    RECT rect{
+        std::min(anchor.x, current.x),
+        graph.top,
+        std::max(anchor.x, current.x),
+        graph.bottom,
+    };
+    rect.left = clampValue(rect.left, graph.left, graph.right);
+    rect.right = clampValue(rect.right, graph.left, graph.right);
+    return rect;
+}
+
+bool hasBrushWidth(const POINT& anchor, const POINT& current) {
+    return std::abs(current.x - anchor.x) >= kMinBrushPixels;
+}
+
 }  // namespace
 
 void ResponseGraph::registerWindowClass(HINSTANCE instance) {
     WNDCLASSW graphClass{};
+    graphClass.style = CS_DBLCLKS;
     graphClass.lpfnWndProc = WindowProc;
     graphClass.hInstance = instance;
     graphClass.lpszClassName = kWindowClassName;
@@ -403,25 +547,38 @@ void ResponseGraph::create(HWND parent, HINSTANCE instance, int controlId) {
 
 void ResponseGraph::setData(ResponseGraphData data) {
     data_ = std::move(data);
+    if (data_.frequencyAxisHz.empty()) {
+        resetVisibleFrequencyRange();
+    }
     invalidate();
 }
 
-void ResponseGraph::setExtraVisibleRangeDb(double extraVisibleRangeDb) {
-    if (std::abs(extraVisibleRangeDb - extraVisibleRangeDb_) < 0.001) {
+void ResponseGraph::setVisibleFrequencyRange(bool hasCustomRange, double minFrequencyHz, double maxFrequencyHz) {
+    if (!hasCustomRange) {
+        resetVisibleFrequencyRange();
+        invalidate();
         return;
     }
 
-    extraVisibleRangeDb_ = extraVisibleRangeDb;
+    const double nextMin = std::min(minFrequencyHz, maxFrequencyHz);
+    const double nextMax = std::max(minFrequencyHz, maxFrequencyHz);
+    if (hasCustomVisibleFrequencyRange_ &&
+        std::abs(visibleMinFrequencyHz_ - nextMin) < 0.001 &&
+        std::abs(visibleMaxFrequencyHz_ - nextMax) < 0.001) {
+        return;
+    }
+
+    hasCustomVisibleFrequencyRange_ = true;
+    visibleMinFrequencyHz_ = nextMin;
+    visibleMaxFrequencyHz_ = nextMax;
     invalidate();
 }
 
-void ResponseGraph::setVerticalOffsetDb(double verticalOffsetDb) {
-    if (std::abs(verticalOffsetDb - verticalOffsetDb_) < 0.001) {
-        return;
-    }
-
-    verticalOffsetDb_ = verticalOffsetDb;
-    invalidate();
+void ResponseGraph::resetVisibleFrequencyRange() {
+    hasCustomVisibleFrequencyRange_ = false;
+    visibleMinFrequencyHz_ = kMinFrequencyHz;
+    visibleMaxFrequencyHz_ = kMaxFrequencyHz;
+    brush_ = {};
 }
 
 void ResponseGraph::layout(const RECT& bounds) const {
@@ -453,28 +610,33 @@ LRESULT CALLBACK ResponseGraph::WindowProc(HWND window, UINT message, WPARAM wPa
         return DefWindowProcW(window, message, wParam, lParam);
     }
 
-    if (message == WM_PAINT) {
+    switch (message) {
+    case WM_PAINT:
         graph->onPaint();
         return 0;
-    }
-    if (message == WM_ERASEBKGND) {
+    case WM_ERASEBKGND:
         return 1;
-    }
-    if (message == WM_MOUSEWHEEL) {
-        if (graph->onMouseWheel(wParam, lParam)) {
-            return 0;
-        }
-    }
-    if (message == WM_MOUSEMOVE) {
+    case WM_MOUSEMOVE:
         graph->onMouseMove(lParam);
         return 0;
-    }
-    if (message == WM_MOUSELEAVE) {
+    case WM_MOUSELEAVE:
         graph->onMouseLeave();
         return 0;
+    case WM_LBUTTONDOWN:
+        graph->onLButtonDown(lParam);
+        return 0;
+    case WM_LBUTTONUP:
+        graph->onLButtonUp(lParam);
+        return 0;
+    case WM_CAPTURECHANGED:
+        graph->onCaptureChanged();
+        return 0;
+    case WM_LBUTTONDBLCLK:
+        graph->onLButtonDblClk(lParam);
+        return 0;
+    default:
+        return DefWindowProcW(window, message, wParam, lParam);
     }
-
-    return DefWindowProcW(window, message, wParam, lParam);
 }
 
 RECT ResponseGraph::infoLineRect() const {
@@ -491,12 +653,13 @@ RECT ResponseGraph::infoLineRect() const {
     }
 
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_, verticalOffsetDb_);
+    const GraphLayout layout =
+        buildGraphLayout(hdc, rect, data_, hasCustomVisibleFrequencyRange_, visibleMinFrequencyHz_, visibleMaxFrequencyHz_);
     ReleaseDC(window_, hdc);
 
     rect.left = layout.graph.left;
     rect.top += 2;
-    rect.right -= 8;
+    rect.right = layout.resetButton.left - 8;
     rect.bottom = layout.graph.top - 4;
     return rect;
 }
@@ -526,63 +689,52 @@ void ResponseGraph::notifyZoomChanged() const {
                  reinterpret_cast<LPARAM>(window_));
 }
 
-bool ResponseGraph::onMouseWheel(WPARAM wParam, LPARAM lParam) {
+void ResponseGraph::onLButtonDown(LPARAM lParam) {
     if (window_ == nullptr) {
-        return false;
+        return;
     }
 
     HDC hdc = GetDC(window_);
     if (hdc == nullptr) {
-        return false;
+        return;
     }
 
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_, verticalOffsetDb_);
+    const GraphLayout layout =
+        buildGraphLayout(hdc, rect, data_, hasCustomVisibleFrequencyRange_, visibleMinFrequencyHz_, visibleMaxFrequencyHz_);
     ReleaseDC(window_, hdc);
 
-    POINT cursor{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    ScreenToClient(window_, &cursor);
-    if (PtInRect(&layout.graph, cursor) == FALSE) {
-        return false;
+    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (hasCustomVisibleFrequencyRange_ && PtInRect(&layout.resetButton, position) != FALSE) {
+        resetVisibleFrequencyRange();
+        invalidate();
+        notifyZoomChanged();
+        return;
+    }
+    if (PtInRect(&layout.graph, position) == FALSE) {
+        return;
     }
 
-    const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-    const int wheelSteps = delta / WHEEL_DELTA;
-    if (wheelSteps == 0) {
-        return true;
-    }
-
-    if ((GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0) {
-        const double cursorDb = dbFromGraphY(layout.graph, cursor.y, layout.axisMinDb, layout.axisMaxDb);
-        const double cursorT =
-            (cursorDb - layout.axisMinDb) / std::max(layout.currentVisibleRangeDb, layout.minVisibleRangeDb);
-        const double nextVisibleRangeDb = std::max(layout.currentVisibleRangeDb *
-                                                       std::pow(kWheelZoomScalePerStep, static_cast<double>(wheelSteps)),
-                                                   layout.minVisibleRangeDb);
-        const double nextAxisMinDb = cursorDb - (cursorT * nextVisibleRangeDb);
-        const double nextAxisMaxDb = nextAxisMinDb + nextVisibleRangeDb;
-        const double nextExtraVisibleRangeDb = nextVisibleRangeDb - layout.defaultVisibleRangeDb;
-        const double nextVerticalOffsetDb = nextAxisMaxDb - layout.baseAxisMaxDb;
-        if (std::abs(nextExtraVisibleRangeDb - extraVisibleRangeDb_) < 0.001 &&
-            std::abs(nextVerticalOffsetDb - verticalOffsetDb_) < 0.001) {
-            return true;
-        }
-
-        extraVisibleRangeDb_ = nextExtraVisibleRangeDb;
-        verticalOffsetDb_ = nextVerticalOffsetDb;
-    } else {
-        const double nextVerticalOffsetDb = verticalOffsetDb_ + (layout.dbStep * static_cast<double>(wheelSteps));
-        if (std::abs(nextVerticalOffsetDb - verticalOffsetDb_) < 0.001) {
-            return true;
-        }
-
-        verticalOffsetDb_ = nextVerticalOffsetDb;
-    }
-
+    SetFocus(window_);
+    brush_.active = true;
+    brush_.anchor = position;
+    brush_.current = position;
+    SetCapture(window_);
     invalidate();
-    notifyZoomChanged();
-    return true;
+}
+
+void ResponseGraph::onLButtonUp(LPARAM lParam) {
+    if (!brush_.active || window_ == nullptr) {
+        return;
+    }
+
+    brush_.current = POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (GetCapture() == window_) {
+        ReleaseCapture();
+    } else {
+        onCaptureChanged();
+    }
 }
 
 void ResponseGraph::onMouseMove(LPARAM lParam) {
@@ -606,26 +758,109 @@ void ResponseGraph::onMouseMove(LPARAM lParam) {
 
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_, verticalOffsetDb_);
+    const GraphLayout layout =
+        buildGraphLayout(hdc, rect, data_, hasCustomVisibleFrequencyRange_, visibleMinFrequencyHz_, visibleMaxFrequencyHz_);
     ReleaseDC(window_, hdc);
 
     const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
     const bool insideGraph = PtInRect(&layout.graph, position) != FALSE;
-    const bool changed = hover_.active != insideGraph || hover_.position.x != position.x || hover_.position.y != position.y;
+    const bool changed =
+        hover_.active != insideGraph || hover_.position.x != position.x || hover_.position.y != position.y;
     hover_.active = insideGraph;
     hover_.position = position;
-    if (changed) {
+    if (changed && !brush_.active) {
         invalidateInfoLine();
     }
+
+    if (!brush_.active) {
+        return;
+    }
+
+    if (position.x == brush_.current.x && position.y == brush_.current.y) {
+        return;
+    }
+
+    brush_.current = position;
+    invalidate();
 }
 
 void ResponseGraph::onMouseLeave() {
     const bool hadHover = hover_.active || hover_.tracking;
     hover_.active = false;
     hover_.tracking = false;
-    if (hadHover) {
+    if (hadHover && !brush_.active) {
         invalidateInfoLine();
     }
+}
+
+void ResponseGraph::onCaptureChanged() {
+    if (!brush_.active || window_ == nullptr) {
+        return;
+    }
+
+    HDC hdc = GetDC(window_);
+    if (hdc == nullptr) {
+        brush_ = {};
+        invalidate();
+        return;
+    }
+
+    RECT rect{};
+    GetClientRect(window_, &rect);
+    const GraphLayout layout =
+        buildGraphLayout(hdc, rect, data_, hasCustomVisibleFrequencyRange_, visibleMinFrequencyHz_, visibleMaxFrequencyHz_);
+    ReleaseDC(window_, hdc);
+
+    bool changed = false;
+    if (hasBrushWidth(brush_.anchor, brush_.current) && !data_.frequencyAxisHz.empty()) {
+        const double nextMinFrequencyHz = frequencyFromGraphX(layout.graph,
+                                                              layout.visibleMinFrequencyHz,
+                                                              layout.visibleMaxFrequencyHz,
+                                                              std::min(brush_.anchor.x, brush_.current.x));
+        const double nextMaxFrequencyHz = frequencyFromGraphX(layout.graph,
+                                                              layout.visibleMinFrequencyHz,
+                                                              layout.visibleMaxFrequencyHz,
+                                                              std::max(brush_.anchor.x, brush_.current.x));
+        if ((nextMaxFrequencyHz - nextMinFrequencyHz) >
+            std::max((layout.visibleMaxFrequencyHz - layout.visibleMinFrequencyHz) * 0.001, 1.0e-3)) {
+            hasCustomVisibleFrequencyRange_ = true;
+            visibleMinFrequencyHz_ = nextMinFrequencyHz;
+            visibleMaxFrequencyHz_ = nextMaxFrequencyHz;
+            changed = true;
+        }
+    }
+
+    brush_ = {};
+    invalidate();
+    if (changed) {
+        notifyZoomChanged();
+    }
+}
+
+void ResponseGraph::onLButtonDblClk(LPARAM lParam) {
+    if (window_ == nullptr || !hasCustomVisibleFrequencyRange_) {
+        return;
+    }
+
+    HDC hdc = GetDC(window_);
+    if (hdc == nullptr) {
+        return;
+    }
+
+    RECT rect{};
+    GetClientRect(window_, &rect);
+    const GraphLayout layout =
+        buildGraphLayout(hdc, rect, data_, hasCustomVisibleFrequencyRange_, visibleMinFrequencyHz_, visibleMaxFrequencyHz_);
+    ReleaseDC(window_, hdc);
+
+    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (PtInRect(&layout.graph, position) == FALSE && PtInRect(&layout.resetButton, position) == FALSE) {
+        return;
+    }
+
+    resetVisibleFrequencyRange();
+    invalidate();
+    notifyZoomChanged();
 }
 
 void ResponseGraph::onPaint() const {
@@ -641,10 +876,13 @@ void ResponseGraph::onPaint() const {
     SetBkMode(hdc, TRANSPARENT);
     SelectObject(hdc, GetStockObject(DC_PEN));
     SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
-    const GraphLayout layout = buildGraphLayout(hdc, rect, data_, extraVisibleRangeDb_, verticalOffsetDb_);
+    const GraphLayout layout =
+        buildGraphLayout(hdc, rect, data_, hasCustomVisibleFrequencyRange_, visibleMinFrequencyHz_, visibleMaxFrequencyHz_);
     const RECT& graph = layout.graph;
-    const std::vector<double> xTickValues = buildFrequencyTickValues(graph);
-    const std::vector<AxisLabel> xLabels = buildFrequencyLabels(hdc, graph, xTickValues);
+    const std::vector<double> xTickValues =
+        buildFrequencyTickValues(graph, layout.visibleMinFrequencyHz, layout.visibleMaxFrequencyHz);
+    const std::vector<AxisLabel> xLabels =
+        buildFrequencyLabels(hdc, graph, layout.visibleMinFrequencyHz, layout.visibleMaxFrequencyHz, xTickValues);
 
     const COLORREF stripeColor = RGB(244, 247, 251);
     HBRUSH stripeBrush = CreateSolidBrush(stripeColor);
@@ -660,23 +898,41 @@ void ResponseGraph::onPaint() const {
     }
     DeleteObject(stripeBrush);
 
-    if (hover_.active) {
-        const double frequencyHz = frequencyFromGraphX(graph, hover_.position.x);
+    RECT infoRect{graph.left, rect.top + 2, layout.resetButton.left - 8, graph.top - 4};
+    if (brush_.active && hasBrushWidth(brush_.anchor, brush_.current)) {
+        const double minFrequencyHz = frequencyFromGraphX(graph,
+                                                          layout.visibleMinFrequencyHz,
+                                                          layout.visibleMaxFrequencyHz,
+                                                          std::min(brush_.anchor.x, brush_.current.x));
+        const double maxFrequencyHz = frequencyFromGraphX(graph,
+                                                          layout.visibleMinFrequencyHz,
+                                                          layout.visibleMaxFrequencyHz,
+                                                          std::max(brush_.anchor.x, brush_.current.x));
+        const std::wstring infoText = formatBrushFrequencyRange(minFrequencyHz, maxFrequencyHz);
+        SetTextColor(hdc, ui_theme::kAccent);
+        DrawTextW(hdc, infoText.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    } else if (hover_.active) {
+        const double frequencyHz =
+            frequencyFromGraphX(graph, layout.visibleMinFrequencyHz, layout.visibleMaxFrequencyHz, hover_.position.x);
         const double amplitudeDb = dbFromGraphY(graph, hover_.position.y, layout.axisMinDb, layout.axisMaxDb);
-        const double wavelengthMeters = 343.0 / std::max(frequencyHz, 1e-6);
+        const double wavelengthMeters = 343.0 / std::max(frequencyHz, 1.0e-6);
         const std::wstring infoText = formatHoverAmplitude(amplitudeDb) + L" @ " + formatHoverFrequency(frequencyHz) +
                                       L"    " + formatHoverWavelength(wavelengthMeters) + L"    " +
                                       formatHoverQuarterWavelength(wavelengthMeters);
-        RECT infoRect{graph.left, rect.top + 2, rect.right - 8, graph.top - 4};
         SetTextColor(hdc, ui_theme::kAccent);
         DrawTextW(hdc, infoText.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
+
+    drawResetButton(hdc, layout.resetButton, hasCustomVisibleFrequencyRange_);
 
     SetDCPenColor(hdc, ui_theme::kBorder);
     Rectangle(hdc, graph.left, graph.top, graph.right, graph.bottom);
 
     for (const double tickHz : xTickValues) {
-        const int x = graphXFromFrequency(graph, tickHz);
+        const int x = graphXFromFrequency(graph,
+                                          layout.visibleMinFrequencyHz,
+                                          layout.visibleMaxFrequencyHz,
+                                          tickHz);
         MoveToEx(hdc, x, graph.top, nullptr);
         LineTo(hdc, x, graph.bottom);
     }
@@ -696,9 +952,32 @@ void ResponseGraph::onPaint() const {
     }
 
     if (!data_.frequencyAxisHz.empty()) {
-        for (const auto& series : data_.series) {
-            drawSeries(hdc, graph, layout.axisMinDb, layout.axisMaxDb, data_.frequencyAxisHz, series.values, series.color);
+        for (const ResponseGraphSeries& series : data_.series) {
+            drawSeries(hdc,
+                       graph,
+                       layout.axisMinDb,
+                       layout.axisMaxDb,
+                       layout.visibleMinFrequencyHz,
+                       layout.visibleMaxFrequencyHz,
+                       data_.frequencyAxisHz,
+                       series.values,
+                       series.color);
         }
+    }
+
+    if (brush_.active && hasBrushWidth(brush_.anchor, brush_.current)) {
+        const RECT selection = brushRect(graph, brush_.anchor, brush_.current);
+        HBRUSH selectionBrush = CreateSolidBrush(RGB(214, 227, 244));
+        FillRect(hdc, &selection, selectionBrush);
+        DeleteObject(selectionBrush);
+
+        HPEN selectionPen = CreatePen(PS_SOLID, 1, ui_theme::kAccent);
+        HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, selectionPen));
+        HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)));
+        Rectangle(hdc, selection.left, selection.top, selection.right, selection.bottom);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(selectionPen);
     }
 
     SetTextColor(hdc, ui_theme::kMuted);
@@ -707,7 +986,6 @@ void ResponseGraph::onPaint() const {
         DrawTextW(hdc, label.text.c_str(), -1, &textRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
     }
 
-    SetTextColor(hdc, ui_theme::kMuted);
     for (const double tickValue : layout.yTickValues) {
         const int y = graphYFromDb(graph, tickValue, layout.axisMinDb, layout.axisMaxDb);
         RECT labelRect{rect.left + 4, y - layout.textHeight / 2 - 2, graph.left - 6, y + layout.textHeight / 2 + 2};

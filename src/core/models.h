@@ -42,13 +42,22 @@ struct UiSettings {
     int processLogHeight = 190;
     double measurementGraphExtraRangeDb = 0.0;
     double measurementGraphVerticalOffsetDb = 0.0;
+    bool measurementGraphHasCustomFrequencyRange = false;
+    double measurementGraphVisibleMinFrequencyHz = 20.0;
+    double measurementGraphVisibleMaxFrequencyHz = 20000.0;
     std::string measurementPlotMode = "magnitude";
     std::string measurementWaterfallChannel = "left";
     bool measurementMetadataCollapsed = true;
     double smoothingGraphExtraRangeDb = 0.0;
     double smoothingGraphVerticalOffsetDb = 0.0;
+    bool smoothingGraphHasCustomFrequencyRange = false;
+    double smoothingGraphVisibleMinFrequencyHz = 20.0;
+    double smoothingGraphVisibleMaxFrequencyHz = 20000.0;
     double targetCurveGraphExtraRangeDb = 0.0;
     double targetCurveGraphVerticalOffsetDb = 0.0;
+    bool targetCurveGraphHasCustomVisibleDbRange = false;
+    double targetCurveGraphVisibleMinDb = -12.0;
+    double targetCurveGraphVisibleMaxDb = 12.0;
 };
 
 struct MeasurementValueSet {

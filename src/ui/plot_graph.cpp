@@ -5,12 +5,19 @@
 #include <limits>
 #include <vector>
 
+#include <windowsx.h>
+
 #include "core/text_utils.h"
 #include "ui/ui_theme.h"
 
 namespace wolfie::ui {
 
 namespace {
+
+constexpr int kMinBrushPixels = 6;
+constexpr int kResetButtonHeight = 20;
+constexpr int kResetButtonWidth = 54;
+constexpr double kMinimumAutoYSpan = 1.0;
 
 template <typename T>
 T clampValue(T value, T low, T high) {
@@ -19,9 +26,12 @@ T clampValue(T value, T low, T high) {
 
 struct GraphLayout {
     RECT graph{};
+    RECT resetButton{};
     int textHeight = 12;
     double minY = 0.0;
     double maxY = 1.0;
+    double visibleMinX = 0.0;
+    double visibleMaxX = 1.0;
     std::vector<double> yTicks;
 };
 
@@ -73,24 +83,47 @@ std::wstring formatAxisValue(double value) {
     return formatWideDouble(value, 2);
 }
 
-double xTFromValue(PlotGraphXAxisMode mode, const std::vector<double>& xValues, double value) {
-    if (xValues.empty()) {
-        return 0.0;
-    }
-
+double rawXTFromValue(PlotGraphXAxisMode mode, double minValue, double maxValue, double value) {
     if (mode == PlotGraphXAxisMode::LogFrequency) {
-        const double minValue = std::log10(std::max(xValues.front(), 1.0));
-        const double maxValue = std::log10(std::max(xValues.back(), xValues.front() + 1.0));
-        return clampValue((std::log10(std::max(value, 1.0)) - minValue) / std::max(maxValue - minValue, 1.0e-9), 0.0, 1.0);
+        const double minLog = std::log10(std::max(minValue, 1.0e-6));
+        const double maxLog = std::log10(std::max(maxValue, minValue + 1.0e-6));
+        return (std::log10(std::max(value, 1.0e-6)) - minLog) / std::max(maxLog - minLog, 1.0e-9);
     }
 
-    const double minValue = xValues.front();
-    const double maxValue = xValues.back();
-    return clampValue((value - minValue) / std::max(maxValue - minValue, 1.0e-9), 0.0, 1.0);
+    return (value - minValue) / std::max(maxValue - minValue, 1.0e-9);
 }
 
-int graphXFromValue(const RECT& graph, PlotGraphXAxisMode mode, const std::vector<double>& xValues, double value) {
-    return graph.left + static_cast<int>(std::lround(xTFromValue(mode, xValues, value) * (graph.right - graph.left)));
+double xTFromValue(PlotGraphXAxisMode mode, double minValue, double maxValue, double value) {
+    return clampValue(rawXTFromValue(mode, minValue, maxValue, value), 0.0, 1.0);
+}
+
+double valueFromXT(PlotGraphXAxisMode mode, double minValue, double maxValue, double t) {
+    const double clampedT = clampValue(t, 0.0, 1.0);
+    if (mode == PlotGraphXAxisMode::LogFrequency) {
+        const double minLog = std::log10(std::max(minValue, 1.0e-6));
+        const double maxLog = std::log10(std::max(maxValue, minValue + 1.0e-6));
+        return std::pow(10.0, minLog + ((maxLog - minLog) * clampedT));
+    }
+
+    return minValue + ((maxValue - minValue) * clampedT);
+}
+
+int graphXFromValue(const RECT& graph,
+                    PlotGraphXAxisMode mode,
+                    double minValue,
+                    double maxValue,
+                    double value,
+                    bool clampToGraph = true) {
+    const double xT = clampToGraph ? xTFromValue(mode, minValue, maxValue, value)
+                                   : rawXTFromValue(mode, minValue, maxValue, value);
+    return graph.left + static_cast<int>(std::lround(xT * (graph.right - graph.left)));
+}
+
+double valueFromGraphX(const RECT& graph, PlotGraphXAxisMode mode, double minValue, double maxValue, int x) {
+    const int width = std::max(static_cast<int>(graph.right - graph.left), 1);
+    const double xT =
+        static_cast<double>(clampValue(static_cast<int>(x - graph.left), 0, width)) / static_cast<double>(width);
+    return valueFromXT(mode, minValue, maxValue, xT);
 }
 
 int graphYFromValue(const RECT& graph, double value, double minY, double maxY) {
@@ -111,35 +144,94 @@ std::vector<double> buildYTicks(double minY, double maxY) {
     return ticks;
 }
 
-GraphLayout buildLayout(HDC hdc, const RECT& rect, const PlotGraphData& data) {
+void expandAutoYRange(double& minY, double& maxY) {
+    if (!std::isfinite(minY) || !std::isfinite(maxY)) {
+        minY = 0.0;
+        maxY = 1.0;
+        return;
+    }
+
+    if (std::abs(maxY - minY) < 1.0e-9) {
+        const double halfSpan = kMinimumAutoYSpan * 0.5;
+        minY -= halfSpan;
+        maxY += halfSpan;
+        return;
+    }
+
+    const double range = maxY - minY;
+    const double pad = std::max(range * 0.08, kMinimumAutoYSpan * 0.05);
+    minY -= pad;
+    maxY += pad;
+}
+
+bool scanVisibleYRange(const PlotGraphData& data, double minVisibleX, double maxVisibleX, double& minY, double& maxY) {
+    bool found = false;
+    for (const PlotGraphSeries& series : data.series) {
+        const size_t count = std::min(data.xValues.size(), series.values.size());
+        for (size_t index = 0; index < count; ++index) {
+            const double x = data.xValues[index];
+            if (x < minVisibleX || x > maxVisibleX) {
+                continue;
+            }
+
+            const double value = series.values[index];
+            minY = found ? std::min(minY, value) : value;
+            maxY = found ? std::max(maxY, value) : value;
+            found = true;
+        }
+    }
+    return found;
+}
+
+GraphLayout buildLayout(HDC hdc,
+                        const RECT& rect,
+                        const PlotGraphData& data,
+                        bool hasCustomXRange,
+                        double customMinX,
+                        double customMaxX) {
     GraphLayout layout;
     TEXTMETRICW metrics{};
     GetTextMetricsW(hdc, &metrics);
     layout.textHeight = std::max(static_cast<int>(metrics.tmHeight), 12);
 
+    double fullMinX = 0.0;
+    double fullMaxX = 1.0;
+    if (!data.xValues.empty()) {
+        fullMinX = data.xValues.front();
+        fullMaxX = data.xValues.back();
+        if (std::abs(fullMaxX - fullMinX) < 1.0e-9) {
+            fullMaxX = fullMinX + 1.0;
+        }
+    }
+
+    layout.visibleMinX = fullMinX;
+    layout.visibleMaxX = fullMaxX;
+    if (hasCustomXRange && !data.xValues.empty()) {
+        layout.visibleMinX = clampValue(std::min(customMinX, customMaxX), fullMinX, fullMaxX);
+        layout.visibleMaxX = clampValue(std::max(customMinX, customMaxX), fullMinX, fullMaxX);
+        if (std::abs(layout.visibleMaxX - layout.visibleMinX) < 1.0e-9) {
+            layout.visibleMinX = fullMinX;
+            layout.visibleMaxX = fullMaxX;
+        }
+    }
+
     double minY = std::numeric_limits<double>::max();
     double maxY = std::numeric_limits<double>::lowest();
-    if (data.fixedYRange) {
+    if (data.fixedYRange && !hasCustomXRange) {
+        minY = data.minY;
+        maxY = data.maxY;
+    } else if (scanVisibleYRange(data, layout.visibleMinX, layout.visibleMaxX, minY, maxY)) {
+        expandAutoYRange(minY, maxY);
+    } else if (data.fixedYRange) {
         minY = data.minY;
         maxY = data.maxY;
     } else {
-        for (const PlotGraphSeries& series : data.series) {
-            for (const double value : series.values) {
-                minY = std::min(minY, value);
-                maxY = std::max(maxY, value);
-            }
-        }
-        if (!std::isfinite(minY) || !std::isfinite(maxY)) {
-            minY = 0.0;
-            maxY = 1.0;
-        } else if (std::abs(maxY - minY) < 1.0e-6) {
-            minY -= 1.0;
-            maxY += 1.0;
-        } else {
-            const double pad = (maxY - minY) * 0.08;
-            minY -= pad;
-            maxY += pad;
-        }
+        minY = 0.0;
+        maxY = 1.0;
+    }
+
+    if (std::abs(maxY - minY) < 1.0e-9) {
+        expandAutoYRange(minY, maxY);
     }
     layout.minY = minY;
     layout.maxY = maxY;
@@ -150,9 +242,15 @@ GraphLayout buildLayout(HDC hdc, const RECT& rect, const PlotGraphData& data) {
         widestYLabel = std::max(widestYLabel, measureTextWidth(hdc, formatAxisValue(tick)));
     }
 
+    layout.resetButton = RECT{
+        rect.right - kResetButtonWidth - 8,
+        rect.top + 8,
+        rect.right - 8,
+        rect.top + 8 + kResetButtonHeight,
+    };
     layout.graph = RECT{
         rect.left + std::max(52, widestYLabel + 14),
-        rect.top + 8,
+        rect.top + kResetButtonHeight + 16,
         rect.right - 8,
         rect.bottom - (layout.textHeight + 18),
     };
@@ -168,15 +266,18 @@ bool isMajorLogFrequencyTick(double value, double maxValue) {
     return std::abs(value - magnitude) < 0.001;
 }
 
-std::vector<double> buildXTicks(const RECT& graph, const PlotGraphData& data) {
+std::vector<double> buildXTicks(const RECT& graph,
+                                const PlotGraphData& data,
+                                double minVisibleX,
+                                double maxVisibleX) {
     if (data.xValues.empty()) {
         return {};
     }
 
     if (data.xAxisMode == PlotGraphXAxisMode::LogFrequency) {
         std::vector<double> candidates;
-        const double minFrequencyHz = std::max(data.xValues.front(), 1.0);
-        const double maxFrequencyHz = std::max(data.xValues.back(), minFrequencyHz + 1.0);
+        const double minFrequencyHz = std::max(minVisibleX, 1.0);
+        const double maxFrequencyHz = std::max(maxVisibleX, minFrequencyHz + 1.0);
         const double firstDecade = std::pow(10.0, std::floor(std::log10(minFrequencyHz)));
         for (double decade = firstDecade; decade <= maxFrequencyHz * 1.001; decade *= 10.0) {
             for (int multiplier = 1; multiplier <= 9; ++multiplier) {
@@ -197,7 +298,8 @@ std::vector<double> buildXTicks(const RECT& graph, const PlotGraphData& data) {
         const int minPixelSpacing = clampValue(graphWidth / 60, 8, 12);
         int lastPixel = std::numeric_limits<int>::min() / 2;
         for (const double candidate : candidates) {
-            const int pixel = graphXFromValue(graph, data.xAxisMode, data.xValues, candidate);
+            const int pixel =
+                graphXFromValue(graph, data.xAxisMode, minVisibleX, maxVisibleX, candidate);
             if (ticks.empty() || isMajorLogFrequencyTick(candidate, maxFrequencyHz) || pixel - lastPixel >= minPixelSpacing) {
                 ticks.push_back(candidate);
                 lastPixel = pixel;
@@ -207,15 +309,16 @@ std::vector<double> buildXTicks(const RECT& graph, const PlotGraphData& data) {
         if (ticks.empty() || std::abs(ticks.back() - maxFrequencyHz) > 0.5) {
             ticks.push_back(maxFrequencyHz);
         }
+        if (!ticks.empty() && std::abs(ticks.front() - minFrequencyHz) > 0.5) {
+            ticks.insert(ticks.begin(), minFrequencyHz);
+        }
         return ticks;
     }
 
-    const double minValue = data.xValues.front();
-    const double maxValue = data.xValues.back();
-    const double step = (maxValue - minValue) / 6.0;
+    const double step = (maxVisibleX - minVisibleX) / 6.0;
     std::vector<double> ticks;
     for (int index = 0; index <= 6; ++index) {
-        ticks.push_back(minValue + (step * static_cast<double>(index)));
+        ticks.push_back(minVisibleX + (step * static_cast<double>(index)));
     }
     return ticks;
 }
@@ -230,14 +333,19 @@ std::wstring formatXTickLabel(const PlotGraphData& data, double value) {
     return formatAxisValue(value);
 }
 
-std::vector<AxisLabel> buildXLabels(HDC hdc, const RECT& graph, const PlotGraphData& data, const std::vector<double>& ticks) {
+std::vector<AxisLabel> buildXLabels(HDC hdc,
+                                    const RECT& graph,
+                                    const PlotGraphData& data,
+                                    double minVisibleX,
+                                    double maxVisibleX,
+                                    const std::vector<double>& ticks) {
     std::vector<AxisLabel> candidates;
     candidates.reserve(ticks.size());
-    const double maxValue = data.xValues.empty() ? 0.0 : data.xValues.back();
+    const double maxValue = maxVisibleX;
     for (const double tick : ticks) {
         AxisLabel label;
         label.value = tick;
-        label.pixel = graphXFromValue(graph, data.xAxisMode, data.xValues, tick);
+        label.pixel = graphXFromValue(graph, data.xAxisMode, minVisibleX, maxVisibleX, tick);
         label.text = formatXTickLabel(data, tick);
         const int width = measureTextWidth(hdc, label.text);
         label.left = clampValue(label.pixel - width / 2,
@@ -290,6 +398,25 @@ std::vector<AxisLabel> buildXLabels(HDC hdc, const RECT& graph, const PlotGraphD
     return labels.empty() ? candidates : labels;
 }
 
+void drawResetButton(HDC hdc, const RECT& rect, bool enabled) {
+    const COLORREF fill = enabled ? RGB(235, 240, 247) : RGB(243, 246, 250);
+    const COLORREF textColor = enabled ? ui_theme::kText : ui_theme::kMuted;
+    HBRUSH fillBrush = CreateSolidBrush(fill);
+    FillRect(hdc, &rect, fillBrush);
+    DeleteObject(fillBrush);
+
+    HPEN borderPen = CreatePen(PS_SOLID, 1, ui_theme::kBorder);
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, borderPen));
+    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)));
+    Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(borderPen);
+
+    SetTextColor(hdc, textColor);
+    DrawTextW(hdc, L"Reset", -1, const_cast<RECT*>(&rect), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
 void drawSeries(HDC hdc, const PlotGraphData& data, const GraphLayout& layout, const PlotGraphSeries& series) {
     if (data.xValues.empty() || series.values.empty()) {
         return;
@@ -299,7 +426,12 @@ void drawSeries(HDC hdc, const PlotGraphData& data, const GraphLayout& layout, c
     const int savedDc = SaveDC(hdc);
     IntersectClipRect(hdc, layout.graph.left, layout.graph.top, layout.graph.right, layout.graph.bottom);
     for (size_t index = 0; index < data.xValues.size() && index < series.values.size(); ++index) {
-        const int x = graphXFromValue(layout.graph, data.xAxisMode, data.xValues, data.xValues[index]);
+        const int x = graphXFromValue(layout.graph,
+                                      data.xAxisMode,
+                                      layout.visibleMinX,
+                                      layout.visibleMaxX,
+                                      data.xValues[index],
+                                      false);
         const int y = graphYFromValue(layout.graph, series.values[index], layout.minY, layout.maxY);
         if (index == 0) {
             MoveToEx(hdc, x, y, nullptr);
@@ -310,10 +442,27 @@ void drawSeries(HDC hdc, const PlotGraphData& data, const GraphLayout& layout, c
     RestoreDC(hdc, savedDc);
 }
 
+RECT brushRect(const RECT& graph, const POINT& anchor, const POINT& current) {
+    RECT rect{
+        std::min(anchor.x, current.x),
+        graph.top,
+        std::max(anchor.x, current.x),
+        graph.bottom,
+    };
+    rect.left = clampValue(rect.left, graph.left, graph.right);
+    rect.right = clampValue(rect.right, graph.left, graph.right);
+    return rect;
+}
+
+bool hasBrushWidth(const POINT& anchor, const POINT& current) {
+    return std::abs(current.x - anchor.x) >= kMinBrushPixels;
+}
+
 }  // namespace
 
 void PlotGraph::registerWindowClass(HINSTANCE instance) {
     WNDCLASSW graphClass{};
+    graphClass.style = CS_DBLCLKS;
     graphClass.lpfnWndProc = WindowProc;
     graphClass.hInstance = instance;
     graphClass.lpszClassName = kWindowClassName;
@@ -339,6 +488,9 @@ void PlotGraph::create(HWND parent, HINSTANCE instance, int controlId) {
 
 void PlotGraph::setData(PlotGraphData data) {
     data_ = std::move(data);
+    if (data_.xValues.empty()) {
+        resetView();
+    }
     invalidate();
 }
 
@@ -377,9 +529,153 @@ LRESULT CALLBACK PlotGraph::WindowProc(HWND window, UINT message, WPARAM wParam,
         return 0;
     case WM_ERASEBKGND:
         return 1;
+    case WM_LBUTTONDOWN:
+        graph->onLButtonDown(lParam);
+        return 0;
+    case WM_MOUSEMOVE:
+        graph->onMouseMove(lParam);
+        return 0;
+    case WM_LBUTTONUP:
+        graph->onLButtonUp(lParam);
+        return 0;
+    case WM_LBUTTONDBLCLK:
+        graph->onLButtonDblClk(lParam);
+        return 0;
+    case WM_CAPTURECHANGED:
+        graph->onCaptureChanged();
+        return 0;
     default:
         return DefWindowProcW(window, message, wParam, lParam);
     }
+}
+
+void PlotGraph::onLButtonDown(LPARAM lParam) {
+    if (window_ == nullptr) {
+        return;
+    }
+
+    HDC hdc = GetDC(window_);
+    if (hdc == nullptr) {
+        return;
+    }
+    RECT rect{};
+    GetClientRect(window_, &rect);
+    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
+    ReleaseDC(window_, hdc);
+
+    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (hasCustomXRange_ && PtInRect(&layout.resetButton, position) != FALSE) {
+        resetView();
+        invalidate();
+        return;
+    }
+    if (PtInRect(&layout.graph, position) == FALSE) {
+        return;
+    }
+
+    SetFocus(window_);
+    brush_.active = true;
+    brush_.anchor = position;
+    brush_.current = position;
+    SetCapture(window_);
+    invalidate();
+}
+
+void PlotGraph::onLButtonUp(LPARAM lParam) {
+    if (!brush_.active || window_ == nullptr) {
+        return;
+    }
+
+    brush_.current = POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (GetCapture() == window_) {
+        ReleaseCapture();
+    } else {
+        onCaptureChanged();
+    }
+}
+
+void PlotGraph::onMouseMove(LPARAM lParam) {
+    if (!brush_.active) {
+        return;
+    }
+
+    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (position.x == brush_.current.x && position.y == brush_.current.y) {
+        return;
+    }
+
+    brush_.current = position;
+    invalidate();
+}
+
+void PlotGraph::onCaptureChanged() {
+    if (!brush_.active || window_ == nullptr) {
+        return;
+    }
+
+    HDC hdc = GetDC(window_);
+    if (hdc == nullptr) {
+        brush_ = {};
+        invalidate();
+        return;
+    }
+    RECT rect{};
+    GetClientRect(window_, &rect);
+    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
+    ReleaseDC(window_, hdc);
+
+    if (hasBrushWidth(brush_.anchor, brush_.current) && !data_.xValues.empty()) {
+        const double nextMinX = valueFromGraphX(layout.graph,
+                                                data_.xAxisMode,
+                                                layout.visibleMinX,
+                                                layout.visibleMaxX,
+                                                std::min(brush_.anchor.x, brush_.current.x));
+        const double nextMaxX = valueFromGraphX(layout.graph,
+                                                data_.xAxisMode,
+                                                layout.visibleMinX,
+                                                layout.visibleMaxX,
+                                                std::max(brush_.anchor.x, brush_.current.x));
+        const double fullMinX = data_.xValues.front();
+        const double fullMaxX = data_.xValues.back();
+        if ((nextMaxX - nextMinX) > std::max((fullMaxX - fullMinX) * 0.001, 1.0e-6)) {
+            hasCustomXRange_ = true;
+            visibleMinX_ = nextMinX;
+            visibleMaxX_ = nextMaxX;
+        }
+    }
+
+    brush_ = {};
+    invalidate();
+}
+
+void PlotGraph::onLButtonDblClk(LPARAM lParam) {
+    if (window_ == nullptr || !hasCustomXRange_) {
+        return;
+    }
+
+    HDC hdc = GetDC(window_);
+    if (hdc == nullptr) {
+        return;
+    }
+    RECT rect{};
+    GetClientRect(window_, &rect);
+    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
+    ReleaseDC(window_, hdc);
+
+    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (PtInRect(&layout.graph, position) == FALSE && PtInRect(&layout.resetButton, position) == FALSE) {
+        return;
+    }
+
+    resetView();
+    invalidate();
+}
+
+void PlotGraph::resetView() {
+    hasCustomXRange_ = false;
+    visibleMinX_ = 0.0;
+    visibleMaxX_ = 1.0;
+    brush_ = {};
 }
 
 void PlotGraph::onPaint() const {
@@ -396,9 +692,10 @@ void PlotGraph::onPaint() const {
     SelectObject(hdc, GetStockObject(DC_PEN));
     SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
 
-    const GraphLayout layout = buildLayout(hdc, rect, data_);
-    const std::vector<double> xTicks = buildXTicks(layout.graph, data_);
-    const std::vector<AxisLabel> xLabels = buildXLabels(hdc, layout.graph, data_, xTicks);
+    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
+    const std::vector<double> xTicks = buildXTicks(layout.graph, data_, layout.visibleMinX, layout.visibleMaxX);
+    const std::vector<AxisLabel> xLabels =
+        buildXLabels(hdc, layout.graph, data_, layout.visibleMinX, layout.visibleMaxX, xTicks);
 
     HBRUSH stripeBrush = CreateSolidBrush(RGB(244, 247, 251));
     for (size_t index = 0; index + 1 < layout.yTicks.size(); ++index) {
@@ -416,7 +713,8 @@ void PlotGraph::onPaint() const {
     Rectangle(hdc, layout.graph.left, layout.graph.top, layout.graph.right, layout.graph.bottom);
 
     for (const double tick : xTicks) {
-        const int x = graphXFromValue(layout.graph, data_.xAxisMode, data_.xValues, tick);
+        const int x =
+            graphXFromValue(layout.graph, data_.xAxisMode, layout.visibleMinX, layout.visibleMaxX, tick);
         MoveToEx(hdc, x, layout.graph.top, nullptr);
         LineTo(hdc, x, layout.graph.bottom);
     }
@@ -432,6 +730,21 @@ void PlotGraph::onPaint() const {
         }
     }
 
+    if (brush_.active && hasBrushWidth(brush_.anchor, brush_.current)) {
+        const RECT selection = brushRect(layout.graph, brush_.anchor, brush_.current);
+        HBRUSH selectionBrush = CreateSolidBrush(RGB(214, 227, 244));
+        FillRect(hdc, &selection, selectionBrush);
+        DeleteObject(selectionBrush);
+
+        HPEN selectionPen = CreatePen(PS_SOLID, 1, ui_theme::kAccent);
+        HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, selectionPen));
+        HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)));
+        Rectangle(hdc, selection.left, selection.top, selection.right, selection.bottom);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(selectionPen);
+    }
+
     SetTextColor(hdc, ui_theme::kMuted);
     for (const AxisLabel& label : xLabels) {
         RECT labelRect{label.left, layout.graph.bottom + 6, label.right + 2, rect.bottom};
@@ -439,10 +752,17 @@ void PlotGraph::onPaint() const {
     }
     for (const double tick : layout.yTicks) {
         const int y = graphYFromValue(layout.graph, tick, layout.minY, layout.maxY);
-        RECT labelRect{rect.left + 4, y - layout.textHeight / 2 - 2, layout.graph.left - 6, y + layout.textHeight / 2 + 2};
+        RECT labelRect{
+            rect.left + 4,
+            y - layout.textHeight / 2 - 2,
+            layout.graph.left - 6,
+            y + layout.textHeight / 2 + 2,
+        };
         const std::wstring label = formatAxisValue(tick);
         DrawTextW(hdc, label.c_str(), -1, &labelRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
+
+    drawResetButton(hdc, layout.resetButton, hasCustomXRange_);
 
     EndPaint(window_, &paint);
 }

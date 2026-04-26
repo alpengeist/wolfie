@@ -47,12 +47,30 @@ public:
     [[nodiscard]] HWND window() const { return window_; }
 
 private:
+    struct BrushState {
+        bool active = false;
+        POINT anchor{};
+        POINT current{};
+    };
+
     static constexpr wchar_t kWindowClassName[] = L"WolfiePlotGraph";
+
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+
+    void onLButtonDown(LPARAM lParam);
+    void onLButtonUp(LPARAM lParam);
+    void onMouseMove(LPARAM lParam);
+    void onCaptureChanged();
+    void onLButtonDblClk(LPARAM lParam);
+    void resetView();
     void onPaint() const;
 
     HWND window_ = nullptr;
     PlotGraphData data_;
+    bool hasCustomXRange_ = false;
+    double visibleMinX_ = 0.0;
+    double visibleMaxX_ = 1.0;
+    BrushState brush_;
 };
 
 }  // namespace wolfie::ui

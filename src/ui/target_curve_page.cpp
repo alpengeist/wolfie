@@ -179,22 +179,29 @@ void TargetCurvePage::populate(const WorkspaceState& workspace) {
     }
     refreshList(workspace);
     refreshDetailControls(workspace);
-    graph_.setExtraVisibleRangeDb(workspace.ui.targetCurveGraphExtraRangeDb);
-    graph_.setVerticalOffsetDb(workspace.ui.targetCurveGraphVerticalOffsetDb);
+    graph_.setVisibleDbRange(workspace.ui.targetCurveGraphHasCustomVisibleDbRange,
+                             workspace.ui.targetCurveGraphVisibleMinDb,
+                             workspace.ui.targetCurveGraphVisibleMaxDb);
     refreshGraph(workspace);
     updatingControls_ = false;
 }
 
 void TargetCurvePage::syncToWorkspace(WorkspaceState& workspace) const {
-    workspace.ui.targetCurveGraphExtraRangeDb = graph_.extraVisibleRangeDb();
-    workspace.ui.targetCurveGraphVerticalOffsetDb = graph_.verticalOffsetDb();
+    workspace.ui.targetCurveGraphExtraRangeDb = 0.0;
+    workspace.ui.targetCurveGraphVerticalOffsetDb = 0.0;
+    workspace.ui.targetCurveGraphHasCustomVisibleDbRange = graph_.hasCustomVisibleDbRange();
+    workspace.ui.targetCurveGraphVisibleMinDb = graph_.visibleMinDb();
+    workspace.ui.targetCurveGraphVisibleMaxDb = graph_.visibleMaxDb();
     workspace.targetCurve = graph_.settings();
 }
 
 bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& workspaceChanged) {
     if (commandId == kGraph && notificationCode == TargetCurveGraph::kZoomChangedNotification) {
-        workspace.ui.targetCurveGraphExtraRangeDb = graph_.extraVisibleRangeDb();
-        workspace.ui.targetCurveGraphVerticalOffsetDb = graph_.verticalOffsetDb();
+        workspace.ui.targetCurveGraphExtraRangeDb = 0.0;
+        workspace.ui.targetCurveGraphVerticalOffsetDb = 0.0;
+        workspace.ui.targetCurveGraphHasCustomVisibleDbRange = graph_.hasCustomVisibleDbRange();
+        workspace.ui.targetCurveGraphVisibleMinDb = graph_.visibleMinDb();
+        workspace.ui.targetCurveGraphVisibleMaxDb = graph_.visibleMaxDb();
         workspaceChanged = true;
         return true;
     }

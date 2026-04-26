@@ -140,6 +140,15 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "measurementGraphVerticalOffsetDb")) {
         ui.measurementGraphVerticalOffsetDb = *value;
     }
+    if (const auto value = findJsonBool(content, "measurementGraphHasCustomFrequencyRange")) {
+        ui.measurementGraphHasCustomFrequencyRange = *value;
+    }
+    if (const auto value = findJsonNumber(content, "measurementGraphVisibleMinFrequencyHz")) {
+        ui.measurementGraphVisibleMinFrequencyHz = *value;
+    }
+    if (const auto value = findJsonNumber(content, "measurementGraphVisibleMaxFrequencyHz")) {
+        ui.measurementGraphVisibleMaxFrequencyHz = *value;
+    }
     if (const auto value = findJsonString(content, "measurementPlotMode")) {
         ui.measurementPlotMode = *value;
     }
@@ -155,11 +164,29 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "smoothingGraphVerticalOffsetDb")) {
         ui.smoothingGraphVerticalOffsetDb = *value;
     }
+    if (const auto value = findJsonBool(content, "smoothingGraphHasCustomFrequencyRange")) {
+        ui.smoothingGraphHasCustomFrequencyRange = *value;
+    }
+    if (const auto value = findJsonNumber(content, "smoothingGraphVisibleMinFrequencyHz")) {
+        ui.smoothingGraphVisibleMinFrequencyHz = *value;
+    }
+    if (const auto value = findJsonNumber(content, "smoothingGraphVisibleMaxFrequencyHz")) {
+        ui.smoothingGraphVisibleMaxFrequencyHz = *value;
+    }
     if (const auto value = findJsonNumber(content, "targetCurveGraphExtraRangeDb")) {
         ui.targetCurveGraphExtraRangeDb = *value;
     }
     if (const auto value = findJsonNumber(content, "targetCurveGraphVerticalOffsetDb")) {
         ui.targetCurveGraphVerticalOffsetDb = *value;
+    }
+    if (const auto value = findJsonBool(content, "targetCurveGraphHasCustomVisibleDbRange")) {
+        ui.targetCurveGraphHasCustomVisibleDbRange = *value;
+    }
+    if (const auto value = findJsonNumber(content, "targetCurveGraphVisibleMinDb")) {
+        ui.targetCurveGraphVisibleMinDb = *value;
+    }
+    if (const auto value = findJsonNumber(content, "targetCurveGraphVisibleMaxDb")) {
+        ui.targetCurveGraphVisibleMaxDb = *value;
     }
 }
 
@@ -864,6 +891,10 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"processLogHeight\": " << workspace.ui.processLogHeight << ",\n"
                   << "    \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
                   << "    \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
+                  << "    \"measurementGraphHasCustomFrequencyRange\": "
+                  << (workspace.ui.measurementGraphHasCustomFrequencyRange ? "true" : "false") << ",\n"
+                  << "    \"measurementGraphVisibleMinFrequencyHz\": " << workspace.ui.measurementGraphVisibleMinFrequencyHz << ",\n"
+                  << "    \"measurementGraphVisibleMaxFrequencyHz\": " << workspace.ui.measurementGraphVisibleMaxFrequencyHz << ",\n"
                   << "    \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
                   << "    \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
                   << "\",\n"
@@ -871,8 +902,16 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << (workspace.ui.measurementMetadataCollapsed ? "true" : "false") << ",\n"
                   << "    \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
                   << "    \"smoothingGraphVerticalOffsetDb\": " << workspace.ui.smoothingGraphVerticalOffsetDb << ",\n"
+                  << "    \"smoothingGraphHasCustomFrequencyRange\": "
+                  << (workspace.ui.smoothingGraphHasCustomFrequencyRange ? "true" : "false") << ",\n"
+                  << "    \"smoothingGraphVisibleMinFrequencyHz\": " << workspace.ui.smoothingGraphVisibleMinFrequencyHz << ",\n"
+                  << "    \"smoothingGraphVisibleMaxFrequencyHz\": " << workspace.ui.smoothingGraphVisibleMaxFrequencyHz << ",\n"
                   << "    \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << ",\n"
-                  << "    \"targetCurveGraphVerticalOffsetDb\": " << workspace.ui.targetCurveGraphVerticalOffsetDb << "\n"
+                  << "    \"targetCurveGraphVerticalOffsetDb\": " << workspace.ui.targetCurveGraphVerticalOffsetDb << ",\n"
+                  << "    \"targetCurveGraphHasCustomVisibleDbRange\": "
+                  << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
+                  << "    \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
+                  << "    \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << "\n"
                   << "  }\n"
                   << "}\n";
     writeTextFile(workspace.rootPath / "workspace.json", workspaceJson.str());
@@ -884,6 +923,10 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << "  \"processLogHeight\": " << workspace.ui.processLogHeight << ",\n"
            << "  \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
            << "  \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
+           << "  \"measurementGraphHasCustomFrequencyRange\": "
+           << (workspace.ui.measurementGraphHasCustomFrequencyRange ? "true" : "false") << ",\n"
+           << "  \"measurementGraphVisibleMinFrequencyHz\": " << workspace.ui.measurementGraphVisibleMinFrequencyHz << ",\n"
+           << "  \"measurementGraphVisibleMaxFrequencyHz\": " << workspace.ui.measurementGraphVisibleMaxFrequencyHz << ",\n"
            << "  \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
            << "  \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
            << "\",\n"
@@ -891,8 +934,16 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << (workspace.ui.measurementMetadataCollapsed ? "true" : "false") << ",\n"
            << "  \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
            << "  \"smoothingGraphVerticalOffsetDb\": " << workspace.ui.smoothingGraphVerticalOffsetDb << ",\n"
+           << "  \"smoothingGraphHasCustomFrequencyRange\": "
+           << (workspace.ui.smoothingGraphHasCustomFrequencyRange ? "true" : "false") << ",\n"
+           << "  \"smoothingGraphVisibleMinFrequencyHz\": " << workspace.ui.smoothingGraphVisibleMinFrequencyHz << ",\n"
+           << "  \"smoothingGraphVisibleMaxFrequencyHz\": " << workspace.ui.smoothingGraphVisibleMaxFrequencyHz << ",\n"
            << "  \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << ",\n"
-           << "  \"targetCurveGraphVerticalOffsetDb\": " << workspace.ui.targetCurveGraphVerticalOffsetDb << "\n"
+           << "  \"targetCurveGraphVerticalOffsetDb\": " << workspace.ui.targetCurveGraphVerticalOffsetDb << ",\n"
+           << "  \"targetCurveGraphHasCustomVisibleDbRange\": "
+           << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
+           << "  \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
+           << "  \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << "\n"
            << "}\n";
     writeTextFile(workspace.rootPath / "ui.json", uiJson.str());
 

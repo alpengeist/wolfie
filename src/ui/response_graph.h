@@ -33,14 +33,15 @@ public:
 
     void create(HWND parent, HINSTANCE instance, int controlId = 0);
     void setData(ResponseGraphData data);
-    void setExtraVisibleRangeDb(double extraVisibleRangeDb);
-    void setVerticalOffsetDb(double verticalOffsetDb);
+    void setVisibleFrequencyRange(bool hasCustomRange, double minFrequencyHz, double maxFrequencyHz);
+    void resetVisibleFrequencyRange();
     void layout(const RECT& bounds) const;
     void invalidate() const;
 
     [[nodiscard]] HWND window() const { return window_; }
-    [[nodiscard]] double extraVisibleRangeDb() const { return extraVisibleRangeDb_; }
-    [[nodiscard]] double verticalOffsetDb() const { return verticalOffsetDb_; }
+    [[nodiscard]] bool hasCustomVisibleFrequencyRange() const { return hasCustomVisibleFrequencyRange_; }
+    [[nodiscard]] double visibleMinFrequencyHz() const { return visibleMinFrequencyHz_; }
+    [[nodiscard]] double visibleMaxFrequencyHz() const { return visibleMaxFrequencyHz_; }
 
 private:
     struct HoverState {
@@ -49,21 +50,34 @@ private:
         POINT position{};
     };
 
+    struct BrushState {
+        bool active = false;
+        POINT anchor{};
+        POINT current{};
+    };
+
     static constexpr wchar_t kWindowClassName[] = L"WolfieResponseGraph";
+
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+
     [[nodiscard]] RECT infoLineRect() const;
     void invalidateInfoLine() const;
     void notifyZoomChanged() const;
-    bool onMouseWheel(WPARAM wParam, LPARAM lParam);
+    void onLButtonDown(LPARAM lParam);
+    void onLButtonUp(LPARAM lParam);
     void onMouseMove(LPARAM lParam);
     void onMouseLeave();
+    void onCaptureChanged();
+    void onLButtonDblClk(LPARAM lParam);
     void onPaint() const;
 
     HWND window_ = nullptr;
     ResponseGraphData data_;
     HoverState hover_;
-    double extraVisibleRangeDb_ = 0.0;
-    double verticalOffsetDb_ = 0.0;
+    BrushState brush_;
+    bool hasCustomVisibleFrequencyRange_ = false;
+    double visibleMinFrequencyHz_ = 10.0;
+    double visibleMaxFrequencyHz_ = 20000.0;
 };
 
 }  // namespace wolfie::ui

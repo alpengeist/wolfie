@@ -16,6 +16,8 @@ namespace {
 
 constexpr double kSmoothnessSteps[] = {0.1, 1.0, 2.0, 4.0};
 constexpr int kSmoothnessStepCount = static_cast<int>(sizeof(kSmoothnessSteps) / sizeof(kSmoothnessSteps[0]));
+constexpr double kImpulseGraphNegativeWindowMs = 10.0;
+constexpr double kImpulseGraphPositiveWindowMs = 50.0;
 
 template <typename T>
 T clampValue(T value, T low, T high) {
@@ -1067,20 +1069,17 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
 
     const size_t leftPeak = static_cast<size_t>(std::max(workspace.filterResult.left.impulsePeakIndex, 0));
     const size_t rightPeak = static_cast<size_t>(std::max(workspace.filterResult.right.impulsePeakIndex, 0));
-    const size_t preSamples = std::max<size_t>(512, std::min<size_t>(1024, std::max(leftPeak, rightPeak)));
-    const size_t leftPost = workspace.filterResult.left.filterTaps.size() > leftPeak
-                                ? workspace.filterResult.left.filterTaps.size() - leftPeak - 1
-                                : 0;
-    const size_t rightPost = workspace.filterResult.right.filterTaps.size() > rightPeak
-                                 ? workspace.filterResult.right.filterTaps.size() - rightPeak - 1
-                                 : 0;
-    const size_t postSamples = std::min<size_t>(4096, std::min(leftPost, rightPost));
     const double sampleRate = static_cast<double>(std::max(workspace.filterResult.sampleRate, 1));
+    const int preSamples = static_cast<int>(std::lround((kImpulseGraphNegativeWindowMs / 1000.0) * sampleRate));
+    const int postSamples = static_cast<int>(std::lround((kImpulseGraphPositiveWindowMs / 1000.0) * sampleRate));
 
     std::vector<double> xValues;
     std::vector<double> leftValues;
     std::vector<double> rightValues;
-    for (int offset = -static_cast<int>(preSamples); offset <= static_cast<int>(postSamples); ++offset) {
+    xValues.reserve(static_cast<size_t>(preSamples + postSamples + 1));
+    leftValues.reserve(xValues.capacity());
+    rightValues.reserve(xValues.capacity());
+    for (int offset = -preSamples; offset <= postSamples; ++offset) {
         const int leftIndex = static_cast<int>(leftPeak) + offset;
         const int rightIndex = static_cast<int>(rightPeak) + offset;
         xValues.push_back(static_cast<double>(offset) * 1000.0 / sampleRate);

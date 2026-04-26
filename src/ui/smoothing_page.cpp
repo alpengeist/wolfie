@@ -124,14 +124,18 @@ void SmoothingPage::populate(const WorkspaceState& workspace) {
     SendMessageW(controls_.resolutionSlider, TBM_SETPOS, TRUE, workspace.smoothing.resolutionPercent);
     setWindowTextValue(controls_.effectiveParameter, formatEffectiveParameter(workspace.smoothing));
     setWindowTextValue(controls_.editHighFrequencyCutoff, formatWideDouble(workspace.smoothing.highFrequencySlopeCutoffHz, 0));
-    responseGraph_.setExtraVisibleRangeDb(workspace.ui.smoothingGraphExtraRangeDb);
-    responseGraph_.setVerticalOffsetDb(workspace.ui.smoothingGraphVerticalOffsetDb);
+    responseGraph_.setVisibleFrequencyRange(workspace.ui.smoothingGraphHasCustomFrequencyRange,
+                                            workspace.ui.smoothingGraphVisibleMinFrequencyHz,
+                                            workspace.ui.smoothingGraphVisibleMaxFrequencyHz);
     responseGraph_.setData(buildGraphData(workspace.smoothedResponse));
 }
 
 void SmoothingPage::syncToWorkspace(WorkspaceState& workspace) const {
-    workspace.ui.smoothingGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
-    workspace.ui.smoothingGraphVerticalOffsetDb = responseGraph_.verticalOffsetDb();
+    workspace.ui.smoothingGraphExtraRangeDb = 0.0;
+    workspace.ui.smoothingGraphVerticalOffsetDb = 0.0;
+    workspace.ui.smoothingGraphHasCustomFrequencyRange = responseGraph_.hasCustomVisibleFrequencyRange();
+    workspace.ui.smoothingGraphVisibleMinFrequencyHz = responseGraph_.visibleMinFrequencyHz();
+    workspace.ui.smoothingGraphVisibleMaxFrequencyHz = responseGraph_.visibleMaxFrequencyHz();
 }
 
 void SmoothingPage::invalidateGraph() const {
@@ -144,8 +148,11 @@ bool SmoothingPage::handleCommand(WORD commandId,
                                   bool& smoothingModelChanged,
                                   bool& graphZoomChanged) {
     if (commandId == kResponseGraph && notificationCode == ResponseGraph::kZoomChangedNotification) {
-        workspace.ui.smoothingGraphExtraRangeDb = responseGraph_.extraVisibleRangeDb();
-        workspace.ui.smoothingGraphVerticalOffsetDb = responseGraph_.verticalOffsetDb();
+        workspace.ui.smoothingGraphExtraRangeDb = 0.0;
+        workspace.ui.smoothingGraphVerticalOffsetDb = 0.0;
+        workspace.ui.smoothingGraphHasCustomFrequencyRange = responseGraph_.hasCustomVisibleFrequencyRange();
+        workspace.ui.smoothingGraphVisibleMinFrequencyHz = responseGraph_.visibleMinFrequencyHz();
+        workspace.ui.smoothingGraphVisibleMaxFrequencyHz = responseGraph_.visibleMaxFrequencyHz();
         graphZoomChanged = true;
         return true;
     }
