@@ -85,6 +85,13 @@ private:
         HWND lineGroupDelayRight = nullptr;
         HWND labelGroupDelayRight = nullptr;
         HWND impulseTitle = nullptr;
+        HWND buttonImpulseZoomOutX = nullptr;
+        HWND buttonImpulseZoomInX = nullptr;
+        HWND buttonImpulseResetX = nullptr;
+        HWND buttonImpulseZoomOutY = nullptr;
+        HWND buttonImpulseZoomInY = nullptr;
+        HWND buttonImpulseResetY = nullptr;
+        HWND buttonImpulseFit = nullptr;
     };
 
     static constexpr wchar_t kPageClassName[] = L"WolfieFiltersPage";
@@ -106,6 +113,13 @@ private:
     static constexpr int kCorrectedGraph = 3421;
     static constexpr int kGroupDelayGraph = 3422;
     static constexpr int kImpulseGraph = 3423;
+    static constexpr int kButtonImpulseZoomOutX = 3424;
+    static constexpr int kButtonImpulseZoomInX = 3425;
+    static constexpr int kButtonImpulseResetX = 3426;
+    static constexpr int kButtonImpulseZoomOutY = 3427;
+    static constexpr int kButtonImpulseZoomInY = 3428;
+    static constexpr int kButtonImpulseResetY = 3429;
+    static constexpr int kButtonImpulseFit = 3430;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
@@ -128,6 +142,7 @@ private:
     bool handleMouseWheel(WPARAM wParam);
     void handleVScroll(WORD code, WORD thumbPosition);
     void applySharedFrequencyHoverMarker();
+    void configureImpulseGraphViewport(const WorkspaceState& workspace);
     PlotGraphData buildCorrectionGraphData(const WorkspaceState& workspace) const;
     PlotGraphData buildCorrectedResponseGraphData(const WorkspaceState& workspace) const;
     PlotGraphData buildGroupDelayGraphData(const WorkspaceState& workspace) const;

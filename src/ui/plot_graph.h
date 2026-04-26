@@ -18,6 +18,11 @@ enum class PlotGraphXAxisMode {
     Linear
 };
 
+enum class PlotGraphYAxisMode {
+    Auto,
+    SymmetricAroundZero
+};
+
 struct PlotGraphSeries {
     std::wstring label;
     COLORREF color = RGB(0, 0, 0);
@@ -28,6 +33,7 @@ struct PlotGraphData {
     std::vector<double> xValues;
     std::vector<PlotGraphSeries> series;
     PlotGraphXAxisMode xAxisMode = PlotGraphXAxisMode::LogFrequency;
+    PlotGraphYAxisMode yAxisMode = PlotGraphYAxisMode::Auto;
     std::wstring xUnit;
     std::wstring yUnit;
     bool fixedYRange = false;
@@ -44,6 +50,14 @@ public:
     void create(HWND parent, HINSTANCE instance, int controlId = 0);
     void setData(PlotGraphData data);
     void setSharedHoverMarker(bool enabled, bool active, double xValue);
+    void setDefaultXRange(bool enabled, double minX, double maxX);
+    void setDefaultYRange(bool enabled, double minY, double maxY);
+    void resetXRange();
+    void resetYRange();
+    void resetView();
+    bool zoomX(double factor);
+    bool zoomXFromMin(double factor);
+    bool zoomY(double factor);
     void layout(const RECT& bounds) const;
     void invalidate() const;
 
@@ -84,16 +98,23 @@ private:
     void onMouseMove(LPARAM lParam);
     void onMouseLeave();
     void onCaptureChanged();
-    void onLButtonDblClk(LPARAM lParam);
-    void resetView();
     void onPaint() const;
 
     HWND window_ = nullptr;
     PlotGraphData data_;
     HoverState hover_;
+    bool hasDefaultXRange_ = false;
+    double defaultMinX_ = 0.0;
+    double defaultMaxX_ = 1.0;
+    bool hasDefaultYRange_ = false;
+    double defaultMinY_ = -1.0;
+    double defaultMaxY_ = 1.0;
     bool hasCustomXRange_ = false;
     double visibleMinX_ = 0.0;
     double visibleMaxX_ = 1.0;
+    bool hasCustomYRange_ = false;
+    double visibleMinY_ = -1.0;
+    double visibleMaxY_ = 1.0;
     BrushState brush_;
     SharedHoverMarkerState sharedHoverMarker_;
     mutable HBITMAP backgroundCacheBitmap_ = nullptr;

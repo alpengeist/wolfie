@@ -30,6 +30,8 @@ struct GraphLayout {
     int textHeight = 12;
     double minY = 0.0;
     double maxY = 1.0;
+    double fullMinX = 0.0;
+    double fullMaxX = 1.0;
     double visibleMinX = 0.0;
     double visibleMaxX = 1.0;
     std::vector<double> yTicks;
@@ -132,6 +134,12 @@ int graphYFromValue(const RECT& graph, double value, double minY, double maxY) {
     return graph.bottom - static_cast<int>(std::lround(yT * (graph.bottom - graph.top)));
 }
 
+int unclampedGraphYFromValue(const RECT& graph, double value, double minY, double maxY) {
+    const double range = std::max(maxY - minY, 1.0e-9);
+    const double yT = (value - minY) / range;
+    return graph.bottom - static_cast<int>(std::lround(yT * (graph.bottom - graph.top)));
+}
+
 std::vector<double> buildYTicks(double minY, double maxY) {
     const double range = std::max(maxY - minY, 1.0);
     const double step = nextNiceStep(range / 6.0);
@@ -164,6 +172,13 @@ void expandAutoYRange(double& minY, double& maxY) {
     maxY += pad;
 }
 
+void expandSymmetricYRange(double& minY, double& maxY) {
+    const double absMax = std::max(std::abs(minY), std::abs(maxY));
+    const double span = std::max(absMax * 1.08, kMinimumAutoYSpan * 0.5);
+    minY = -span;
+    maxY = span;
+}
+
 bool scanVisibleYRange(const PlotGraphData& data, double minVisibleX, double maxVisibleX, double& minY, double& maxY) {
     bool found = false;
     for (const PlotGraphSeries& series : data.series) {
@@ -188,50 +203,73 @@ GraphLayout buildLayout(HDC hdc,
                         const PlotGraphData& data,
                         bool hasCustomXRange,
                         double customMinX,
-                        double customMaxX) {
+                        double customMaxX,
+                        bool hasDefaultXRange,
+                        double defaultMinX,
+                        double defaultMaxX,
+                        bool hasCustomYRange,
+                        double customMinY,
+                        double customMaxY,
+                        bool hasDefaultYRange,
+                        double defaultMinY,
+                        double defaultMaxY) {
     GraphLayout layout;
     TEXTMETRICW metrics{};
     GetTextMetricsW(hdc, &metrics);
     layout.textHeight = std::max(static_cast<int>(metrics.tmHeight), 12);
 
-    double fullMinX = 0.0;
-    double fullMaxX = 1.0;
     if (!data.xValues.empty()) {
-        fullMinX = data.xValues.front();
-        fullMaxX = data.xValues.back();
-        if (std::abs(fullMaxX - fullMinX) < 1.0e-9) {
-            fullMaxX = fullMinX + 1.0;
+        layout.fullMinX = data.xValues.front();
+        layout.fullMaxX = data.xValues.back();
+        if (std::abs(layout.fullMaxX - layout.fullMinX) < 1.0e-9) {
+            layout.fullMaxX = layout.fullMinX + 1.0;
         }
     }
 
-    layout.visibleMinX = fullMinX;
-    layout.visibleMaxX = fullMaxX;
+    double baseMinX = hasDefaultXRange ? defaultMinX : layout.fullMinX;
+    double baseMaxX = hasDefaultXRange ? defaultMaxX : layout.fullMaxX;
+    layout.visibleMinX = clampValue(std::min(baseMinX, baseMaxX), layout.fullMinX, layout.fullMaxX);
+    layout.visibleMaxX = clampValue(std::max(baseMinX, baseMaxX), layout.fullMinX, layout.fullMaxX);
     if (hasCustomXRange && !data.xValues.empty()) {
-        layout.visibleMinX = clampValue(std::min(customMinX, customMaxX), fullMinX, fullMaxX);
-        layout.visibleMaxX = clampValue(std::max(customMinX, customMaxX), fullMinX, fullMaxX);
+        layout.visibleMinX = clampValue(std::min(customMinX, customMaxX), layout.fullMinX, layout.fullMaxX);
+        layout.visibleMaxX = clampValue(std::max(customMinX, customMaxX), layout.fullMinX, layout.fullMaxX);
         if (std::abs(layout.visibleMaxX - layout.visibleMinX) < 1.0e-9) {
-            layout.visibleMinX = fullMinX;
-            layout.visibleMaxX = fullMaxX;
+            layout.visibleMinX = hasDefaultXRange ? defaultMinX : layout.fullMinX;
+            layout.visibleMaxX = hasDefaultXRange ? defaultMaxX : layout.fullMaxX;
         }
     }
 
     double minY = std::numeric_limits<double>::max();
     double maxY = std::numeric_limits<double>::lowest();
-    if (data.fixedYRange && !hasCustomXRange) {
+    if (hasCustomYRange) {
+        minY = std::min(customMinY, customMaxY);
+        maxY = std::max(customMinY, customMaxY);
+    } else if (hasDefaultYRange) {
+        minY = std::min(defaultMinY, defaultMaxY);
+        maxY = std::max(defaultMinY, defaultMaxY);
+    } else if (data.fixedYRange && !hasCustomXRange) {
         minY = data.minY;
         maxY = data.maxY;
     } else if (scanVisibleYRange(data, layout.visibleMinX, layout.visibleMaxX, minY, maxY)) {
-        expandAutoYRange(minY, maxY);
+        if (data.yAxisMode == PlotGraphYAxisMode::SymmetricAroundZero) {
+            expandSymmetricYRange(minY, maxY);
+        } else {
+            expandAutoYRange(minY, maxY);
+        }
     } else if (data.fixedYRange) {
         minY = data.minY;
         maxY = data.maxY;
     } else {
-        minY = 0.0;
+        minY = data.yAxisMode == PlotGraphYAxisMode::SymmetricAroundZero ? -1.0 : 0.0;
         maxY = 1.0;
     }
 
     if (std::abs(maxY - minY) < 1.0e-9) {
-        expandAutoYRange(minY, maxY);
+        if (data.yAxisMode == PlotGraphYAxisMode::SymmetricAroundZero) {
+            expandSymmetricYRange(minY, maxY);
+        } else {
+            expandAutoYRange(minY, maxY);
+        }
     }
     layout.minY = minY;
     layout.maxY = maxY;
@@ -432,7 +470,7 @@ void drawSeries(HDC hdc, const PlotGraphData& data, const GraphLayout& layout, c
                                       layout.visibleMaxX,
                                       data.xValues[index],
                                       false);
-        const int y = graphYFromValue(layout.graph, series.values[index], layout.minY, layout.maxY);
+        const int y = unclampedGraphYFromValue(layout.graph, series.values[index], layout.minY, layout.maxY);
         if (index == 0) {
             MoveToEx(hdc, x, y, nullptr);
         } else {
@@ -559,6 +597,171 @@ void PlotGraph::setSharedHoverMarker(bool enabled, bool active, double xValue) {
     invalidate();
 }
 
+void PlotGraph::setDefaultXRange(bool enabled, double minX, double maxX) {
+    hasDefaultXRange_ = enabled;
+    defaultMinX_ = std::min(minX, maxX);
+    defaultMaxX_ = std::max(minX, maxX);
+    if (!hasCustomXRange_) {
+        invalidateBackgroundCache();
+        invalidate();
+    }
+}
+
+void PlotGraph::setDefaultYRange(bool enabled, double minY, double maxY) {
+    hasDefaultYRange_ = enabled;
+    defaultMinY_ = std::min(minY, maxY);
+    defaultMaxY_ = std::max(minY, maxY);
+    if (!hasCustomYRange_) {
+        invalidateBackgroundCache();
+        invalidate();
+    }
+}
+
+void PlotGraph::resetXRange() {
+    hasCustomXRange_ = false;
+    visibleMinX_ = 0.0;
+    visibleMaxX_ = 1.0;
+    brush_ = {};
+    invalidateBackgroundCache();
+    invalidate();
+}
+
+void PlotGraph::resetYRange() {
+    hasCustomYRange_ = false;
+    visibleMinY_ = -1.0;
+    visibleMaxY_ = 1.0;
+    invalidateBackgroundCache();
+    invalidate();
+}
+
+void PlotGraph::resetView() {
+    hasCustomXRange_ = false;
+    visibleMinX_ = 0.0;
+    visibleMaxX_ = 1.0;
+    hasCustomYRange_ = false;
+    visibleMinY_ = -1.0;
+    visibleMaxY_ = 1.0;
+    brush_ = {};
+    invalidateBackgroundCache();
+    invalidate();
+}
+
+bool PlotGraph::zoomX(double factor) {
+    if (factor <= 0.0 || data_.xValues.empty()) {
+        return false;
+    }
+
+    const double fullMinX = data_.xValues.front();
+    const double fullMaxX = data_.xValues.back();
+    const double fullSpan = std::max(fullMaxX - fullMinX, 1.0e-6);
+    const double currentMinX = hasCustomXRange_ ? visibleMinX_ : (hasDefaultXRange_ ? defaultMinX_ : fullMinX);
+    const double currentMaxX = hasCustomXRange_ ? visibleMaxX_ : (hasDefaultXRange_ ? defaultMaxX_ : fullMaxX);
+    const double currentSpan = std::max(currentMaxX - currentMinX, fullSpan * 0.001);
+    const double nextSpan = clampValue(currentSpan / factor, fullSpan * 0.001, fullSpan);
+    const double centerX = (currentMinX + currentMaxX) * 0.5;
+
+    double nextMinX = centerX - (nextSpan * 0.5);
+    double nextMaxX = centerX + (nextSpan * 0.5);
+    if (nextMinX < fullMinX) {
+        nextMaxX += fullMinX - nextMinX;
+        nextMinX = fullMinX;
+    }
+    if (nextMaxX > fullMaxX) {
+        nextMinX -= nextMaxX - fullMaxX;
+        nextMaxX = fullMaxX;
+    }
+    nextMinX = std::max(nextMinX, fullMinX);
+    nextMaxX = std::min(nextMaxX, fullMaxX);
+
+    hasCustomXRange_ = true;
+    visibleMinX_ = nextMinX;
+    visibleMaxX_ = nextMaxX;
+    invalidateBackgroundCache();
+    invalidate();
+    return true;
+}
+
+bool PlotGraph::zoomXFromMin(double factor) {
+    if (factor <= 0.0 || data_.xValues.empty()) {
+        return false;
+    }
+
+    const double fullMinX = data_.xValues.front();
+    const double fullMaxX = data_.xValues.back();
+    const double fullSpan = std::max(fullMaxX - fullMinX, 1.0e-6);
+    const double currentMinX = hasCustomXRange_ ? visibleMinX_ : (hasDefaultXRange_ ? defaultMinX_ : fullMinX);
+    const double currentMaxX = hasCustomXRange_ ? visibleMaxX_ : (hasDefaultXRange_ ? defaultMaxX_ : fullMaxX);
+    const double currentSpan = std::max(currentMaxX - currentMinX, fullSpan * 0.001);
+    const double nextSpan = clampValue(currentSpan / factor, fullSpan * 0.001, fullSpan);
+
+    const double anchorMinX = clampValue(currentMinX, fullMinX, fullMaxX);
+    double nextMinX = anchorMinX;
+    double nextMaxX = anchorMinX + nextSpan;
+    if (nextMaxX > fullMaxX) {
+        nextMaxX = fullMaxX;
+        nextMinX = std::max(fullMinX, nextMaxX - nextSpan);
+    }
+
+    hasCustomXRange_ = true;
+    visibleMinX_ = nextMinX;
+    visibleMaxX_ = nextMaxX;
+    invalidateBackgroundCache();
+    invalidate();
+    return true;
+}
+
+bool PlotGraph::zoomY(double factor) {
+    if (factor <= 0.0 || window_ == nullptr) {
+        return false;
+    }
+
+    HDC hdc = GetDC(window_);
+    if (hdc == nullptr) {
+        return false;
+    }
+    RECT rect{};
+    GetClientRect(window_, &rect);
+    const GraphLayout layout = buildLayout(hdc,
+                                           rect,
+                                           data_,
+                                           hasCustomXRange_,
+                                           visibleMinX_,
+                                           visibleMaxX_,
+                                           hasDefaultXRange_,
+                                           defaultMinX_,
+                                           defaultMaxX_,
+                                           hasCustomYRange_,
+                                           visibleMinY_,
+                                           visibleMaxY_,
+                                           hasDefaultYRange_,
+                                           defaultMinY_,
+                                           defaultMaxY_);
+    ReleaseDC(window_, hdc);
+
+    double nextMinY = layout.minY;
+    double nextMaxY = layout.maxY;
+    if (data_.yAxisMode == PlotGraphYAxisMode::SymmetricAroundZero) {
+        const double currentHalfSpan = std::max(std::abs(layout.minY), std::abs(layout.maxY));
+        const double defaultHalfSpan = hasDefaultYRange_ ? std::max(std::abs(defaultMinY_), std::abs(defaultMaxY_)) : currentHalfSpan;
+        const double nextHalfSpan = clampValue(currentHalfSpan / factor, 1.0e-3, std::max(defaultHalfSpan, 1.0e-3));
+        nextMinY = -nextHalfSpan;
+        nextMaxY = nextHalfSpan;
+    } else {
+        const double currentSpan = std::max(layout.maxY - layout.minY, 1.0e-6);
+        const double centerY = (layout.minY + layout.maxY) * 0.5;
+        const double nextSpan = currentSpan / factor;
+        nextMinY = centerY - (nextSpan * 0.5);
+        nextMaxY = centerY + (nextSpan * 0.5);
+    }
+
+    hasCustomYRange_ = true;
+    visibleMinY_ = nextMinY;
+    visibleMaxY_ = nextMaxY;
+    invalidateBackgroundCache();
+    invalidate();
+    return true;
+}
+
 void PlotGraph::layout(const RECT& bounds) const {
     if (window_ != nullptr) {
         MoveWindow(window_, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top, TRUE);
@@ -620,9 +823,6 @@ LRESULT CALLBACK PlotGraph::WindowProc(HWND window, UINT message, WPARAM wParam,
     case WM_LBUTTONUP:
         graph->onLButtonUp(lParam);
         return 0;
-    case WM_LBUTTONDBLCLK:
-        graph->onLButtonDblClk(lParam);
-        return 0;
     case WM_CAPTURECHANGED:
         graph->onCaptureChanged();
         return 0;
@@ -648,7 +848,21 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
     SelectObject(hdc, GetStockObject(DC_PEN));
     SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
 
-    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
+    const GraphLayout layout = buildLayout(hdc,
+                                           rect,
+                                           data_,
+                                           hasCustomXRange_,
+                                           visibleMinX_,
+                                           visibleMaxX_,
+                                           hasDefaultXRange_,
+                                           defaultMinX_,
+                                           defaultMaxX_,
+                                           hasCustomYRange_,
+                                           visibleMinY_,
+                                           visibleMaxY_,
+                                           hasDefaultYRange_,
+                                           defaultMinY_,
+                                           defaultMaxY_);
     const std::vector<double> xTicks = buildXTicks(layout.graph, data_, layout.visibleMinX, layout.visibleMaxX);
     const std::vector<AxisLabel> xLabels =
         buildXLabels(hdc, layout.graph, data_, layout.visibleMinX, layout.visibleMaxX, xTicks);
@@ -704,7 +918,7 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
         DrawTextW(hdc, label.c_str(), -1, &labelRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
 
-    drawResetButton(hdc, layout.resetButton, hasCustomXRange_);
+    drawResetButton(hdc, layout.resetButton, hasCustomXRange_ || hasCustomYRange_);
 }
 
 void PlotGraph::notifyHoverChanged() const {
@@ -734,13 +948,26 @@ void PlotGraph::onLButtonDown(LPARAM lParam) {
     }
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
+    const GraphLayout layout = buildLayout(hdc,
+                                           rect,
+                                           data_,
+                                           hasCustomXRange_,
+                                           visibleMinX_,
+                                           visibleMaxX_,
+                                           hasDefaultXRange_,
+                                           defaultMinX_,
+                                           defaultMaxX_,
+                                           hasCustomYRange_,
+                                           visibleMinY_,
+                                           visibleMaxY_,
+                                           hasDefaultYRange_,
+                                           defaultMinY_,
+                                           defaultMaxY_);
     ReleaseDC(window_, hdc);
 
     const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    if (hasCustomXRange_ && PtInRect(&layout.resetButton, position) != FALSE) {
+    if ((hasCustomXRange_ || hasCustomYRange_) && PtInRect(&layout.resetButton, position) != FALSE) {
         resetView();
-        invalidate();
         return;
     }
     if (PtInRect(&layout.graph, position) == FALSE) {
@@ -788,7 +1015,21 @@ void PlotGraph::onMouseMove(LPARAM lParam) {
     }
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
+    const GraphLayout layout = buildLayout(hdc,
+                                           rect,
+                                           data_,
+                                           hasCustomXRange_,
+                                           visibleMinX_,
+                                           visibleMaxX_,
+                                           hasDefaultXRange_,
+                                           defaultMinX_,
+                                           defaultMaxX_,
+                                           hasCustomYRange_,
+                                           visibleMinY_,
+                                           visibleMaxY_,
+                                           hasDefaultYRange_,
+                                           defaultMinY_,
+                                           defaultMaxY_);
     ReleaseDC(window_, hdc);
 
     const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
@@ -847,7 +1088,21 @@ void PlotGraph::onCaptureChanged() {
     }
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
+    const GraphLayout layout = buildLayout(hdc,
+                                           rect,
+                                           data_,
+                                           hasCustomXRange_,
+                                           visibleMinX_,
+                                           visibleMaxX_,
+                                           hasDefaultXRange_,
+                                           defaultMinX_,
+                                           defaultMaxX_,
+                                           hasCustomYRange_,
+                                           visibleMinY_,
+                                           visibleMaxY_,
+                                           hasDefaultYRange_,
+                                           defaultMinY_,
+                                           defaultMaxY_);
     ReleaseDC(window_, hdc);
 
     if (hasBrushWidth(brush_.anchor, brush_.current) && !data_.xValues.empty()) {
@@ -875,44 +1130,27 @@ void PlotGraph::onCaptureChanged() {
     invalidate();
 }
 
-void PlotGraph::onLButtonDblClk(LPARAM lParam) {
-    if (window_ == nullptr || !hasCustomXRange_) {
-        return;
-    }
-
-    HDC hdc = GetDC(window_);
-    if (hdc == nullptr) {
-        return;
-    }
-    RECT rect{};
-    GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
-    ReleaseDC(window_, hdc);
-
-    const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    if (PtInRect(&layout.graph, position) == FALSE && PtInRect(&layout.resetButton, position) == FALSE) {
-        return;
-    }
-
-    resetView();
-    invalidate();
-}
-
-void PlotGraph::resetView() {
-    hasCustomXRange_ = false;
-    visibleMinX_ = 0.0;
-    visibleMaxX_ = 1.0;
-    brush_ = {};
-    invalidateBackgroundCache();
-}
-
 void PlotGraph::onPaint() const {
     PAINTSTRUCT paint{};
     HDC hdc = BeginPaint(window_, &paint);
 
     RECT rect{};
     GetClientRect(window_, &rect);
-    const GraphLayout layout = buildLayout(hdc, rect, data_, hasCustomXRange_, visibleMinX_, visibleMaxX_);
+    const GraphLayout layout = buildLayout(hdc,
+                                           rect,
+                                           data_,
+                                           hasCustomXRange_,
+                                           visibleMinX_,
+                                           visibleMaxX_,
+                                           hasDefaultXRange_,
+                                           defaultMinX_,
+                                           defaultMaxX_,
+                                           hasCustomYRange_,
+                                           visibleMinY_,
+                                           visibleMaxY_,
+                                           hasDefaultYRange_,
+                                           defaultMinY_,
+                                           defaultMaxY_);
     HDC cacheSource = CreateCompatibleDC(hdc);
     if (cacheSource == nullptr) {
         EndPaint(window_, &paint);

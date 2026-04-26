@@ -18,6 +18,8 @@ constexpr double kSmoothnessSteps[] = {0.1, 1.0, 2.0, 4.0};
 constexpr int kSmoothnessStepCount = static_cast<int>(sizeof(kSmoothnessSteps) / sizeof(kSmoothnessSteps[0]));
 constexpr double kImpulseGraphNegativeWindowMs = 10.0;
 constexpr double kImpulseGraphPositiveWindowMs = 50.0;
+constexpr double kImpulseGraphMinZoomFactor = 0.5;
+constexpr double kImpulseGraphMaxZoomFactor = 2.0;
 
 template <typename T>
 T clampValue(T value, T low, T high) {
@@ -334,6 +336,20 @@ void FiltersPage::createControls() {
     controls_.labelGroupDelayRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.impulseTitle = CreateWindowW(L"STATIC", L"Filter Impulse", WS_CHILD | WS_VISIBLE,
                                            0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.buttonImpulseZoomOutX = CreateWindowW(L"BUTTON", L"X-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                                    0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomOutX), instance_, nullptr);
+    controls_.buttonImpulseZoomInX = CreateWindowW(L"BUTTON", L"X+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomInX), instance_, nullptr);
+    controls_.buttonImpulseResetX = CreateWindowW(L"BUTTON", L"Reset X", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseResetX), instance_, nullptr);
+    controls_.buttonImpulseZoomOutY = CreateWindowW(L"BUTTON", L"Y-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                                    0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomOutY), instance_, nullptr);
+    controls_.buttonImpulseZoomInY = CreateWindowW(L"BUTTON", L"Y+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomInY), instance_, nullptr);
+    controls_.buttonImpulseResetY = CreateWindowW(L"BUTTON", L"Reset Y", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseResetY), instance_, nullptr);
+    controls_.buttonImpulseFit = CreateWindowW(L"BUTTON", L"Fit", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseFit), instance_, nullptr);
 
     populateTapCountCombo(controls_.comboTapCount);
     SendMessageW(controls_.sliderSmoothness, TBM_SETRANGEMIN, FALSE, 0);
@@ -449,9 +465,25 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.impulseTitle, contentLeft, y, contentWidth, 18, TRUE);
-    impulseGraph_.layout(RECT{contentLeft, y + 24, contentLeft + contentWidth, y + 24 + graphHeight});
+    const int impulseButtonTop = y + 20;
+    const int impulseButtonHeight = 24;
+    int impulseButtonLeft = contentLeft;
+    MoveWindow(controls_.buttonImpulseZoomOutX, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 48;
+    MoveWindow(controls_.buttonImpulseZoomInX, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 48;
+    MoveWindow(controls_.buttonImpulseResetX, impulseButtonLeft, impulseButtonTop, 70, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 82;
+    MoveWindow(controls_.buttonImpulseZoomOutY, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 48;
+    MoveWindow(controls_.buttonImpulseZoomInY, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 48;
+    MoveWindow(controls_.buttonImpulseResetY, impulseButtonLeft, impulseButtonTop, 70, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 82;
+    MoveWindow(controls_.buttonImpulseFit, impulseButtonLeft, impulseButtonTop, 54, impulseButtonHeight, TRUE);
+    impulseGraph_.layout(RECT{contentLeft, y + 52, contentLeft + contentWidth, y + 52 + graphHeight});
 
-    contentHeight_ = y + scrollOffset_ + 24 + graphHeight + sectionGap + 20;
+    contentHeight_ = y + scrollOffset_ + 52 + graphHeight + sectionGap + 20;
     updateScrollBar();
 
     if (contentHeight_ - scrollOffset_ < viewportHeight) {
@@ -489,6 +521,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
     groupDelayGraph_.setData(buildGroupDelayGraphData(workspace));
     impulseGraph_.setData(buildImpulseGraphData(workspace));
+    configureImpulseGraphViewport(workspace);
     applySharedFrequencyHoverMarker();
 }
 
@@ -687,6 +720,30 @@ bool FiltersPage::handleCommand(WORD commandId,
         syncToWorkspace(workspace);
         recalculateRequested = true;
         return true;
+    }
+
+    if (notificationCode == BN_CLICKED) {
+        switch (commandId) {
+        case kButtonImpulseZoomOutX:
+            return impulseGraph_.zoomXFromMin(kImpulseGraphMinZoomFactor);
+        case kButtonImpulseZoomInX:
+            return impulseGraph_.zoomXFromMin(kImpulseGraphMaxZoomFactor);
+        case kButtonImpulseResetX:
+            impulseGraph_.resetXRange();
+            return true;
+        case kButtonImpulseZoomOutY:
+            return impulseGraph_.zoomY(kImpulseGraphMinZoomFactor);
+        case kButtonImpulseZoomInY:
+            return impulseGraph_.zoomY(kImpulseGraphMaxZoomFactor);
+        case kButtonImpulseResetY:
+            impulseGraph_.resetYRange();
+            return true;
+        case kButtonImpulseFit:
+            impulseGraph_.resetView();
+            return true;
+        default:
+            break;
+        }
     }
 
     return false;
@@ -976,6 +1033,34 @@ void FiltersPage::applySharedFrequencyHoverMarker() {
     groupDelayGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
 }
 
+void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace) {
+    if (!workspace.filterResult.valid ||
+        workspace.filterResult.left.filterTaps.empty() ||
+        workspace.filterResult.right.filterTaps.empty()) {
+        impulseGraph_.setDefaultXRange(false, 0.0, 1.0);
+        impulseGraph_.setDefaultYRange(false, -1.0, 1.0);
+        impulseGraph_.resetView();
+        return;
+    }
+
+    const size_t tapCount = std::min(workspace.filterResult.left.filterTaps.size(),
+                                     workspace.filterResult.right.filterTaps.size());
+    const double sampleRate = static_cast<double>(std::max(workspace.filterResult.sampleRate, 1));
+    const size_t leftPeak = std::min(static_cast<size_t>(std::max(workspace.filterResult.left.impulsePeakIndex, 0)),
+                                     tapCount - 1);
+    const size_t rightPeak = std::min(static_cast<size_t>(std::max(workspace.filterResult.right.impulsePeakIndex, 0)),
+                                      tapCount - 1);
+    const double centerIndex = (static_cast<double>(leftPeak) + static_cast<double>(rightPeak)) * 0.5;
+    const double centerMs = centerIndex * 1000.0 / sampleRate;
+    const double fullMaxMs = static_cast<double>(tapCount - 1) * 1000.0 / sampleRate;
+
+    impulseGraph_.setDefaultXRange(true,
+                                   clampValue(centerMs - kImpulseGraphNegativeWindowMs, 0.0, fullMaxMs),
+                                   clampValue(centerMs + kImpulseGraphPositiveWindowMs, 0.0, fullMaxMs));
+    impulseGraph_.setDefaultYRange(true, -1.0, 1.0);
+    impulseGraph_.resetView();
+}
+
 PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
     data.xValues = workspace.filterResult.frequencyAxisHz;
@@ -1105,6 +1190,7 @@ PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& worksp
 PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
     data.xAxisMode = PlotGraphXAxisMode::Linear;
+    data.yAxisMode = PlotGraphYAxisMode::SymmetricAroundZero;
     data.xUnit = L"ms";
     data.yUnit = L"amp";
     if (!workspace.filterResult.valid ||
@@ -1113,28 +1199,20 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
         return data;
     }
 
-    const size_t leftPeak = static_cast<size_t>(std::max(workspace.filterResult.left.impulsePeakIndex, 0));
-    const size_t rightPeak = static_cast<size_t>(std::max(workspace.filterResult.right.impulsePeakIndex, 0));
+    const size_t tapCount = std::min(workspace.filterResult.left.filterTaps.size(),
+                                     workspace.filterResult.right.filterTaps.size());
     const double sampleRate = static_cast<double>(std::max(workspace.filterResult.sampleRate, 1));
-    const int preSamples = static_cast<int>(std::lround((kImpulseGraphNegativeWindowMs / 1000.0) * sampleRate));
-    const int postSamples = static_cast<int>(std::lround((kImpulseGraphPositiveWindowMs / 1000.0) * sampleRate));
 
     std::vector<double> xValues;
     std::vector<double> leftValues;
     std::vector<double> rightValues;
-    xValues.reserve(static_cast<size_t>(preSamples + postSamples + 1));
-    leftValues.reserve(xValues.capacity());
-    rightValues.reserve(xValues.capacity());
-    for (int offset = -preSamples; offset <= postSamples; ++offset) {
-        const int leftIndex = static_cast<int>(leftPeak) + offset;
-        const int rightIndex = static_cast<int>(rightPeak) + offset;
-        xValues.push_back(static_cast<double>(offset) * 1000.0 / sampleRate);
-        leftValues.push_back(leftIndex >= 0 && leftIndex < static_cast<int>(workspace.filterResult.left.filterTaps.size())
-                                 ? workspace.filterResult.left.filterTaps[static_cast<size_t>(leftIndex)]
-                                 : 0.0);
-        rightValues.push_back(rightIndex >= 0 && rightIndex < static_cast<int>(workspace.filterResult.right.filterTaps.size())
-                                  ? workspace.filterResult.right.filterTaps[static_cast<size_t>(rightIndex)]
-                                  : 0.0);
+    xValues.reserve(tapCount);
+    leftValues.reserve(tapCount);
+    rightValues.reserve(tapCount);
+    for (size_t index = 0; index < tapCount; ++index) {
+        xValues.push_back(static_cast<double>(index) * 1000.0 / sampleRate);
+        leftValues.push_back(workspace.filterResult.left.filterTaps[index]);
+        rightValues.push_back(workspace.filterResult.right.filterTaps[index]);
     }
 
     data.xValues = std::move(xValues);
