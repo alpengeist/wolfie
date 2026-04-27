@@ -280,6 +280,7 @@ GraphLayout buildLayout(HDC hdc,
     layout.maxY = maxY;
     layout.yTicks = buildYTicks(minY, maxY);
 
+    const int yUnitWidth = data.yUnit.empty() ? 0 : (measureTextWidth(hdc, data.yUnit) + 10);
     int widestYLabel = 0;
     for (const double tick : layout.yTicks) {
         widestYLabel = std::max(widestYLabel, measureTextWidth(hdc, formatAxisValue(tick)));
@@ -292,10 +293,10 @@ GraphLayout buildLayout(HDC hdc,
         rect.top + 8 + kResetButtonHeight,
     };
     layout.graph = RECT{
-        rect.left + std::max(52, widestYLabel + 14),
+        rect.left + std::max(52, yUnitWidth + widestYLabel + 18),
         rect.top + kResetButtonHeight + 16,
         rect.right - 8,
-        rect.bottom - (layout.textHeight + 18),
+        rect.bottom - ((layout.textHeight * 2) + 24),
     };
     return layout;
 }
@@ -560,6 +561,36 @@ void drawResetButton(HDC hdc, const RECT& rect, bool enabled) {
 
     SetTextColor(hdc, textColor);
     DrawTextW(hdc, L"Reset", -1, const_cast<RECT*>(&rect), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+void drawAxisUnitLabels(HDC hdc,
+                        const RECT& rect,
+                        const GraphLayout& layout,
+                        const std::wstring& xUnit,
+                        const std::wstring& yUnit) {
+    SetTextColor(hdc, ui_theme::kMuted);
+
+    if (!yUnit.empty()) {
+        const int yUnitWidth = measureTextWidth(hdc, yUnit) + 10;
+        RECT yUnitRect{
+            rect.left + 4,
+            layout.graph.top + 2,
+            rect.left + yUnitWidth,
+            layout.graph.top + layout.textHeight + 4,
+        };
+        DrawTextW(hdc, yUnit.c_str(), -1, &yUnitRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
+    }
+
+    if (!xUnit.empty()) {
+        const int xTickBottom = layout.graph.bottom + layout.textHeight + 8;
+        RECT xUnitRect{
+            layout.graph.left,
+            xTickBottom,
+            layout.graph.right,
+            rect.bottom - 2,
+        };
+        DrawTextW(hdc, xUnit.c_str(), -1, &xUnitRect, DT_CENTER | DT_TOP | DT_SINGLELINE);
+    }
 }
 
 void drawSeries(HDC hdc, const PlotGraphData& data, const GraphLayout& layout, const PlotGraphSeries& series) {
@@ -1019,14 +1050,17 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
     }
 
     SetTextColor(hdc, ui_theme::kMuted);
+    const int yUnitWidth = data_.yUnit.empty() ? 0 : (measureTextWidth(hdc, data_.yUnit) + 10);
+    const int xTickTop = layout.graph.bottom + 4;
+    const int xTickBottom = xTickTop + layout.textHeight + 4;
     for (const AxisLabel& label : xLabels) {
-        RECT labelRect{label.left, layout.graph.bottom + 6, label.right + 2, rect.bottom};
+        RECT labelRect{label.left, xTickTop, label.right + 2, xTickBottom};
         DrawTextW(hdc, label.text.c_str(), -1, &labelRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
     }
     for (const double tick : layout.yTicks) {
         const int y = graphYFromValue(layout.graph, tick, layout.minY, layout.maxY);
         RECT labelRect{
-            rect.left + 4,
+            rect.left + yUnitWidth + 6,
             y - layout.textHeight / 2 - 2,
             layout.graph.left - 6,
             y + layout.textHeight / 2 + 2,
@@ -1034,6 +1068,8 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
         const std::wstring label = formatAxisValue(tick);
         DrawTextW(hdc, label.c_str(), -1, &labelRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
+
+    drawAxisUnitLabels(hdc, rect, layout, data_.xUnit, data_.yUnit);
 
     drawResetButton(hdc, layout.resetButton, hasCustomXRange_ || hasCustomYRange_);
 }

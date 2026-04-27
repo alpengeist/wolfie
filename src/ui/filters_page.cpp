@@ -422,32 +422,6 @@ void FiltersPage::createControls() {
                                                                    nullptr);
     controls_.lineExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L after", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.checkboxShowPredictedGroupDelayRight = CreateWindowW(L"BUTTON",
-                                                                   L"",
-                                                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                                                   0,
-                                                                   0,
-                                                                   0,
-                                                                   0,
-                                                                   window_,
-                                                                   reinterpret_cast<HMENU>(kCheckboxShowPredictedGroupDelayRight),
-                                                                   instance_,
-                                                                   nullptr);
-    controls_.linePredictedGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelPredictedGroupDelayRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.checkboxShowPredictedGroupDelayLeft = CreateWindowW(L"BUTTON",
-                                                                  L"",
-                                                                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                                                  0,
-                                                                  0,
-                                                                  0,
-                                                                  0,
-                                                                  window_,
-                                                                  reinterpret_cast<HMENU>(kCheckboxShowPredictedGroupDelayLeft),
-                                                                  instance_,
-                                                                  nullptr);
-    controls_.linePredictedGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelPredictedGroupDelayLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Filter + Predicted Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayLegendFrame = CreateWindowW(L"STATIC",
@@ -487,6 +461,32 @@ void FiltersPage::createControls() {
                                                                 nullptr);
     controls_.lineGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelGroupDelayRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowPredictedGroupDelayRight = CreateWindowW(L"BUTTON",
+                                                                   L"",
+                                                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                                   0,
+                                                                   0,
+                                                                   0,
+                                                                   0,
+                                                                   window_,
+                                                                   reinterpret_cast<HMENU>(kCheckboxShowPredictedGroupDelayRight),
+                                                                   instance_,
+                                                                   nullptr);
+    controls_.linePredictedGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelPredictedGroupDelayRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowPredictedGroupDelayLeft = CreateWindowW(L"BUTTON",
+                                                                  L"",
+                                                                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                                  0,
+                                                                  0,
+                                                                  0,
+                                                                  0,
+                                                                  window_,
+                                                                  reinterpret_cast<HMENU>(kCheckboxShowPredictedGroupDelayLeft),
+                                                                  instance_,
+                                                                  nullptr);
+    controls_.linePredictedGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelPredictedGroupDelayLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.impulseTitle = CreateWindowW(L"STATIC", L"Filter Impulse", WS_CHILD | WS_VISIBLE,
                                            0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonImpulseZoomOutX = CreateWindowW(L"BUTTON", L"X-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
@@ -590,18 +590,18 @@ void FiltersPage::layout() {
     const int lineHeight = 3;
     const int labelLeft = lineLeft + lineWidth + 8;
     const int labelWidth = legendWidth - (labelLeft - legendLeft) - 12;
-    MoveWindow(controls_.checkboxShowInputRight, checkboxLeft, firstRowTop, checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.lineInputRight, lineLeft, firstRowTop + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelInputRight, labelLeft, firstRowTop + 2, labelWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxShowInputLeft, checkboxLeft, firstRowTop + rowStep, checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.lineInputLeft, lineLeft, firstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelInputLeft, labelLeft, firstRowTop + rowStep + 2, labelWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxShowInversionRight, checkboxLeft, firstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.lineInversionRight, lineLeft, firstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelInversionRight, labelLeft, firstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxShowInversionLeft, checkboxLeft, firstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.lineInversionLeft, lineLeft, firstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelInversionLeft, labelLeft, firstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowInputLeft, checkboxLeft, firstRowTop, checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineInputLeft, lineLeft, firstRowTop + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelInputLeft, labelLeft, firstRowTop + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowInputRight, checkboxLeft, firstRowTop + rowStep, checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineInputRight, lineLeft, firstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelInputRight, labelLeft, firstRowTop + rowStep + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowInversionLeft, checkboxLeft, firstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineInversionLeft, lineLeft, firstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelInversionLeft, labelLeft, firstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowInversionRight, checkboxLeft, firstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineInversionRight, lineLeft, firstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelInversionRight, labelLeft, firstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.correctedTitle, contentLeft, y, contentWidth, 18, TRUE);
@@ -628,18 +628,18 @@ void FiltersPage::layout() {
     MoveWindow(controls_.excessPhaseLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     excessPhaseGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int excessPhaseFirstRowTop = y + 24 + 18;
-    MoveWindow(controls_.checkboxShowExcessPhaseInputRight, checkboxLeft, excessPhaseFirstRowTop, checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.lineExcessPhaseInputRight, lineLeft, excessPhaseFirstRowTop + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelExcessPhaseInputRight, labelLeft, excessPhaseFirstRowTop + 2, labelWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxShowExcessPhaseInputLeft, checkboxLeft, excessPhaseFirstRowTop + rowStep, checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.lineExcessPhaseInputLeft, lineLeft, excessPhaseFirstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelExcessPhaseInputLeft, labelLeft, excessPhaseFirstRowTop + rowStep + 2, labelWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxShowExcessPhasePredictedRight, checkboxLeft, excessPhaseFirstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.lineExcessPhasePredictedRight, lineLeft, excessPhaseFirstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelExcessPhasePredictedRight, labelLeft, excessPhaseFirstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxShowExcessPhasePredictedLeft, checkboxLeft, excessPhaseFirstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.lineExcessPhasePredictedLeft, lineLeft, excessPhaseFirstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelExcessPhasePredictedLeft, labelLeft, excessPhaseFirstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowExcessPhaseInputLeft, checkboxLeft, excessPhaseFirstRowTop, checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineExcessPhaseInputLeft, lineLeft, excessPhaseFirstRowTop + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelExcessPhaseInputLeft, labelLeft, excessPhaseFirstRowTop + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowExcessPhaseInputRight, checkboxLeft, excessPhaseFirstRowTop + rowStep, checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineExcessPhaseInputRight, lineLeft, excessPhaseFirstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelExcessPhaseInputRight, labelLeft, excessPhaseFirstRowTop + rowStep + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowExcessPhasePredictedLeft, checkboxLeft, excessPhaseFirstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineExcessPhasePredictedLeft, lineLeft, excessPhaseFirstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelExcessPhasePredictedLeft, labelLeft, excessPhaseFirstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowExcessPhasePredictedRight, checkboxLeft, excessPhaseFirstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineExcessPhasePredictedRight, lineLeft, excessPhaseFirstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelExcessPhasePredictedRight, labelLeft, excessPhaseFirstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
@@ -652,12 +652,12 @@ void FiltersPage::layout() {
     MoveWindow(controls_.checkboxShowFilterGroupDelayRight, checkboxLeft, groupDelayFirstRowTop + rowStep, checkboxWidth, 20, TRUE);
     MoveWindow(controls_.lineGroupDelayRight, lineLeft, groupDelayFirstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
     MoveWindow(controls_.labelGroupDelayRight, labelLeft, groupDelayFirstRowTop + rowStep + 2, labelWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxShowPredictedGroupDelayRight, checkboxLeft, groupDelayFirstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.linePredictedGroupDelayRight, lineLeft, groupDelayFirstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelPredictedGroupDelayRight, labelLeft, groupDelayFirstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxShowPredictedGroupDelayLeft, checkboxLeft, groupDelayFirstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.linePredictedGroupDelayLeft, lineLeft, groupDelayFirstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelPredictedGroupDelayLeft, labelLeft, groupDelayFirstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowPredictedGroupDelayLeft, checkboxLeft, groupDelayFirstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.linePredictedGroupDelayLeft, lineLeft, groupDelayFirstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelPredictedGroupDelayLeft, labelLeft, groupDelayFirstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowPredictedGroupDelayRight, checkboxLeft, groupDelayFirstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.linePredictedGroupDelayRight, lineLeft, groupDelayFirstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelPredictedGroupDelayRight, labelLeft, groupDelayFirstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.impulseTitle, contentLeft, y, contentWidth, 18, TRUE);
@@ -1525,14 +1525,12 @@ PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& worksp
     if (showPredictedGroupDelayRight_) {
         data.series.push_back({L"Right predicted",
                                ui_theme::kMagenta,
-                               workspace.filterResult.right.predictedGroupDelayMs,
-                               PlotGraphLineStyle::Dash});
+                               workspace.filterResult.right.predictedGroupDelayMs});
     }
     if (showPredictedGroupDelayLeft_) {
         data.series.push_back({L"Left predicted",
                                ui_theme::kGray,
-                               workspace.filterResult.left.predictedGroupDelayMs,
-                               PlotGraphLineStyle::Dash});
+                               workspace.filterResult.left.predictedGroupDelayMs});
     }
     return data;
 }

@@ -424,6 +424,7 @@ GraphLayout buildLayout(HDC hdc,
     layout.maxFrequencyHz = plotData.maxFrequencyHz;
     layout.yTickValues = buildDbTickValues(layout.axisMinDb, layout.axisMaxDb);
 
+    const int yUnitWidth = measureTextWidth(hdc, L"dB") + 10;
     int widestYLabel = 0;
     for (const double tickValue : layout.yTickValues) {
         widestYLabel = std::max(widestYLabel, measureTextWidth(hdc, formatDbLabel(tickValue)));
@@ -438,10 +439,10 @@ GraphLayout buildLayout(HDC hdc,
 
     const int infoLineHeight = std::max(layout.textHeight, kResetButtonHeight) + 6;
     layout.graph = RECT{
-        rect.left + std::max(50, widestYLabel + 14),
+        rect.left + std::max(50, yUnitWidth + widestYLabel + 18),
         rect.top + infoLineHeight + 8,
         rect.right - 10,
-        rect.bottom - (layout.textHeight + 18)
+        rect.bottom - ((layout.textHeight * 2) + 24)
     };
     return layout;
 }
@@ -676,16 +677,40 @@ void TargetCurveGraph::drawStaticLayer(HDC hdc, const RECT& rect, const RECT& pa
     DeleteObject(borderPen);
 
     SetTextColor(hdc, ui_theme::kMuted);
+    const int yUnitWidth = measureTextWidth(hdc, L"dB") + 10;
+    const int xTickTop = layout.graph.bottom + 4;
+    const int xTickBottom = xTickTop + layout.textHeight + 4;
     for (const AxisLabel& label : xLabels) {
-        RECT textRect{label.left, layout.graph.bottom + 6, label.right + 2, rect.bottom};
+        RECT textRect{label.left, xTickTop, label.right + 2, xTickBottom};
         DrawTextW(hdc, label.text.c_str(), -1, &textRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
     }
     for (const double tickDb : layout.yTickValues) {
         const int y = graphYFromDb(layout.graph, tickDb, layout.axisMinDb, layout.axisMaxDb);
-        RECT labelRect{rect.left + 4, y - layout.textHeight / 2 - 2, layout.graph.left - 6, y + layout.textHeight / 2 + 2};
+        RECT labelRect{
+            rect.left + yUnitWidth + 6,
+            y - layout.textHeight / 2 - 2,
+            layout.graph.left - 6,
+            y + layout.textHeight / 2 + 2
+        };
         const std::wstring text = formatDbLabel(tickDb);
         DrawTextW(hdc, text.c_str(), -1, &labelRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
+
+    RECT yUnitRect{
+        rect.left + 4,
+        layout.graph.top + 2,
+        rect.left + yUnitWidth,
+        layout.graph.top + layout.textHeight + 4,
+    };
+    DrawTextW(hdc, L"dB", -1, &yUnitRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
+
+    RECT xUnitRect{
+        layout.graph.left,
+        xTickBottom,
+        layout.graph.right,
+        rect.bottom - 2,
+    };
+    DrawTextW(hdc, L"Hz", -1, &xUnitRect, DT_CENTER | DT_TOP | DT_SINGLELINE);
 }
 
 void TargetCurveGraph::rebuildPlot() {

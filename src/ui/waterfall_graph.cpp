@@ -93,6 +93,43 @@ std::vector<double> yTicks(double minDb, double maxDb) {
     return ticks;
 }
 
+void drawAxisUnitLabels(HDC hdc,
+                        const RECT& rect,
+                        const RECT& graph,
+                        int backRight,
+                        int backBottom,
+                        int textHeight) {
+    SetTextColor(hdc, ui_theme::kMuted);
+    const int yUnitWidth = measureTextWidth(hdc, L"dB") + 10;
+
+    RECT yUnitRect{
+        rect.left + 4,
+        graph.top + 2,
+        rect.left + yUnitWidth,
+        graph.top + textHeight + 4,
+    };
+    DrawTextW(hdc, L"dB", -1, &yUnitRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
+
+    const int xTickBottom = graph.bottom + textHeight + 8;
+    RECT xUnitRect{
+        graph.left,
+        xTickBottom,
+        graph.right,
+        rect.bottom - 2,
+    };
+    DrawTextW(hdc, L"Hz", -1, &xUnitRect, DT_CENTER | DT_TOP | DT_SINGLELINE);
+
+    const int depthLabelCenterX = graph.right + ((backRight - graph.right) / 2);
+    const int depthLabelCenterY = graph.bottom + ((backBottom - graph.bottom) / 2);
+    RECT zUnitRect{
+        depthLabelCenterX - 16,
+        depthLabelCenterY - (textHeight / 2),
+        depthLabelCenterX + 16,
+        depthLabelCenterY + (textHeight / 2) + 2,
+    };
+    DrawTextW(hdc, L"ms", -1, &zUnitRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
 }  // namespace
 
 void WaterfallGraph::registerWindowClass(HINSTANCE instance) {
@@ -193,13 +230,14 @@ void WaterfallGraph::onPaint() const {
     TEXTMETRICW metrics{};
     GetTextMetricsW(hdc, &metrics);
     const int textHeight = std::max(static_cast<int>(metrics.tmHeight), 12);
+    const int yUnitWidth = measureTextWidth(hdc, L"dB") + 10;
     const int depthCount = static_cast<int>(data_.slices.size()) - 1;
     const int elevation = clampValue<int>(static_cast<int>((rect.bottom - rect.top) / 5), 42, 86);
     RECT graph{
-        rect.left + 54,
+        rect.left + std::max(54, yUnitWidth + 54),
         rect.top + elevation + 22,
         rect.right - 54,
-        rect.bottom - 28
+        rect.bottom - ((textHeight * 2) + 16)
     };
 
     if (graph.right - graph.left < 180 || graph.bottom - graph.top < 100) {
@@ -311,9 +349,16 @@ void WaterfallGraph::onPaint() const {
     SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
 
     SetTextColor(hdc, ui_theme::kMuted);
+    const int xTickTop = graph.bottom + 4;
+    const int xTickBottom = xTickTop + textHeight + 4;
     for (const double tick : tickValues) {
         const int y = graphYFromDb(graph, tick, data_.minDb, data_.maxDb);
-        RECT labelRect{rect.left + 4, y - (textHeight / 2), graph.left - 8, y + (textHeight / 2) + 2};
+        RECT labelRect{
+            rect.left + yUnitWidth + 6,
+            y - (textHeight / 2),
+            graph.left - 8,
+            y + (textHeight / 2) + 2
+        };
         const std::wstring label = formatDbLabel(tick);
         DrawTextW(hdc, label.c_str(), -1, &labelRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
@@ -322,13 +367,15 @@ void WaterfallGraph::onPaint() const {
         const std::wstring label = formatFrequencyLabel(frequencyHz);
         const int labelWidth = measureTextWidth(hdc, label);
         const int x = graphXFromFrequency(graph, frequencyHz) - (labelWidth / 2);
-        RECT labelRect{x, graph.bottom + 6, x + labelWidth + 4, rect.bottom};
+        RECT labelRect{x, xTickTop, x + labelWidth + 4, xTickBottom};
         DrawTextW(hdc, label.c_str(), -1, &labelRect, DT_LEFT | DT_TOP | DT_SINGLELINE);
 
         const int xBack = projectX(graphXFromFrequency(graph, frequencyHz), 1.0) - (labelWidth / 2);
         RECT topLabelRect{xBack, rect.top + 2, xBack + labelWidth + 4, backTop - 4};
         DrawTextW(hdc, label.c_str(), -1, &topLabelRect, DT_LEFT | DT_BOTTOM | DT_SINGLELINE);
     }
+
+    drawAxisUnitLabels(hdc, rect, graph, backRight, backBottom, textHeight);
 
     EndPaint(window_, &paint);
 }
