@@ -191,6 +191,10 @@ bool scanVisibleYRange(const PlotGraphData& data, double minVisibleX, double max
             }
 
             const double value = series.values[index];
+            if (!std::isfinite(value)) {
+                continue;
+            }
+
             minY = found ? std::min(minY, value) : value;
             maxY = found ? std::max(maxY, value) : value;
             found = true;
@@ -465,7 +469,13 @@ void drawSeries(HDC hdc, const PlotGraphData& data, const GraphLayout& layout, c
     HPEN seriesPen = CreatePen(series.lineStyle == PlotGraphLineStyle::Dash ? PS_DASH : PS_SOLID, 1, series.color);
     HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, seriesPen));
     IntersectClipRect(hdc, layout.graph.left, layout.graph.top, layout.graph.right, layout.graph.bottom);
+    bool penActive = false;
     for (size_t index = 0; index < data.xValues.size() && index < series.values.size(); ++index) {
+        if (!std::isfinite(data.xValues[index]) || !std::isfinite(series.values[index])) {
+            penActive = false;
+            continue;
+        }
+
         const int x = graphXFromValue(layout.graph,
                                       data.xAxisMode,
                                       layout.visibleMinX,
@@ -473,8 +483,9 @@ void drawSeries(HDC hdc, const PlotGraphData& data, const GraphLayout& layout, c
                                       data.xValues[index],
                                       false);
         const int y = unclampedGraphYFromValue(layout.graph, series.values[index], layout.minY, layout.maxY);
-        if (index == 0) {
+        if (!penActive) {
             MoveToEx(hdc, x, y, nullptr);
+            penActive = true;
         } else {
             LineTo(hdc, x, y);
         }

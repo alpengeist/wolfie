@@ -121,6 +121,20 @@ std::vector<double> resampleLogFrequency(const std::vector<double>& sourceAxisHz
     return resampled;
 }
 
+std::vector<double> breakWrappedPhaseDiscontinuities(const std::vector<double>& valuesDegrees) {
+    std::vector<double> values = valuesDegrees;
+    for (size_t index = 1; index < values.size(); ++index) {
+        if (!std::isfinite(values[index - 1]) ||
+            !std::isfinite(values[index]) ||
+            std::abs(values[index] - values[index - 1]) <= 180.0) {
+            continue;
+        }
+
+        values[index] = std::numeric_limits<double>::quiet_NaN();
+    }
+    return values;
+}
+
 }  // namespace
 
 void FiltersPage::registerPageWindowClass(HINSTANCE instance) {
@@ -1462,6 +1476,9 @@ PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& works
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"deg";
+    data.fixedYRange = true;
+    data.minY = -180.0;
+    data.maxY = 180.0;
     if (!workspace.filterResult.valid) {
         return data;
     }
@@ -1469,22 +1486,22 @@ PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& works
     if (showExcessPhaseInputRight_) {
         data.series.push_back({L"Right before",
                                ui_theme::kRed,
-                               workspace.filterResult.right.inputExcessPhaseDegrees});
+                               breakWrappedPhaseDiscontinuities(workspace.filterResult.right.inputExcessPhaseDegrees)});
     }
     if (showExcessPhaseInputLeft_) {
         data.series.push_back({L"Left before",
                                ui_theme::kGreen,
-                               workspace.filterResult.left.inputExcessPhaseDegrees});
+                               breakWrappedPhaseDiscontinuities(workspace.filterResult.left.inputExcessPhaseDegrees)});
     }
     if (showExcessPhasePredictedRight_) {
         data.series.push_back({L"Right after",
                                ui_theme::kMagenta,
-                               workspace.filterResult.right.predictedExcessPhaseDegrees});
+                               breakWrappedPhaseDiscontinuities(workspace.filterResult.right.predictedExcessPhaseDegrees)});
     }
     if (showExcessPhasePredictedLeft_) {
         data.series.push_back({L"Left after",
                                ui_theme::kGray,
-                               workspace.filterResult.left.predictedExcessPhaseDegrees});
+                               breakWrappedPhaseDiscontinuities(workspace.filterResult.left.predictedExcessPhaseDegrees)});
     }
     return data;
 }
