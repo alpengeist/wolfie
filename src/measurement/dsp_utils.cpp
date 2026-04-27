@@ -64,13 +64,13 @@ std::vector<double> unwrapPhaseRadians(const std::vector<double>& phaseRadians) 
 
     double phaseOffset = 0.0;
     for (size_t index = 1; index < unwrapped.size(); ++index) {
-        const double delta = unwrapped[index] - unwrapped[index - 1];
+        const double delta = phaseRadians[index] - phaseRadians[index - 1];
         if (delta > std::numbers::pi_v<double>) {
             phaseOffset -= 2.0 * std::numbers::pi_v<double>;
         } else if (delta < -std::numbers::pi_v<double>) {
             phaseOffset += 2.0 * std::numbers::pi_v<double>;
         }
-        unwrapped[index] += phaseOffset;
+        unwrapped[index] = phaseRadians[index] + phaseOffset;
     }
     return unwrapped;
 }

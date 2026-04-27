@@ -461,8 +461,9 @@ void drawSeries(HDC hdc, const PlotGraphData& data, const GraphLayout& layout, c
         return;
     }
 
-    SetDCPenColor(hdc, series.color);
     const int savedDc = SaveDC(hdc);
+    HPEN seriesPen = CreatePen(series.lineStyle == PlotGraphLineStyle::Dash ? PS_DASH : PS_SOLID, 1, series.color);
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, seriesPen));
     IntersectClipRect(hdc, layout.graph.left, layout.graph.top, layout.graph.right, layout.graph.bottom);
     for (size_t index = 0; index < data.xValues.size() && index < series.values.size(); ++index) {
         const int x = graphXFromValue(layout.graph,
@@ -478,6 +479,8 @@ void drawSeries(HDC hdc, const PlotGraphData& data, const GraphLayout& layout, c
             LineTo(hdc, x, y);
         }
     }
+    SelectObject(hdc, oldPen);
+    DeleteObject(seriesPen);
     RestoreDC(hdc, savedDc);
 }
 

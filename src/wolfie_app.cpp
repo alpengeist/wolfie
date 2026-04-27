@@ -654,7 +654,8 @@ void WolfieApp::ensureFilterDesignReady() {
     workspace_.filterResult = measurement::designFilters(workspace_.smoothedResponse,
                                                          workspace_.measurement,
                                                          workspace_.targetCurve,
-                                                         workspace_.filters);
+                                                         workspace_.filters,
+                                                         &workspace_.result);
 }
 
 void WolfieApp::setExportInProgress(bool running) {

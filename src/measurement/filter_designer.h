@@ -8,11 +8,13 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
 FilterDesignResult designFilters(const SmoothedResponse& response,
                                  const MeasurementSettings& measurement,
                                  const TargetCurveSettings& targetCurve,
-                                 const FilterDesignSettings& settings);
+                                 const FilterDesignSettings& settings,
+                                 const MeasurementResult* sourceMeasurement = nullptr);
 FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
                                               const MeasurementSettings& measurement,
                                               const TargetCurveSettings& targetCurve,
                                               const FilterDesignSettings& settings,
-                                              int sampleRate);
+                                              int sampleRate,
+                                              const MeasurementResult* sourceMeasurement = nullptr);
 
 }  // namespace wolfie::measurement

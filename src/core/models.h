@@ -255,6 +255,9 @@ struct FilterDesignChannelResult {
     std::vector<double> filterResponseDb;
     std::vector<double> correctedResponseDb;
     std::vector<double> groupDelayMs;
+    std::vector<double> inputExcessPhaseDegrees;
+    std::vector<double> predictedExcessPhaseDegrees;
+    std::vector<double> predictedGroupDelayMs;
     std::vector<double> impulseTimeMs;
     std::vector<double> filterTaps;
     int impulsePeakIndex = 0;

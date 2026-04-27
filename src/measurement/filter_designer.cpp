@@ -13,6 +13,9 @@ namespace wolfie::measurement {
 
 namespace {
 
+constexpr double kRadiansToDegrees = 180.0 / std::numbers::pi_v<double>;
+constexpr double kDegreesToRadians = std::numbers::pi_v<double> / 180.0;
+
 template <typename T>
 T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
@@ -294,9 +297,8 @@ std::vector<double> buildPositiveMagnitudeResponse(int sampleRate,
     return magnitude;
 }
 
-std::vector<double> buildMinimumPhaseImpulse(const std::vector<double>& positiveMagnitude,
-                                             int fftSize,
-                                             int tapCount) {
+std::vector<std::complex<double>> buildMinimumPhaseSpectrum(const std::vector<double>& positiveMagnitude,
+                                                            int fftSize) {
     const size_t spectrumSize = static_cast<size_t>(std::max(fftSize, 1));
     std::vector<std::complex<double>> logSpectrum(spectrumSize, {0.0, 0.0});
     const size_t positiveCount = std::min(positiveMagnitude.size(), (spectrumSize / 2) + 1);
@@ -328,11 +330,17 @@ std::vector<double> buildMinimumPhaseImpulse(const std::vector<double>& positive
     for (auto& value : minimumLogSpectrum) {
         value = std::exp(value);
     }
+    return minimumLogSpectrum;
+}
 
-    fft(minimumLogSpectrum, true);
+std::vector<double> buildMinimumPhaseImpulse(const std::vector<double>& positiveMagnitude,
+                                             int fftSize,
+                                             int tapCount) {
+    std::vector<std::complex<double>> minimumSpectrum = buildMinimumPhaseSpectrum(positiveMagnitude, fftSize);
+    fft(minimumSpectrum, true);
     std::vector<double> impulse(static_cast<size_t>(std::max(tapCount, 0)), 0.0);
-    for (size_t index = 0; index < impulse.size() && index < minimumLogSpectrum.size(); ++index) {
-        impulse[index] = minimumLogSpectrum[index].real();
+    for (size_t index = 0; index < impulse.size() && index < minimumSpectrum.size(); ++index) {
+        impulse[index] = minimumSpectrum[index].real();
     }
 
     const size_t fadeCount = std::min(impulse.size() / 8, size_t{4096});
@@ -402,6 +410,182 @@ std::vector<double> buildGroupDelayMs(const std::vector<double>& frequencyAxisHz
     return groupDelayMs;
 }
 
+std::vector<double> radiansToDegrees(const std::vector<double>& radians) {
+    std::vector<double> degrees;
+    degrees.reserve(radians.size());
+    for (const double value : radians) {
+        degrees.push_back(value * kRadiansToDegrees);
+    }
+    return degrees;
+}
+
+std::vector<double> degreesToRadians(const std::vector<double>& degrees) {
+    std::vector<double> radians;
+    radians.reserve(degrees.size());
+    for (const double value : degrees) {
+        radians.push_back(value * kDegreesToRadians);
+    }
+    return radians;
+}
+
+std::vector<double> wrappedPhaseDifferenceDegrees(const std::vector<double>& leftRadians,
+                                                  const std::vector<double>& rightRadians) {
+    const size_t count = std::min(leftRadians.size(), rightRadians.size());
+    std::vector<double> result;
+    result.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        double difference = std::remainder(leftRadians[index] - rightRadians[index],
+                                           2.0 * std::numbers::pi_v<double>);
+        if (difference <= -std::numbers::pi_v<double>) {
+            difference += 2.0 * std::numbers::pi_v<double>;
+        } else if (difference > std::numbers::pi_v<double>) {
+            difference -= 2.0 * std::numbers::pi_v<double>;
+        }
+        result.push_back(difference * kRadiansToDegrees);
+    }
+    return result;
+}
+
+std::vector<double> addSeries(const std::vector<double>& left, const std::vector<double>& right) {
+    const size_t count = std::min(left.size(), right.size());
+    std::vector<double> result;
+    result.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        result.push_back(left[index] + right[index]);
+    }
+    return result;
+}
+
+std::vector<double> unwrapPhaseDegrees(const std::vector<double>& wrappedDegrees) {
+    return radiansToDegrees(unwrapPhaseRadians(degreesToRadians(wrappedDegrees)));
+}
+
+void removeLinearDelay(std::vector<double>& phaseRadians,
+                       const std::vector<double>& frequencyAxisHz,
+                       double delaySeconds) {
+    if (!std::isfinite(delaySeconds) || std::abs(delaySeconds) <= 1.0e-12) {
+        return;
+    }
+
+    const size_t count = std::min(phaseRadians.size(), frequencyAxisHz.size());
+    for (size_t index = 0; index < count; ++index) {
+        phaseRadians[index] += 2.0 * std::numbers::pi_v<double> * frequencyAxisHz[index] * delaySeconds;
+    }
+}
+
+double estimateLinearDelaySeconds(const std::vector<double>& frequencyAxisHz,
+                                  const std::vector<double>& phaseRadians) {
+    const size_t count = std::min(frequencyAxisHz.size(), phaseRadians.size());
+    if (count < 3) {
+        return 0.0;
+    }
+
+    double sumFrequency = 0.0;
+    double sumPhase = 0.0;
+    double usedCount = 0.0;
+    for (size_t index = 0; index < count; ++index) {
+        const double frequencyHz = frequencyAxisHz[index];
+        const double phase = phaseRadians[index];
+        if (!std::isfinite(frequencyHz) || !std::isfinite(phase) || frequencyHz < 80.0) {
+            continue;
+        }
+
+        sumFrequency += frequencyHz;
+        sumPhase += phase;
+        usedCount += 1.0;
+    }
+    if (usedCount < 3.0) {
+        return 0.0;
+    }
+
+    const double meanFrequency = sumFrequency / usedCount;
+    const double meanPhase = sumPhase / usedCount;
+    double covariance = 0.0;
+    double variance = 0.0;
+    for (size_t index = 0; index < count; ++index) {
+        const double frequencyHz = frequencyAxisHz[index];
+        const double phase = phaseRadians[index];
+        if (!std::isfinite(frequencyHz) || !std::isfinite(phase) || frequencyHz < 80.0) {
+            continue;
+        }
+
+        const double centeredFrequency = frequencyHz - meanFrequency;
+        covariance += centeredFrequency * (phase - meanPhase);
+        variance += centeredFrequency * centeredFrequency;
+    }
+    if (variance <= 1.0e-12) {
+        return 0.0;
+    }
+
+    const double phaseSlopeRadiansPerHz = covariance / variance;
+    return -phaseSlopeRadiansPerHz / (2.0 * std::numbers::pi_v<double>);
+}
+
+double analysisDelaySeconds(const MeasurementResult* result) {
+    if (result == nullptr) {
+        return 0.0;
+    }
+
+    const MeasurementValueSet* impulse = result->findValueSet("measurement.raw_impulse_response");
+    if (impulse == nullptr || !impulse->valid() || impulse->xValues.empty()) {
+        return 0.0;
+    }
+
+    return std::max(-impulse->xValues.front(), 0.0);
+}
+
+const MeasurementValueSet* findPhaseSpectrum(const MeasurementResult* result) {
+    if (result == nullptr) {
+        return nullptr;
+    }
+    if (const MeasurementValueSet* rawPhase = result->findValueSet("measurement.raw_phase_spectrum")) {
+        if (rawPhase->valid()) {
+            return rawPhase;
+        }
+    }
+    return nullptr;
+}
+
+struct PhaseInput {
+    std::vector<double> leftDegrees;
+    std::vector<double> rightDegrees;
+};
+
+PhaseInput buildPhaseInput(const MeasurementResult* result,
+                           const std::vector<double>& displayFrequencyAxisHz) {
+    PhaseInput input;
+    const MeasurementValueSet* phase = findPhaseSpectrum(result);
+    if (phase == nullptr || phase->xValues.empty() || displayFrequencyAxisHz.empty()) {
+        return input;
+    }
+
+    std::vector<double> leftRadians = degreesToRadians(unwrapPhaseDegrees(phase->leftValues));
+    std::vector<double> rightRadians = degreesToRadians(unwrapPhaseDegrees(phase->rightValues));
+
+    const double delaySeconds = analysisDelaySeconds(result);
+    removeLinearDelay(leftRadians, phase->xValues, delaySeconds);
+    removeLinearDelay(rightRadians, phase->xValues, delaySeconds);
+
+    input.leftDegrees = resampleLogFrequency(phase->xValues, radiansToDegrees(leftRadians), displayFrequencyAxisHz);
+    input.rightDegrees = resampleLogFrequency(phase->xValues, radiansToDegrees(rightRadians), displayFrequencyAxisHz);
+    return input;
+}
+
+std::vector<double> buildMinimumPhaseDegrees(int sampleRate,
+                                             int fftSize,
+                                             const std::vector<double>& displayFrequencyAxisHz,
+                                             const std::vector<double>& magnitudeDb) {
+    const std::vector<double> positiveMagnitude =
+        buildPositiveMagnitudeResponse(sampleRate, fftSize, displayFrequencyAxisHz, magnitudeDb);
+    const std::vector<std::complex<double>> minimumSpectrum =
+        buildMinimumPhaseSpectrum(positiveMagnitude, fftSize);
+    const std::vector<double> binFrequencyAxisHz = buildLinearFrequencyAxis(sampleRate, fftSize);
+    const std::vector<double> binPhaseRadians = buildPhaseSeries(minimumSpectrum);
+    const std::vector<double> displayPhaseRadians =
+        resampleLogFrequency(binFrequencyAxisHz, binPhaseRadians, displayFrequencyAxisHz);
+    return radiansToDegrees(displayPhaseRadians);
+}
+
 size_t maxAbsIndex(const std::vector<double>& values) {
     size_t bestIndex = 0;
     double bestValue = 0.0;
@@ -438,6 +622,9 @@ struct DesignedChannel {
     std::vector<double> filterResponseDb;
     std::vector<double> correctedResponseDb;
     std::vector<double> groupDelayMs;
+    std::vector<double> inputExcessPhaseDegrees;
+    std::vector<double> predictedExcessPhaseDegrees;
+    std::vector<double> predictedGroupDelayMs;
     std::vector<double> impulseTimeMs;
     std::vector<double> filterTaps;
     int impulsePeakIndex = 0;
@@ -447,6 +634,7 @@ struct DesignedChannel {
 DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
                               const std::vector<double>& targetCurveDb,
                               const std::vector<double>& sourceCurveDb,
+                              const std::vector<double>& sourcePhaseDegrees,
                               const FilterDesignSettings& settings,
                               int sampleRate,
                               int fftSize) {
@@ -476,6 +664,28 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
     const std::vector<double> displayPhaseRadians =
         resampleLogFrequency(binFrequencyAxisHz, binPhaseRadians, displayFrequencyAxisHz);
     channel.groupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, displayPhaseRadians);
+    if (sourcePhaseDegrees.size() == displayFrequencyAxisHz.size()) {
+        std::vector<double> sourcePhaseRadians = degreesToRadians(sourcePhaseDegrees);
+        const std::vector<double> minimumSourcePhaseDegrees =
+            buildMinimumPhaseDegrees(sampleRate, fftSize, displayFrequencyAxisHz, sourceCurveDb);
+        const std::vector<double> minimumSourcePhaseRadians = degreesToRadians(minimumSourcePhaseDegrees);
+        std::vector<double> residualExcessRadians;
+        const size_t phaseCount = std::min(sourcePhaseRadians.size(), minimumSourcePhaseRadians.size());
+        residualExcessRadians.reserve(phaseCount);
+        for (size_t index = 0; index < phaseCount; ++index) {
+            residualExcessRadians.push_back(sourcePhaseRadians[index] - minimumSourcePhaseRadians[index]);
+        }
+
+        const double residualDelaySeconds =
+            estimateLinearDelaySeconds(displayFrequencyAxisHz, residualExcessRadians);
+        removeLinearDelay(sourcePhaseRadians, displayFrequencyAxisHz, residualDelaySeconds);
+        channel.inputExcessPhaseDegrees = wrappedPhaseDifferenceDegrees(sourcePhaseRadians, minimumSourcePhaseRadians);
+
+        // Minimum-phase filters alter the minimum-phase component only, so excess phase is unchanged.
+        channel.predictedExcessPhaseDegrees = channel.inputExcessPhaseDegrees;
+        const std::vector<double> inputGroupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, sourcePhaseRadians);
+        channel.predictedGroupDelayMs = addSeries(inputGroupDelayMs, channel.groupDelayMs);
+    }
     return channel;
 }
 
@@ -524,7 +734,8 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
                                               const MeasurementSettings& measurement,
                                               const TargetCurveSettings& targetCurve,
                                               const FilterDesignSettings& sourceSettings,
-                                              int sampleRate) {
+                                              int sampleRate,
+                                              const MeasurementResult* sourceMeasurement) {
     FilterDesignResult result;
     if (response.frequencyAxisHz.empty() ||
         response.leftChannelDb.size() != response.frequencyAxisHz.size() ||
@@ -553,17 +764,20 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
         resampleLogFrequency(response.frequencyAxisHz, response.rightChannelDb, displayFrequencyAxisHz);
     const std::vector<double> targetCurveDb =
         alignTargetCurveLevel(displayFrequencyAxisHz, rawTargetCurveDb, leftSourceDb, rightSourceDb, settings);
+    const PhaseInput phaseInput = buildPhaseInput(sourceMeasurement, displayFrequencyAxisHz);
 
     const int fftSize = static_cast<int>(nextPowerOfTwo(static_cast<size_t>(settings.tapCount * 4)));
     const DesignedChannel left = designChannel(displayFrequencyAxisHz,
                                                targetCurveDb,
                                                leftSourceDb,
+                                               phaseInput.leftDegrees,
                                                settings,
                                                exportMeasurement.sampleRate,
                                                fftSize);
     const DesignedChannel right = designChannel(displayFrequencyAxisHz,
                                                 targetCurveDb,
                                                 rightSourceDb,
+                                                phaseInput.rightDegrees,
                                                 settings,
                                                 exportMeasurement.sampleRate,
                                                 fftSize);
@@ -580,6 +794,9 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     result.left.filterResponseDb = left.filterResponseDb;
     result.left.correctedResponseDb = left.correctedResponseDb;
     result.left.groupDelayMs = left.groupDelayMs;
+    result.left.inputExcessPhaseDegrees = left.inputExcessPhaseDegrees;
+    result.left.predictedExcessPhaseDegrees = left.predictedExcessPhaseDegrees;
+    result.left.predictedGroupDelayMs = left.predictedGroupDelayMs;
     result.left.impulseTimeMs = left.impulseTimeMs;
     result.left.filterTaps = left.filterTaps;
     result.left.impulsePeakIndex = left.impulsePeakIndex;
@@ -588,6 +805,9 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     result.right.filterResponseDb = right.filterResponseDb;
     result.right.correctedResponseDb = right.correctedResponseDb;
     result.right.groupDelayMs = right.groupDelayMs;
+    result.right.inputExcessPhaseDegrees = right.inputExcessPhaseDegrees;
+    result.right.predictedExcessPhaseDegrees = right.predictedExcessPhaseDegrees;
+    result.right.predictedGroupDelayMs = right.predictedGroupDelayMs;
     result.right.impulseTimeMs = right.impulseTimeMs;
     result.right.filterTaps = right.filterTaps;
     result.right.impulsePeakIndex = right.impulsePeakIndex;
@@ -598,12 +818,14 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
 FilterDesignResult designFilters(const SmoothedResponse& response,
                                  const MeasurementSettings& measurement,
                                  const TargetCurveSettings& targetCurve,
-                                 const FilterDesignSettings& settings) {
+                                 const FilterDesignSettings& settings,
+                                 const MeasurementResult* sourceMeasurement) {
     return designFiltersForSampleRate(response,
                                       measurement,
                                       targetCurve,
                                       settings,
-                                      measurement.sampleRate);
+                                      measurement.sampleRate,
+                                      sourceMeasurement);
 }
 
 }  // namespace wolfie::measurement

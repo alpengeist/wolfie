@@ -343,7 +343,98 @@ void FiltersPage::createControls() {
                                                           nullptr);
     controls_.lineCorrectedRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelCorrectedRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Filter Group Delay", WS_CHILD | WS_VISIBLE,
+    controls_.excessPhaseTitle = CreateWindowW(L"STATIC", L"Excess Phase", WS_CHILD | WS_VISIBLE,
+                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.excessPhaseLegendFrame = CreateWindowW(L"STATIC",
+                                                     L"",
+                                                     WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     window_,
+                                                     nullptr,
+                                                     instance_,
+                                                     nullptr);
+    controls_.checkboxShowExcessPhaseInputRight = CreateWindowW(L"BUTTON",
+                                                                L"",
+                                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                                0,
+                                                                0,
+                                                                0,
+                                                                0,
+                                                                window_,
+                                                                reinterpret_cast<HMENU>(kCheckboxShowExcessPhaseInputRight),
+                                                                instance_,
+                                                                nullptr);
+    controls_.lineExcessPhaseInputRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseInputRight = CreateWindowW(L"STATIC", L"R before", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowExcessPhaseInputLeft = CreateWindowW(L"BUTTON",
+                                                               L"",
+                                                               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                               0,
+                                                               0,
+                                                               0,
+                                                               0,
+                                                               window_,
+                                                               reinterpret_cast<HMENU>(kCheckboxShowExcessPhaseInputLeft),
+                                                               instance_,
+                                                               nullptr);
+    controls_.lineExcessPhaseInputLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseInputLeft = CreateWindowW(L"STATIC", L"L before", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowExcessPhasePredictedRight = CreateWindowW(L"BUTTON",
+                                                                    L"",
+                                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                                    0,
+                                                                    0,
+                                                                    0,
+                                                                    0,
+                                                                    window_,
+                                                                    reinterpret_cast<HMENU>(kCheckboxShowExcessPhasePredictedRight),
+                                                                    instance_,
+                                                                    nullptr);
+    controls_.lineExcessPhasePredictedRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhasePredictedRight = CreateWindowW(L"STATIC", L"R after", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowExcessPhasePredictedLeft = CreateWindowW(L"BUTTON",
+                                                                   L"",
+                                                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                                   0,
+                                                                   0,
+                                                                   0,
+                                                                   0,
+                                                                   window_,
+                                                                   reinterpret_cast<HMENU>(kCheckboxShowExcessPhasePredictedLeft),
+                                                                   instance_,
+                                                                   nullptr);
+    controls_.lineExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L after", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowPredictedGroupDelayRight = CreateWindowW(L"BUTTON",
+                                                                   L"",
+                                                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                                   0,
+                                                                   0,
+                                                                   0,
+                                                                   0,
+                                                                   window_,
+                                                                   reinterpret_cast<HMENU>(kCheckboxShowPredictedGroupDelayRight),
+                                                                   instance_,
+                                                                   nullptr);
+    controls_.linePredictedGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelPredictedGroupDelayRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowPredictedGroupDelayLeft = CreateWindowW(L"BUTTON",
+                                                                  L"",
+                                                                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                                  0,
+                                                                  0,
+                                                                  0,
+                                                                  0,
+                                                                  window_,
+                                                                  reinterpret_cast<HMENU>(kCheckboxShowPredictedGroupDelayLeft),
+                                                                  instance_,
+                                                                  nullptr);
+    controls_.linePredictedGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelPredictedGroupDelayLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Filter + Predicted Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayLegendFrame = CreateWindowW(L"STATIC",
                                                     L"",
@@ -356,8 +447,30 @@ void FiltersPage::createControls() {
                                                     nullptr,
                                                     instance_,
                                                     nullptr);
+    controls_.checkboxShowFilterGroupDelayLeft = CreateWindowW(L"BUTTON",
+                                                               L"",
+                                                               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                               0,
+                                                               0,
+                                                               0,
+                                                               0,
+                                                               window_,
+                                                               reinterpret_cast<HMENU>(kCheckboxShowFilterGroupDelayLeft),
+                                                               instance_,
+                                                               nullptr);
     controls_.lineGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelGroupDelayLeft = CreateWindowW(L"STATIC", L"L", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowFilterGroupDelayRight = CreateWindowW(L"BUTTON",
+                                                                L"",
+                                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                                0,
+                                                                0,
+                                                                0,
+                                                                0,
+                                                                window_,
+                                                                reinterpret_cast<HMENU>(kCheckboxShowFilterGroupDelayRight),
+                                                                instance_,
+                                                                nullptr);
     controls_.lineGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelGroupDelayRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.impulseTitle = CreateWindowW(L"STATIC", L"Filter Impulse", WS_CHILD | WS_VISIBLE,
@@ -392,9 +505,18 @@ void FiltersPage::createControls() {
     SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_SETCHECK, showCorrectedInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_SETCHECK, showExcessPhaseInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowExcessPhaseInputLeft, BM_SETCHECK, showExcessPhaseInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_SETCHECK, showExcessPhasePredictedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_SETCHECK, showExcessPhasePredictedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowPredictedGroupDelayRight, BM_SETCHECK, showPredictedGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_SETCHECK, showPredictedGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_SETCHECK, showFilterGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_SETCHECK, showFilterGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxSyncHoverFrequency, BM_SETCHECK, syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED, 0);
     correctionGraph_.create(window_, instance_, kCorrectionGraph);
     correctedGraph_.create(window_, instance_, kCorrectedGraph);
+    excessPhaseGraph_.create(window_, instance_, kExcessPhaseGraph);
     groupDelayGraph_.create(window_, instance_, kGroupDelayGraph);
     impulseGraph_.create(window_, instance_, kImpulseGraph);
     refreshRecalculateButton();
@@ -488,14 +610,40 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelCorrectedRight, labelLeft, correctedFirstRowTop + (rowStep * 4) + 2, labelWidth, 18, TRUE);
 
     y += 24 + graphHeight + graphGap;
+    MoveWindow(controls_.excessPhaseTitle, contentLeft, y, contentWidth, 18, TRUE);
+    MoveWindow(controls_.excessPhaseLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
+    excessPhaseGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
+    const int excessPhaseFirstRowTop = y + 24 + 18;
+    MoveWindow(controls_.checkboxShowExcessPhaseInputRight, checkboxLeft, excessPhaseFirstRowTop, checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineExcessPhaseInputRight, lineLeft, excessPhaseFirstRowTop + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelExcessPhaseInputRight, labelLeft, excessPhaseFirstRowTop + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowExcessPhaseInputLeft, checkboxLeft, excessPhaseFirstRowTop + rowStep, checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineExcessPhaseInputLeft, lineLeft, excessPhaseFirstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelExcessPhaseInputLeft, labelLeft, excessPhaseFirstRowTop + rowStep + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowExcessPhasePredictedRight, checkboxLeft, excessPhaseFirstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineExcessPhasePredictedRight, lineLeft, excessPhaseFirstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelExcessPhasePredictedRight, labelLeft, excessPhaseFirstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowExcessPhasePredictedLeft, checkboxLeft, excessPhaseFirstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineExcessPhasePredictedLeft, lineLeft, excessPhaseFirstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelExcessPhasePredictedLeft, labelLeft, excessPhaseFirstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
+
+    y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
     MoveWindow(controls_.groupDelayLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     groupDelayGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int groupDelayFirstRowTop = y + 24 + 18;
+    MoveWindow(controls_.checkboxShowFilterGroupDelayLeft, checkboxLeft, groupDelayFirstRowTop, checkboxWidth, 20, TRUE);
     MoveWindow(controls_.lineGroupDelayLeft, lineLeft, groupDelayFirstRowTop + 8, lineWidth, lineHeight, TRUE);
     MoveWindow(controls_.labelGroupDelayLeft, labelLeft, groupDelayFirstRowTop + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowFilterGroupDelayRight, checkboxLeft, groupDelayFirstRowTop + rowStep, checkboxWidth, 20, TRUE);
     MoveWindow(controls_.lineGroupDelayRight, lineLeft, groupDelayFirstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
     MoveWindow(controls_.labelGroupDelayRight, labelLeft, groupDelayFirstRowTop + rowStep + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowPredictedGroupDelayRight, checkboxLeft, groupDelayFirstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.linePredictedGroupDelayRight, lineLeft, groupDelayFirstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelPredictedGroupDelayRight, labelLeft, groupDelayFirstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowPredictedGroupDelayLeft, checkboxLeft, groupDelayFirstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.linePredictedGroupDelayLeft, lineLeft, groupDelayFirstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelPredictedGroupDelayLeft, labelLeft, groupDelayFirstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.impulseTitle, contentLeft, y, contentWidth, 18, TRUE);
@@ -548,6 +696,14 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_SETCHECK, showCorrectedInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_SETCHECK, showExcessPhaseInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowExcessPhaseInputLeft, BM_SETCHECK, showExcessPhaseInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_SETCHECK, showExcessPhasePredictedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_SETCHECK, showExcessPhasePredictedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowPredictedGroupDelayRight, BM_SETCHECK, showPredictedGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_SETCHECK, showPredictedGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_SETCHECK, showFilterGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_SETCHECK, showFilterGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxSyncHoverFrequency, BM_SETCHECK, syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED, 0);
     appliedSettings_ = settings;
     filterDesignValid_ = workspace.filterResult.valid;
@@ -555,6 +711,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
 
     correctionGraph_.setData(buildCorrectionGraphData(workspace));
     correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
+    excessPhaseGraph_.setData(buildExcessPhaseGraphData(workspace));
     groupDelayGraph_.setData(buildGroupDelayGraphData(workspace));
     impulseGraph_.setData(buildImpulseGraphData(workspace));
     configureImpulseGraphViewport(workspace);
@@ -692,6 +849,7 @@ bool FiltersPage::handleCommand(WORD commandId,
                                 bool& recalculateRequested) {
     if ((commandId == kCorrectionGraph ||
          commandId == kCorrectedGraph ||
+         commandId == kExcessPhaseGraph ||
          commandId == kGroupDelayGraph) &&
         notificationCode == PlotGraph::kHoverChangedNotification) {
         if (!syncHoverFrequencyEnabled_) {
@@ -700,6 +858,7 @@ bool FiltersPage::handleCommand(WORD commandId,
 
         const PlotGraph* sourceGraph = commandId == kCorrectionGraph ? &correctionGraph_
                                      : commandId == kCorrectedGraph ? &correctedGraph_
+                                     : commandId == kExcessPhaseGraph ? &excessPhaseGraph_
                                                                     : &groupDelayGraph_;
         sharedFrequencyHoverActive_ = sourceGraph->hasHoveredXValue();
         if (sharedFrequencyHoverActive_) {
@@ -736,6 +895,14 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowCorrectedInputRight ||
          commandId == kCheckboxShowCorrectedLeft ||
          commandId == kCheckboxShowCorrectedRight ||
+         commandId == kCheckboxShowExcessPhaseInputRight ||
+         commandId == kCheckboxShowExcessPhaseInputLeft ||
+         commandId == kCheckboxShowExcessPhasePredictedRight ||
+         commandId == kCheckboxShowExcessPhasePredictedLeft ||
+         commandId == kCheckboxShowPredictedGroupDelayRight ||
+         commandId == kCheckboxShowPredictedGroupDelayLeft ||
+         commandId == kCheckboxShowFilterGroupDelayLeft ||
+         commandId == kCheckboxShowFilterGroupDelayRight ||
          commandId == kCheckboxSyncHoverFrequency) &&
         notificationCode == BN_CLICKED) {
         showInputRight_ = SendMessageW(controls_.checkboxShowInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -746,12 +913,22 @@ bool FiltersPage::handleCommand(WORD commandId,
         showCorrectedInputRight_ = SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showCorrectedLeft_ = SendMessageW(controls_.checkboxShowCorrectedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showCorrectedRight_ = SendMessageW(controls_.checkboxShowCorrectedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showExcessPhaseInputRight_ = SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showExcessPhaseInputLeft_ = SendMessageW(controls_.checkboxShowExcessPhaseInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showExcessPhasePredictedRight_ = SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showExcessPhasePredictedLeft_ = SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showPredictedGroupDelayRight_ = SendMessageW(controls_.checkboxShowPredictedGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showPredictedGroupDelayLeft_ = SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showFilterGroupDelayLeft_ = SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showFilterGroupDelayRight_ = SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
         syncHoverFrequencyEnabled_ = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
         if (!syncHoverFrequencyEnabled_) {
             sharedFrequencyHoverActive_ = false;
         }
         correctionGraph_.setData(buildCorrectionGraphData(workspace));
         correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
+        excessPhaseGraph_.setData(buildExcessPhaseGraphData(workspace));
+        groupDelayGraph_.setData(buildGroupDelayGraphData(workspace));
         applySharedFrequencyHoverMarker();
         return true;
     }
@@ -839,6 +1016,7 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
                 }
                 if (draw->hwndItem == page->controls_.inversionLegendFrame ||
                     draw->hwndItem == page->controls_.correctedLegendFrame ||
+                    draw->hwndItem == page->controls_.excessPhaseLegendFrame ||
                     draw->hwndItem == page->controls_.groupDelayLegendFrame) {
                     drawLegendFrame(*draw);
                     return TRUE;
@@ -866,6 +1044,12 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         static HBRUSH lineCorrectedInputRightBrush = CreateSolidBrush(ui_theme::kRed);
         static HBRUSH lineCorrectedLeftBrush = CreateSolidBrush(ui_theme::kGray);
         static HBRUSH lineCorrectedRightBrush = CreateSolidBrush(ui_theme::kMagenta);
+        static HBRUSH lineExcessPhaseInputRightBrush = CreateSolidBrush(ui_theme::kRed);
+        static HBRUSH lineExcessPhaseInputLeftBrush = CreateSolidBrush(ui_theme::kGreen);
+        static HBRUSH lineExcessPhasePredictedRightBrush = CreateSolidBrush(ui_theme::kMagenta);
+        static HBRUSH lineExcessPhasePredictedLeftBrush = CreateSolidBrush(ui_theme::kGray);
+        static HBRUSH linePredictedGroupDelayRightBrush = CreateSolidBrush(ui_theme::kMagenta);
+        static HBRUSH linePredictedGroupDelayLeftBrush = CreateSolidBrush(ui_theme::kGray);
         static HBRUSH lineGroupDelayLeftBrush = CreateSolidBrush(ui_theme::kGreen);
         static HBRUSH lineGroupDelayRightBrush = CreateSolidBrush(ui_theme::kRed);
         HDC hdc = reinterpret_cast<HDC>(wParam);
@@ -906,6 +1090,30 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
             if (control == page->controls_.lineCorrectedRight) {
                 SetBkColor(hdc, ui_theme::kMagenta);
                 return reinterpret_cast<INT_PTR>(lineCorrectedRightBrush);
+            }
+            if (control == page->controls_.lineExcessPhaseInputRight) {
+                SetBkColor(hdc, ui_theme::kRed);
+                return reinterpret_cast<INT_PTR>(lineExcessPhaseInputRightBrush);
+            }
+            if (control == page->controls_.lineExcessPhaseInputLeft) {
+                SetBkColor(hdc, ui_theme::kGreen);
+                return reinterpret_cast<INT_PTR>(lineExcessPhaseInputLeftBrush);
+            }
+            if (control == page->controls_.lineExcessPhasePredictedRight) {
+                SetBkColor(hdc, ui_theme::kMagenta);
+                return reinterpret_cast<INT_PTR>(lineExcessPhasePredictedRightBrush);
+            }
+            if (control == page->controls_.lineExcessPhasePredictedLeft) {
+                SetBkColor(hdc, ui_theme::kGray);
+                return reinterpret_cast<INT_PTR>(lineExcessPhasePredictedLeftBrush);
+            }
+            if (control == page->controls_.linePredictedGroupDelayRight) {
+                SetBkColor(hdc, ui_theme::kMagenta);
+                return reinterpret_cast<INT_PTR>(linePredictedGroupDelayRightBrush);
+            }
+            if (control == page->controls_.linePredictedGroupDelayLeft) {
+                SetBkColor(hdc, ui_theme::kGray);
+                return reinterpret_cast<INT_PTR>(linePredictedGroupDelayLeftBrush);
             }
             if (control == page->controls_.lineGroupDelayLeft) {
                 SetBkColor(hdc, ui_theme::kGreen);
@@ -1085,6 +1293,7 @@ void FiltersPage::handleVScroll(WORD code, WORD thumbPosition) {
 void FiltersPage::applySharedFrequencyHoverMarker() {
     correctionGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
     correctedGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    excessPhaseGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
     groupDelayGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
 }
 
@@ -1247,6 +1456,39 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
     return data;
 }
 
+PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& workspace) const {
+    PlotGraphData data;
+    data.xValues = workspace.filterResult.frequencyAxisHz;
+    data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
+    data.xUnit = L"Hz";
+    data.yUnit = L"deg";
+    if (!workspace.filterResult.valid) {
+        return data;
+    }
+
+    if (showExcessPhaseInputRight_) {
+        data.series.push_back({L"Right before",
+                               ui_theme::kRed,
+                               workspace.filterResult.right.inputExcessPhaseDegrees});
+    }
+    if (showExcessPhaseInputLeft_) {
+        data.series.push_back({L"Left before",
+                               ui_theme::kGreen,
+                               workspace.filterResult.left.inputExcessPhaseDegrees});
+    }
+    if (showExcessPhasePredictedRight_) {
+        data.series.push_back({L"Right after",
+                               ui_theme::kMagenta,
+                               workspace.filterResult.right.predictedExcessPhaseDegrees});
+    }
+    if (showExcessPhasePredictedLeft_) {
+        data.series.push_back({L"Left after",
+                               ui_theme::kGray,
+                               workspace.filterResult.left.predictedExcessPhaseDegrees});
+    }
+    return data;
+}
+
 PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
     data.xValues = workspace.filterResult.frequencyAxisHz;
@@ -1257,8 +1499,24 @@ PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& worksp
         return data;
     }
 
-    data.series.push_back({L"Left", ui_theme::kGreen, workspace.filterResult.left.groupDelayMs});
-    data.series.push_back({L"Right", ui_theme::kRed, workspace.filterResult.right.groupDelayMs});
+    if (showFilterGroupDelayLeft_) {
+        data.series.push_back({L"Left", ui_theme::kGreen, workspace.filterResult.left.groupDelayMs});
+    }
+    if (showFilterGroupDelayRight_) {
+        data.series.push_back({L"Right", ui_theme::kRed, workspace.filterResult.right.groupDelayMs});
+    }
+    if (showPredictedGroupDelayRight_) {
+        data.series.push_back({L"Right predicted",
+                               ui_theme::kMagenta,
+                               workspace.filterResult.right.predictedGroupDelayMs,
+                               PlotGraphLineStyle::Dash});
+    }
+    if (showPredictedGroupDelayLeft_) {
+        data.series.push_back({L"Left predicted",
+                               ui_theme::kGray,
+                               workspace.filterResult.left.predictedGroupDelayMs,
+                               PlotGraphLineStyle::Dash});
+    }
     return data;
 }
 

@@ -23,10 +23,16 @@ enum class PlotGraphYAxisMode {
     SymmetricAroundZero
 };
 
+enum class PlotGraphLineStyle {
+    Solid,
+    Dash
+};
+
 struct PlotGraphSeries {
     std::wstring label;
     COLORREF color = RGB(0, 0, 0);
     std::vector<double> values;
+    PlotGraphLineStyle lineStyle = PlotGraphLineStyle::Solid;
 };
 
 struct PlotGraphData {
