@@ -29,6 +29,23 @@ namespace wolfie {
 
 namespace {
 
+std::string sanitizeFileComponent(std::string_view value) {
+    std::string sanitized;
+    sanitized.reserve(value.size());
+    for (const char ch : value) {
+        const bool invalid = ch < 32 || ch == '\\' || ch == '/' || ch == ':' || ch == '*' || ch == '?' ||
+                             ch == '"' || ch == '<' || ch == '>' || ch == '|';
+        sanitized.push_back(invalid ? '_' : ch);
+    }
+    while (!sanitized.empty() && (sanitized.back() == ' ' || sanitized.back() == '.')) {
+        sanitized.pop_back();
+    }
+    if (sanitized.empty()) {
+        sanitized = "Default";
+    }
+    return sanitized;
+}
+
 constexpr int kMenuFileNew = 1001;
 constexpr int kMenuFileOpen = 1002;
 constexpr int kMenuFileSave = 1003;
@@ -536,6 +553,7 @@ void WolfieApp::populateControlsFromState() {
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
     filtersPage_.populate(workspace_);
+    populateExportSampleRateControls();
     updateExportControls();
     layoutMainWindow();
 }
@@ -545,6 +563,27 @@ void WolfieApp::syncStateFromControls() {
     smoothingPage_.syncToWorkspace(workspace_);
     targetCurvePage_.syncToWorkspace(workspace_);
     filtersPage_.syncToWorkspace(workspace_);
+    syncExportSampleRatesToWorkspace();
+}
+
+void WolfieApp::populateExportSampleRateControls() {
+    const std::vector<int>& allSampleRates = measurement::roonCommonSampleRates();
+    const bool usePersistedSelection = workspace_.ui.exportSampleRatesCustomized;
+    const std::vector<int>& persistedSampleRates = workspace_.ui.exportSampleRatesHz;
+    const std::size_t checkboxCount = std::min(exportSampleRateChecks_.size(), allSampleRates.size());
+    for (std::size_t index = 0; index < checkboxCount; ++index) {
+        bool checked = true;
+        if (usePersistedSelection) {
+            checked = std::find(persistedSampleRates.begin(), persistedSampleRates.end(), allSampleRates[index]) !=
+                      persistedSampleRates.end();
+        }
+        SendMessageW(exportSampleRateChecks_[index], BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+}
+
+void WolfieApp::syncExportSampleRatesToWorkspace() {
+    workspace_.ui.exportSampleRatesCustomized = true;
+    workspace_.ui.exportSampleRatesHz = selectedExportSampleRates();
 }
 
 void WolfieApp::saveCurrentWorkspaceIfOpen() {
@@ -715,7 +754,10 @@ void WolfieApp::exportRoonFilters() {
         return;
     }
 
-    const std::filesystem::path exportDirectory = workspace_.rootPath / "export" / "roon";
+    const std::string activeProfileName = workspace_.activeTargetCurveProfileName.empty()
+                                              ? std::string("Default")
+                                              : workspace_.activeTargetCurveProfileName;
+    const std::filesystem::path exportDirectory = workspace_.rootPath / "export" / sanitizeFileComponent(activeProfileName);
     appendLog(L"Roon export started: writing filter set to " + exportDirectory.wstring());
     setExportInProgress(true);
     SetWindowTextW(exportStatus_,
@@ -855,6 +897,8 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     if (commandId >= kExportSampleRateCheckboxBase &&
         commandId < kExportSampleRateCheckboxBase + static_cast<WORD>(exportSampleRateChecks_.size())) {
         if (notificationCode == BN_CLICKED) {
+            syncExportSampleRatesToWorkspace();
+            workspaceRepository_.save(workspace_);
             updateExportControls();
         }
         return;
@@ -988,6 +1032,11 @@ void WolfieApp::newWorkspace() {
     measurement::normalizeTargetCurveSettings(workspace_.targetCurve,
                                               std::max(workspace_.measurement.startFrequencyHz, 20.0),
                                               std::min(workspace_.measurement.endFrequencyHz, 20000.0));
+    workspace_.activeTargetCurveProfileName = "Default";
+    workspace_.activeTargetCurveComment.clear();
+    workspace_.targetCurveProfiles.push_back({workspace_.activeTargetCurveProfileName,
+                                              workspace_.activeTargetCurveComment,
+                                              workspace_.targetCurve});
     populateControlsFromState();
     refreshWindowTitle();
     measurementPage_.invalidateGraph();

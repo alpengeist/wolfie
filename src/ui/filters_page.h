@@ -72,6 +72,12 @@ private:
         HWND correctedLegendFrame = nullptr;
         HWND lineCorrectedTarget = nullptr;
         HWND labelCorrectedTarget = nullptr;
+        HWND checkboxShowCorrectedInputLeft = nullptr;
+        HWND lineCorrectedInputLeft = nullptr;
+        HWND labelCorrectedInputLeft = nullptr;
+        HWND checkboxShowCorrectedInputRight = nullptr;
+        HWND lineCorrectedInputRight = nullptr;
+        HWND labelCorrectedInputRight = nullptr;
         HWND checkboxShowCorrectedLeft = nullptr;
         HWND lineCorrectedLeft = nullptr;
         HWND labelCorrectedLeft = nullptr;
@@ -109,6 +115,8 @@ private:
     static constexpr int kCheckboxShowCorrectedLeft = 3412;
     static constexpr int kCheckboxShowCorrectedRight = 3413;
     static constexpr int kCheckboxSyncHoverFrequency = 3414;
+    static constexpr int kCheckboxShowCorrectedInputLeft = 3415;
+    static constexpr int kCheckboxShowCorrectedInputRight = 3416;
     static constexpr int kCorrectionGraph = 3420;
     static constexpr int kCorrectedGraph = 3421;
     static constexpr int kGroupDelayGraph = 3422;
@@ -159,6 +167,8 @@ private:
     bool showInputLeft_ = true;
     bool showInversionRight_ = true;
     bool showInversionLeft_ = true;
+    bool showCorrectedInputLeft_ = true;
+    bool showCorrectedInputRight_ = true;
     bool showCorrectedLeft_ = true;
     bool showCorrectedRight_ = true;
     bool syncHoverFrequencyEnabled_ = false;

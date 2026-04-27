@@ -6,6 +6,7 @@
 #include <numbers>
 #include <vector>
 
+#include "measurement/dsp_utils.h"
 #include "measurement/target_curve_designer.h"
 
 namespace wolfie::measurement {
@@ -15,74 +16,6 @@ namespace {
 template <typename T>
 T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
-}
-
-void fft(std::vector<std::complex<double>>& samples, bool inverse) {
-    const size_t length = samples.size();
-    if (length <= 1) {
-        return;
-    }
-
-    size_t bitReversed = 0;
-    for (size_t index = 1; index < length; ++index) {
-        size_t bit = length >> 1;
-        while ((bitReversed & bit) != 0) {
-            bitReversed ^= bit;
-            bit >>= 1;
-        }
-        bitReversed ^= bit;
-        if (index < bitReversed) {
-            std::swap(samples[index], samples[bitReversed]);
-        }
-    }
-
-    constexpr double kPi = 3.14159265358979323846;
-    for (size_t stageLength = 2; stageLength <= length; stageLength <<= 1) {
-        const double angle = (inverse ? 2.0 : -2.0) * kPi / static_cast<double>(stageLength);
-        const std::complex<double> phaseStep(std::cos(angle), std::sin(angle));
-        for (size_t offset = 0; offset < length; offset += stageLength) {
-            std::complex<double> phase(1.0, 0.0);
-            const size_t halfLength = stageLength >> 1;
-            for (size_t index = 0; index < halfLength; ++index) {
-                const std::complex<double> even = samples[offset + index];
-                const std::complex<double> odd = samples[offset + index + halfLength] * phase;
-                samples[offset + index] = even + odd;
-                samples[offset + index + halfLength] = even - odd;
-                phase *= phaseStep;
-            }
-        }
-    }
-
-    if (inverse) {
-        const double scale = 1.0 / static_cast<double>(length);
-        for (auto& value : samples) {
-            value *= scale;
-        }
-    }
-}
-
-int nextPowerOfTwo(int value) {
-    int power = 1;
-    while (power < std::max(value, 1)) {
-        power <<= 1;
-    }
-    return power;
-}
-
-std::vector<double> buildLogFrequencyAxis(double minFrequencyHz, double maxFrequencyHz, int pointCount) {
-    std::vector<double> axis;
-    if (pointCount <= 0) {
-        return axis;
-    }
-
-    axis.reserve(static_cast<size_t>(pointCount));
-    const double logMin = std::log10(std::max(minFrequencyHz, 1.0));
-    const double logMax = std::log10(std::max(maxFrequencyHz, minFrequencyHz + 1.0));
-    for (int index = 0; index < pointCount; ++index) {
-        const double t = pointCount == 1 ? 0.0 : static_cast<double>(index) / static_cast<double>(pointCount - 1);
-        axis.push_back(std::pow(10.0, logMin + ((logMax - logMin) * t)));
-    }
-    return axis;
 }
 
 double interpolateLinear(double x, double x0, double y0, double x1, double y1) {
@@ -426,35 +359,6 @@ double magnitudeDb(const std::complex<double>& value) {
     return 20.0 * std::log10(std::max(std::abs(value), 1.0e-9));
 }
 
-std::vector<double> unwrapPhaseRadians(const std::vector<double>& phaseRadians) {
-    std::vector<double> unwrapped = phaseRadians;
-    if (unwrapped.empty()) {
-        return unwrapped;
-    }
-
-    double phaseOffset = 0.0;
-    for (size_t index = 1; index < unwrapped.size(); ++index) {
-        const double delta = unwrapped[index] - unwrapped[index - 1];
-        if (delta > std::numbers::pi) {
-            phaseOffset -= 2.0 * std::numbers::pi;
-        } else if (delta < -std::numbers::pi) {
-            phaseOffset += 2.0 * std::numbers::pi;
-        }
-        unwrapped[index] += phaseOffset;
-    }
-    return unwrapped;
-}
-
-std::vector<double> buildLinearFrequencyAxis(int sampleRate, int fftSize) {
-    const size_t positiveBinCount = static_cast<size_t>(std::max(fftSize / 2, 0) + 1);
-    std::vector<double> axis;
-    axis.reserve(positiveBinCount);
-    for (size_t index = 0; index < positiveBinCount; ++index) {
-        axis.push_back(static_cast<double>(sampleRate) * static_cast<double>(index) / static_cast<double>(std::max(fftSize, 1)));
-    }
-    return axis;
-}
-
 std::vector<double> buildMagnitudeDbSeries(const std::vector<std::complex<double>>& spectrum) {
     const size_t positiveBinCount = (spectrum.size() / 2) + 1;
     std::vector<double> values;
@@ -587,7 +491,7 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
         std::abs(settings.highCorrectionHz - 20000.0) < 0.001 &&
         std::abs(settings.highTaperOctaves - 0.75) < 0.001;
     if (legacyEdgeDefaults) {
-        settings.lowCorrectionHz = 80.0;
+        settings.lowCorrectionHz = 30.0;
         settings.lowTaperOctaves = 2.0;
         settings.highCorrectionHz = 12000.0;
         settings.highTaperOctaves = 1.25;
@@ -650,7 +554,7 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     const std::vector<double> targetCurveDb =
         alignTargetCurveLevel(displayFrequencyAxisHz, rawTargetCurveDb, leftSourceDb, rightSourceDb, settings);
 
-    const int fftSize = nextPowerOfTwo(settings.tapCount * 4);
+    const int fftSize = static_cast<int>(nextPowerOfTwo(static_cast<size_t>(settings.tapCount * 4)));
     const DesignedChannel left = designChannel(displayFrequencyAxisHz,
                                                targetCurveDb,
                                                leftSourceDb,

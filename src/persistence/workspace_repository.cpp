@@ -1,6 +1,7 @@
 #include "persistence/workspace_repository.h"
 
 #include <cctype>
+#include <algorithm>
 #include <fstream>
 #include <optional>
 #include <sstream>
@@ -124,6 +125,42 @@ std::optional<bool> findJsonBool(const std::string& source, std::string_view key
     return std::nullopt;
 }
 
+std::optional<std::vector<int>> findJsonIntArray(const std::string& source, std::string_view key) {
+    const std::string pattern = "\"" + std::string(key) + "\"";
+    const size_t keyPos = source.find(pattern);
+    if (keyPos == std::string::npos) {
+        return std::nullopt;
+    }
+
+    const size_t colonPos = source.find(':', keyPos + pattern.size());
+    if (colonPos == std::string::npos) {
+        return std::nullopt;
+    }
+
+    const size_t arrayStart = source.find('[', colonPos + 1);
+    const size_t arrayEnd = source.find(']', arrayStart + 1);
+    if (arrayStart == std::string::npos || arrayEnd == std::string::npos) {
+        return std::nullopt;
+    }
+
+    std::vector<int> values;
+    size_t cursor = arrayStart + 1;
+    while (cursor < arrayEnd) {
+        cursor = source.find_first_of("-0123456789", cursor);
+        if (cursor == std::string::npos || cursor >= arrayEnd) {
+            break;
+        }
+        const size_t valueEnd = source.find_first_not_of("0123456789+-", cursor);
+        values.push_back(std::stoi(source.substr(cursor, valueEnd - cursor)));
+        if (valueEnd == std::string::npos || valueEnd >= arrayEnd) {
+            break;
+        }
+        cursor = valueEnd + 1;
+    }
+
+    return values;
+}
+
 void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "measurementSectionHeight")) {
         ui.measurementSectionHeight = static_cast<int>(*value);
@@ -188,9 +225,15 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "targetCurveGraphVisibleMaxDb")) {
         ui.targetCurveGraphVisibleMaxDb = *value;
     }
+    if (const auto value = findJsonIntArray(content, "exportSampleRatesHz")) {
+        ui.exportSampleRatesHz = *value;
+        ui.exportSampleRatesCustomized = true;
+    }
 }
 
 constexpr char kMeasurementResultFileMagic[] = "wolfie-result-values-v1";
+constexpr char kTargetCurveProfileFileMagic[] = "wolfie-target-curve-v1";
+constexpr char kTargetCurveProfileFileExtension[] = ".target-curve.txt";
 
 std::string trimAscii(std::string_view value) {
     size_t begin = 0;
@@ -212,6 +255,168 @@ std::filesystem::path measurementResultFilePath(const std::filesystem::path& roo
 
 std::filesystem::path measurementAnalysisFilePath(const std::filesystem::path& rootPath) {
     return rootPath / "measurement" / "analysis.json";
+}
+
+bool hasSuffix(std::string_view value, std::string_view suffix) {
+    return value.size() >= suffix.size() &&
+           value.substr(value.size() - suffix.size(), suffix.size()) == suffix;
+}
+
+std::string sanitizeFileComponent(std::string_view value) {
+    std::string sanitized;
+    sanitized.reserve(value.size());
+    for (const char ch : value) {
+        const bool invalid = ch < 32 || ch == '\\' || ch == '/' || ch == ':' || ch == '*' || ch == '?' ||
+                             ch == '"' || ch == '<' || ch == '>' || ch == '|';
+        sanitized.push_back(invalid ? '_' : ch);
+    }
+    while (!sanitized.empty() && (sanitized.back() == ' ' || sanitized.back() == '.')) {
+        sanitized.pop_back();
+    }
+    size_t begin = 0;
+    while (begin < sanitized.size() && sanitized[begin] == ' ') {
+        ++begin;
+    }
+    sanitized.erase(0, begin);
+    if (sanitized.empty()) {
+        sanitized = "Default";
+    }
+    return sanitized;
+}
+
+std::filesystem::path targetCurveProfileFilePath(const std::filesystem::path& rootPath, std::string_view profileName) {
+    return rootPath / (sanitizeFileComponent(profileName) + kTargetCurveProfileFileExtension);
+}
+
+std::optional<TargetCurveProfile> loadTargetCurveProfileFile(const std::filesystem::path& path) {
+    const auto content = readTextFile(path);
+    if (!content) {
+        return std::nullopt;
+    }
+
+    std::istringstream in(*content);
+    std::string line;
+    if (!std::getline(in, line) || trimAscii(line) != kTargetCurveProfileFileMagic) {
+        return std::nullopt;
+    }
+
+    TargetCurveProfile profile;
+    bool readingComment = false;
+    bool readingBands = false;
+    std::string comment;
+    while (std::getline(in, line)) {
+        if (readingComment) {
+            if (line == "comment_end") {
+                readingComment = false;
+                profile.comment = comment;
+                continue;
+            }
+            if (!comment.empty()) {
+                comment += '\n';
+            }
+            comment += line;
+            continue;
+        }
+        if (readingBands) {
+            if (line == "bands_end") {
+                readingBands = false;
+                continue;
+            }
+
+            std::istringstream row(line);
+            std::string cell;
+            std::vector<std::string> values;
+            while (std::getline(row, cell, ',')) {
+                values.push_back(cell);
+            }
+            if (values.size() < 5) {
+                continue;
+            }
+
+            TargetEqBand band;
+            band.enabled = values[0] == "1";
+            band.colorIndex = std::stoi(values[1]);
+            band.frequencyHz = std::stod(values[2]);
+            band.gainDb = std::stod(values[3]);
+            band.q = std::stod(values[4]);
+            profile.curve.eqBands.push_back(band);
+            continue;
+        }
+
+        if (line == "comment_begin") {
+            readingComment = true;
+            comment.clear();
+            continue;
+        }
+        if (line == "bands_begin") {
+            readingBands = true;
+            continue;
+        }
+        if (line.rfind("name=", 0) == 0) {
+            profile.name = line.substr(5);
+            continue;
+        }
+        if (line.rfind("lowGainDb=", 0) == 0) {
+            profile.curve.lowGainDb = std::stod(line.substr(10));
+            continue;
+        }
+        if (line.rfind("midFrequencyHz=", 0) == 0) {
+            profile.curve.midFrequencyHz = std::stod(line.substr(15));
+            continue;
+        }
+        if (line.rfind("midGainDb=", 0) == 0) {
+            profile.curve.midGainDb = std::stod(line.substr(10));
+            continue;
+        }
+        if (line.rfind("highGainDb=", 0) == 0) {
+            profile.curve.highGainDb = std::stod(line.substr(11));
+            continue;
+        }
+        if (line.rfind("bypassEqBands=", 0) == 0) {
+            profile.curve.bypassEqBands = trimAscii(line.substr(14)) == "1";
+            continue;
+        }
+    }
+
+    if (profile.name.empty()) {
+        profile.name = path.stem().string();
+    }
+    return profile;
+}
+
+void saveTargetCurveProfileFile(const std::filesystem::path& rootPath, const TargetCurveProfile& profile) {
+    std::ostringstream out;
+    out << kTargetCurveProfileFileMagic << '\n'
+        << "name=" << profile.name << '\n'
+        << "lowGainDb=" << profile.curve.lowGainDb << '\n'
+        << "midFrequencyHz=" << profile.curve.midFrequencyHz << '\n'
+        << "midGainDb=" << profile.curve.midGainDb << '\n'
+        << "highGainDb=" << profile.curve.highGainDb << '\n'
+        << "bypassEqBands=" << (profile.curve.bypassEqBands ? 1 : 0) << '\n'
+        << "comment_begin\n"
+        << profile.comment << '\n'
+        << "comment_end\n"
+        << "bands_begin\n";
+    for (const TargetEqBand& band : profile.curve.eqBands) {
+        out << (band.enabled ? 1 : 0) << ','
+            << band.colorIndex << ','
+            << band.frequencyHz << ','
+            << band.gainDb << ','
+            << band.q << '\n';
+    }
+    out << "bands_end\n";
+    writeTextFile(targetCurveProfileFilePath(rootPath, profile.name), out.str());
+}
+
+void writeJsonIntArray(std::ostringstream& out, const std::vector<int>& values) {
+    out << '[';
+    for (size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) {
+            out << ", ";
+        }
+        out << values[index];
+    }
+    out << ']';
 }
 
 bool parseMeasurementDataRow(std::string line, double& xValue, double& leftValue, double& rightValue) {
@@ -559,6 +764,55 @@ void loadTargetCurveBandsFile(WorkspaceState& workspace) {
     }
 }
 
+void loadTargetCurveProfiles(WorkspaceState& workspace) {
+    workspace.targetCurveProfiles.clear();
+    if (workspace.rootPath.empty()) {
+        return;
+    }
+
+    std::vector<std::filesystem::path> profileFiles;
+    for (const auto& entry : std::filesystem::directory_iterator(workspace.rootPath)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        const std::string filename = entry.path().filename().string();
+        if (hasSuffix(filename, kTargetCurveProfileFileExtension)) {
+            profileFiles.push_back(entry.path());
+        }
+    }
+    std::sort(profileFiles.begin(), profileFiles.end());
+    for (const auto& path : profileFiles) {
+        if (const auto profile = loadTargetCurveProfileFile(path)) {
+            workspace.targetCurveProfiles.push_back(*profile);
+        }
+    }
+
+    if (workspace.targetCurveProfiles.empty()) {
+        loadTargetCurveBandsFile(workspace);
+        TargetCurveProfile fallbackProfile;
+        fallbackProfile.name = workspace.activeTargetCurveProfileName.empty() ? "Default" : workspace.activeTargetCurveProfileName;
+        fallbackProfile.comment = workspace.activeTargetCurveComment;
+        fallbackProfile.curve = workspace.targetCurve;
+        workspace.targetCurveProfiles.push_back(fallbackProfile);
+    }
+
+    if (workspace.activeTargetCurveProfileName.empty()) {
+        workspace.activeTargetCurveProfileName = workspace.targetCurveProfiles.front().name;
+    }
+    auto selected = std::find_if(workspace.targetCurveProfiles.begin(),
+                                 workspace.targetCurveProfiles.end(),
+                                 [&](const TargetCurveProfile& profile) {
+                                     return profile.name == workspace.activeTargetCurveProfileName;
+                                 });
+    if (selected == workspace.targetCurveProfiles.end()) {
+        selected = workspace.targetCurveProfiles.begin();
+        workspace.activeTargetCurveProfileName = selected->name;
+    }
+
+    workspace.activeTargetCurveComment = selected->comment;
+    workspace.targetCurve = selected->curve;
+}
+
 void saveMeasurementResultFile(const WorkspaceState& workspace) {
     if (workspace.rootPath.empty()) {
         return;
@@ -697,6 +951,60 @@ void saveTargetCurveBandsFile(const WorkspaceState& workspace) {
     writeTextFile(workspace.rootPath / "target-curve" / "bands.csv", bandsCsv.str());
 }
 
+void saveTargetCurveProfiles(const WorkspaceState& workspace) {
+    if (workspace.rootPath.empty()) {
+        return;
+    }
+
+    std::vector<TargetCurveProfile> profiles = workspace.targetCurveProfiles;
+    if (profiles.empty()) {
+        TargetCurveProfile profile;
+        profile.name = workspace.activeTargetCurveProfileName.empty() ? "Default" : workspace.activeTargetCurveProfileName;
+        profile.comment = workspace.activeTargetCurveComment;
+        profile.curve = workspace.targetCurve;
+        profiles.push_back(profile);
+    }
+
+    bool foundActive = false;
+    for (TargetCurveProfile& profile : profiles) {
+        if (profile.name == workspace.activeTargetCurveProfileName) {
+            profile.comment = workspace.activeTargetCurveComment;
+            profile.curve = workspace.targetCurve;
+            foundActive = true;
+        }
+    }
+    if (!foundActive) {
+        TargetCurveProfile profile;
+        profile.name = workspace.activeTargetCurveProfileName.empty() ? "Default" : workspace.activeTargetCurveProfileName;
+        profile.comment = workspace.activeTargetCurveComment;
+        profile.curve = workspace.targetCurve;
+        profiles.push_back(profile);
+    }
+
+    std::vector<std::string> desiredFileNames;
+    desiredFileNames.reserve(profiles.size());
+    for (const TargetCurveProfile& profile : profiles) {
+        desiredFileNames.push_back(targetCurveProfileFilePath(workspace.rootPath, profile.name).filename().string());
+        saveTargetCurveProfileFile(workspace.rootPath, profile);
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(workspace.rootPath)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        const std::string filename = entry.path().filename().string();
+        if (!hasSuffix(filename, kTargetCurveProfileFileExtension)) {
+            continue;
+        }
+        if (std::find(desiredFileNames.begin(), desiredFileNames.end(), filename) == desiredFileNames.end()) {
+            std::filesystem::remove(entry.path());
+        }
+    }
+
+    std::filesystem::remove(workspace.rootPath / "target-curve" / "bands.csv");
+    std::filesystem::remove(workspace.rootPath / "target-curve");
+}
+
 }  // namespace
 
 WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) const {
@@ -777,6 +1085,9 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonBool(*content, "bypassEqBands")) {
             workspace.targetCurve.bypassEqBands = *value;
         }
+        if (const auto value = findJsonString(*content, "activeTargetCurveProfileName")) {
+            workspace.activeTargetCurveProfileName = *value;
+        }
         if (const auto value = findJsonNumber(*content, "filterTapCount")) {
             workspace.filters.tapCount = static_cast<int>(*value);
         }
@@ -820,12 +1131,19 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
     loadMicrophoneCalibration(workspace.audio, calibrationError);
     loadMeasurementResultFile(workspace);
     loadMeasurementAnalysisFile(workspace);
-    loadTargetCurveBandsFile(workspace);
+    loadTargetCurveProfiles(workspace);
     const auto targetPlot = measurement::buildTargetCurvePlotData(workspace.smoothedResponse,
                                                                   workspace.measurement,
                                                                   workspace.targetCurve,
                                                                   std::nullopt);
     measurement::normalizeTargetCurveSettings(workspace.targetCurve, targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz);
+    for (TargetCurveProfile& profile : workspace.targetCurveProfiles) {
+        measurement::normalizeTargetCurveSettings(profile.curve, targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz);
+        if (profile.name == workspace.activeTargetCurveProfileName) {
+            workspace.targetCurve = profile.curve;
+            workspace.activeTargetCurveComment = profile.comment;
+        }
+    }
     return workspace;
 }
 
@@ -873,6 +1191,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"highGainDb\": " << workspace.targetCurve.highGainDb << ",\n"
                   << "    \"bypassEqBands\": " << (workspace.targetCurve.bypassEqBands ? "true" : "false") << "\n"
                   << "  },\n"
+                  << "  \"activeTargetCurveProfileName\": \"" << escapeJson(workspace.activeTargetCurveProfileName) << "\",\n"
                   << "  \"filters\": {\n"
                   << "    \"filterTapCount\": " << workspace.filters.tapCount << ",\n"
                   << "    \"filterMaxBoostDb\": " << workspace.filters.maxBoostDb << ",\n"
@@ -911,7 +1230,10 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"targetCurveGraphHasCustomVisibleDbRange\": "
                   << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
                   << "    \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
-                  << "    \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << "\n"
+                  << "    \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << ",\n"
+                  << "    \"exportSampleRatesHz\": ";
+    writeJsonIntArray(workspaceJson, workspace.ui.exportSampleRatesHz);
+    workspaceJson << "\n"
                   << "  }\n"
                   << "}\n";
     writeTextFile(workspace.rootPath / "workspace.json", workspaceJson.str());
@@ -943,13 +1265,16 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << "  \"targetCurveGraphHasCustomVisibleDbRange\": "
            << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
            << "  \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
-           << "  \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << "\n"
+           << "  \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << ",\n"
+           << "  \"exportSampleRatesHz\": ";
+    writeJsonIntArray(uiJson, workspace.ui.exportSampleRatesHz);
+    uiJson << "\n"
            << "}\n";
     writeTextFile(workspace.rootPath / "ui.json", uiJson.str());
 
     saveMeasurementResultFile(workspace);
     saveMeasurementAnalysisFile(workspace);
-    saveTargetCurveBandsFile(workspace);
+    saveTargetCurveProfiles(workspace);
 }
 
 }  // namespace wolfie::persistence

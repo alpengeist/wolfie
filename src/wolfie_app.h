@@ -64,6 +64,8 @@ private:
     void setExportInProgress(bool running);
     void showExportProgress(const std::wstring& message) const;
     void updateExportControls();
+    void populateExportSampleRateControls();
+    void syncExportSampleRatesToWorkspace();
     [[nodiscard]] std::vector<int> selectedExportSampleRates() const;
     void exportRoonFilters();
     void onCommand(WORD commandId, WORD notificationCode);

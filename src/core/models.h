@@ -58,6 +58,8 @@ struct UiSettings {
     bool targetCurveGraphHasCustomVisibleDbRange = false;
     double targetCurveGraphVisibleMinDb = -12.0;
     double targetCurveGraphVisibleMaxDb = 12.0;
+    bool exportSampleRatesCustomized = false;
+    std::vector<int> exportSampleRatesHz;
 };
 
 struct MeasurementValueSet {
@@ -229,12 +231,18 @@ struct TargetCurveSettings {
     std::vector<TargetEqBand> eqBands;
 };
 
+struct TargetCurveProfile {
+    std::string name = "Default";
+    std::string comment;
+    TargetCurveSettings curve;
+};
+
 struct FilterDesignSettings {
     int tapCount = 65536;
-    double maxBoostDb = 9.0;
-    double maxCutDb = 18.0;
+    double maxBoostDb = 6.0;
+    double maxCutDb = 12.0;
     double smoothness = 1.0;
-    double lowCorrectionHz = 80.0;
+    double lowCorrectionHz = 30.0;
     double lowTaperOctaves = 2.0;
     double highCorrectionHz = 12000.0;
     double highTaperOctaves = 1.25;
@@ -272,6 +280,9 @@ struct WorkspaceState {
     MeasurementSettings measurement;
     ResponseSmoothingSettings smoothing;
     TargetCurveSettings targetCurve;
+    std::string activeTargetCurveProfileName = "Default";
+    std::string activeTargetCurveComment;
+    std::vector<TargetCurveProfile> targetCurveProfiles;
     FilterDesignSettings filters;
     UiSettings ui;
     MeasurementResult result;

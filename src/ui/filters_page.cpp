@@ -291,32 +291,58 @@ void FiltersPage::createControls() {
                                                    nullptr);
     controls_.lineCorrectedTarget = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelCorrectedTarget = CreateWindowW(L"STATIC", L"Target", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowCorrectedInputLeft = CreateWindowW(L"BUTTON",
+                                                             L"",
+                                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                             0,
+                                                             0,
+                                                             0,
+                                                             0,
+                                                             window_,
+                                                             reinterpret_cast<HMENU>(kCheckboxShowCorrectedInputLeft),
+                                                             instance_,
+                                                             nullptr);
+    controls_.lineCorrectedInputLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelCorrectedInputLeft = CreateWindowW(L"STATIC", L"L", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowCorrectedInputRight = CreateWindowW(L"BUTTON",
+                                                              L"",
+                                                              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                              0,
+                                                              0,
+                                                              0,
+                                                              0,
+                                                              window_,
+                                                              reinterpret_cast<HMENU>(kCheckboxShowCorrectedInputRight),
+                                                              instance_,
+                                                              nullptr);
+    controls_.lineCorrectedInputRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelCorrectedInputRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowCorrectedLeft = CreateWindowW(L"BUTTON",
-                                                        L"",
-                                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                                        0,
-                                                        0,
-                                                        0,
-                                                        0,
-                                                        window_,
-                                                        reinterpret_cast<HMENU>(kCheckboxShowCorrectedLeft),
-                                                        instance_,
-                                                        nullptr);
-    controls_.lineCorrectedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelCorrectedLeft = CreateWindowW(L"STATIC", L"L", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.checkboxShowCorrectedRight = CreateWindowW(L"BUTTON",
                                                          L"",
                                                          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                                         0,
-                                                         0,
-                                                         0,
-                                                         0,
+                                                        0,
+                                                        0,
+                                                        0,
+                                                        0,
                                                          window_,
-                                                         reinterpret_cast<HMENU>(kCheckboxShowCorrectedRight),
+                                                         reinterpret_cast<HMENU>(kCheckboxShowCorrectedLeft),
                                                          instance_,
                                                          nullptr);
+    controls_.lineCorrectedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelCorrectedLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowCorrectedRight = CreateWindowW(L"BUTTON",
+                                                          L"",
+                                                          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                          window_,
+                                                          reinterpret_cast<HMENU>(kCheckboxShowCorrectedRight),
+                                                          instance_,
+                                                          nullptr);
     controls_.lineCorrectedRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelCorrectedRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelCorrectedRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Filter Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayLegendFrame = CreateWindowW(L"STATIC",
@@ -362,6 +388,8 @@ void FiltersPage::createControls() {
     SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInversionRight, BM_SETCHECK, showInversionRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedInputLeft, BM_SETCHECK, showCorrectedInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_SETCHECK, showCorrectedInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxSyncHoverFrequency, BM_SETCHECK, syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -446,12 +474,18 @@ void FiltersPage::layout() {
     const int correctedFirstRowTop = y + 24 + 18;
     MoveWindow(controls_.lineCorrectedTarget, lineLeft, correctedFirstRowTop + 8, lineWidth, lineHeight, TRUE);
     MoveWindow(controls_.labelCorrectedTarget, labelLeft, correctedFirstRowTop + 2, labelWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxShowCorrectedLeft, checkboxLeft, correctedFirstRowTop + rowStep, checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.lineCorrectedLeft, lineLeft, correctedFirstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelCorrectedLeft, labelLeft, correctedFirstRowTop + rowStep + 2, labelWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxShowCorrectedRight, checkboxLeft, correctedFirstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
-    MoveWindow(controls_.lineCorrectedRight, lineLeft, correctedFirstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
-    MoveWindow(controls_.labelCorrectedRight, labelLeft, correctedFirstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowCorrectedInputLeft, checkboxLeft, correctedFirstRowTop + rowStep, checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineCorrectedInputLeft, lineLeft, correctedFirstRowTop + rowStep + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelCorrectedInputLeft, labelLeft, correctedFirstRowTop + rowStep + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowCorrectedInputRight, checkboxLeft, correctedFirstRowTop + (rowStep * 2), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineCorrectedInputRight, lineLeft, correctedFirstRowTop + (rowStep * 2) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelCorrectedInputRight, labelLeft, correctedFirstRowTop + (rowStep * 2) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowCorrectedLeft, checkboxLeft, correctedFirstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineCorrectedLeft, lineLeft, correctedFirstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelCorrectedLeft, labelLeft, correctedFirstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxShowCorrectedRight, checkboxLeft, correctedFirstRowTop + (rowStep * 4), checkboxWidth, 20, TRUE);
+    MoveWindow(controls_.lineCorrectedRight, lineLeft, correctedFirstRowTop + (rowStep * 4) + 8, lineWidth, lineHeight, TRUE);
+    MoveWindow(controls_.labelCorrectedRight, labelLeft, correctedFirstRowTop + (rowStep * 4) + 2, labelWidth, 18, TRUE);
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
@@ -510,6 +544,8 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInversionRight, BM_SETCHECK, showInversionRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedInputLeft, BM_SETCHECK, showCorrectedInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_SETCHECK, showCorrectedInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxSyncHoverFrequency, BM_SETCHECK, syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -696,6 +732,8 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowInputLeft ||
          commandId == kCheckboxShowInversionRight ||
          commandId == kCheckboxShowInversionLeft ||
+         commandId == kCheckboxShowCorrectedInputLeft ||
+         commandId == kCheckboxShowCorrectedInputRight ||
          commandId == kCheckboxShowCorrectedLeft ||
          commandId == kCheckboxShowCorrectedRight ||
          commandId == kCheckboxSyncHoverFrequency) &&
@@ -704,6 +742,8 @@ bool FiltersPage::handleCommand(WORD commandId,
         showInputLeft_ = SendMessageW(controls_.checkboxShowInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showInversionRight_ = SendMessageW(controls_.checkboxShowInversionRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showInversionLeft_ = SendMessageW(controls_.checkboxShowInversionLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showCorrectedInputLeft_ = SendMessageW(controls_.checkboxShowCorrectedInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showCorrectedInputRight_ = SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showCorrectedLeft_ = SendMessageW(controls_.checkboxShowCorrectedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showCorrectedRight_ = SendMessageW(controls_.checkboxShowCorrectedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
         syncHoverFrequencyEnabled_ = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -822,8 +862,10 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         static HBRUSH lineInversionRightBrush = CreateSolidBrush(ui_theme::kMagenta);
         static HBRUSH lineInversionLeftBrush = CreateSolidBrush(ui_theme::kGray);
         static HBRUSH lineCorrectedTargetBrush = CreateSolidBrush(ui_theme::kAccent);
-        static HBRUSH lineCorrectedLeftBrush = CreateSolidBrush(ui_theme::kGreen);
-        static HBRUSH lineCorrectedRightBrush = CreateSolidBrush(ui_theme::kRed);
+        static HBRUSH lineCorrectedInputLeftBrush = CreateSolidBrush(ui_theme::kGreen);
+        static HBRUSH lineCorrectedInputRightBrush = CreateSolidBrush(ui_theme::kRed);
+        static HBRUSH lineCorrectedLeftBrush = CreateSolidBrush(ui_theme::kGray);
+        static HBRUSH lineCorrectedRightBrush = CreateSolidBrush(ui_theme::kMagenta);
         static HBRUSH lineGroupDelayLeftBrush = CreateSolidBrush(ui_theme::kGreen);
         static HBRUSH lineGroupDelayRightBrush = CreateSolidBrush(ui_theme::kRed);
         HDC hdc = reinterpret_cast<HDC>(wParam);
@@ -849,12 +891,20 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
                 SetBkColor(hdc, ui_theme::kAccent);
                 return reinterpret_cast<INT_PTR>(lineCorrectedTargetBrush);
             }
-            if (control == page->controls_.lineCorrectedLeft) {
+            if (control == page->controls_.lineCorrectedInputLeft) {
                 SetBkColor(hdc, ui_theme::kGreen);
+                return reinterpret_cast<INT_PTR>(lineCorrectedInputLeftBrush);
+            }
+            if (control == page->controls_.lineCorrectedInputRight) {
+                SetBkColor(hdc, ui_theme::kRed);
+                return reinterpret_cast<INT_PTR>(lineCorrectedInputRightBrush);
+            }
+            if (control == page->controls_.lineCorrectedLeft) {
+                SetBkColor(hdc, ui_theme::kGray);
                 return reinterpret_cast<INT_PTR>(lineCorrectedLeftBrush);
             }
             if (control == page->controls_.lineCorrectedRight) {
-                SetBkColor(hdc, ui_theme::kRed);
+                SetBkColor(hdc, ui_theme::kMagenta);
                 return reinterpret_cast<INT_PTR>(lineCorrectedRightBrush);
             }
             if (control == page->controls_.lineGroupDelayLeft) {
@@ -1144,6 +1194,20 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
         }
     };
     accumulateRange(workspace.filterResult.targetCurveDb);
+    const std::vector<double> leftInputResponseDb =
+        resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
+                             workspace.smoothedResponse.leftChannelDb,
+                             workspace.filterResult.frequencyAxisHz);
+    const std::vector<double> rightInputResponseDb =
+        resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
+                             workspace.smoothedResponse.rightChannelDb,
+                             workspace.filterResult.frequencyAxisHz);
+    if (showCorrectedInputLeft_) {
+        accumulateRange(leftInputResponseDb);
+    }
+    if (showCorrectedInputRight_) {
+        accumulateRange(rightInputResponseDb);
+    }
     if (showCorrectedLeft_) {
         accumulateRange(workspace.filterResult.left.correctedResponseDb);
     }
@@ -1163,11 +1227,17 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
     data.maxY = center + halfSpan;
 
     data.series.push_back({L"Target", ui_theme::kAccent, workspace.filterResult.targetCurveDb});
+    if (showCorrectedInputLeft_) {
+        data.series.push_back({L"Left input", ui_theme::kGreen, leftInputResponseDb});
+    }
+    if (showCorrectedInputRight_) {
+        data.series.push_back({L"Right input", ui_theme::kRed, rightInputResponseDb});
+    }
     if (showCorrectedLeft_) {
-        data.series.push_back({L"Left", ui_theme::kGreen, workspace.filterResult.left.correctedResponseDb});
+        data.series.push_back({L"Left predicted", ui_theme::kGray, workspace.filterResult.left.correctedResponseDb});
     }
     if (showCorrectedRight_) {
-        data.series.push_back({L"Right", ui_theme::kRed, workspace.filterResult.right.correctedResponseDb});
+        data.series.push_back({L"Right predicted", ui_theme::kMagenta, workspace.filterResult.right.correctedResponseDb});
     }
     return data;
 }

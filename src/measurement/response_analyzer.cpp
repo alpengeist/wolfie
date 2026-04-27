@@ -6,6 +6,8 @@
 #include <numeric>
 #include <utility>
 
+#include "measurement/dsp_utils.h"
+
 namespace wolfie::measurement {
 
 namespace {
@@ -164,56 +166,6 @@ void applyMicrophoneCalibration(const AudioSettings& audioSettings, MeasurementV
 
 constexpr double kPi = 3.14159265358979323846;
 
-size_t nextPowerOfTwo(size_t value) {
-    size_t power = 1;
-    while (power < value) {
-        power <<= 1U;
-    }
-    return power;
-}
-
-void fft(std::vector<std::complex<double>>& samples, bool inverse) {
-    const size_t count = samples.size();
-    if (count <= 1) {
-        return;
-    }
-
-    for (size_t i = 1, j = 0; i < count; ++i) {
-        size_t bit = count >> 1U;
-        while ((j & bit) != 0) {
-            j ^= bit;
-            bit >>= 1U;
-        }
-        j ^= bit;
-        if (i < j) {
-            std::swap(samples[i], samples[j]);
-        }
-    }
-
-    for (size_t length = 2; length <= count; length <<= 1U) {
-        const double angle = (inverse ? 2.0 : -2.0) * kPi / static_cast<double>(length);
-        const std::complex<double> phaseStep(std::cos(angle), std::sin(angle));
-        for (size_t offset = 0; offset < count; offset += length) {
-            std::complex<double> phase(1.0, 0.0);
-            const size_t halfLength = length >> 1U;
-            for (size_t i = 0; i < halfLength; ++i) {
-                const std::complex<double> even = samples[offset + i];
-                const std::complex<double> odd = samples[offset + i + halfLength] * phase;
-                samples[offset + i] = even + odd;
-                samples[offset + i + halfLength] = even - odd;
-                phase *= phaseStep;
-            }
-        }
-    }
-
-    if (inverse) {
-        const double scale = 1.0 / static_cast<double>(count);
-        for (std::complex<double>& sample : samples) {
-            sample *= scale;
-        }
-    }
-}
-
 std::vector<double> convolveReal(const std::vector<double>& left, const std::vector<double>& right) {
     if (left.empty() || right.empty()) {
         return {};
@@ -361,25 +313,6 @@ size_t applyAnalysisWindow(std::vector<double>& samples, size_t preRollFrames) {
     return fadeFrames;
 }
 
-std::vector<double> unwrapPhaseRadians(const std::vector<double>& phaseRadians) {
-    std::vector<double> unwrapped = phaseRadians;
-    if (unwrapped.empty()) {
-        return unwrapped;
-    }
-
-    double offset = 0.0;
-    for (size_t i = 1; i < unwrapped.size(); ++i) {
-        const double delta = unwrapped[i] - unwrapped[i - 1];
-        if (delta > kPi) {
-            offset -= 2.0 * kPi;
-        } else if (delta < -kPi) {
-            offset += 2.0 * kPi;
-        }
-        unwrapped[i] += offset;
-    }
-    return unwrapped;
-}
-
 std::vector<double> buildLogFrequencyAxis(const MeasurementSettings& settings,
                                           int sampleRate,
                                           size_t pointCount) {
@@ -387,16 +320,7 @@ std::vector<double> buildLogFrequencyAxis(const MeasurementSettings& settings,
     const double maxFrequencyHz = clampValue(settings.endFrequencyHz,
                                              minFrequencyHz + 1.0,
                                              static_cast<double>(std::max(sampleRate, 1)) * 0.5);
-    const double logMin = std::log10(minFrequencyHz);
-    const double logMax = std::log10(maxFrequencyHz);
-
-    std::vector<double> axis;
-    axis.reserve(pointCount);
-    for (size_t i = 0; i < pointCount; ++i) {
-        const double t = pointCount <= 1 ? 0.0 : static_cast<double>(i) / static_cast<double>(pointCount - 1);
-        axis.push_back(std::pow(10.0, logMin + ((logMax - logMin) * t)));
-    }
-    return axis;
+    return wolfie::measurement::buildLogFrequencyAxis(minFrequencyHz, maxFrequencyHz, pointCount);
 }
 
 std::complex<double> interpolateSpectrumAtFrequency(const std::vector<std::complex<double>>& spectrum,

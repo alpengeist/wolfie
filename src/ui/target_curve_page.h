@@ -8,6 +8,7 @@
 #endif
 #include <windows.h>
 
+#include <string>
 #include <vector>
 
 #include "core/models.h"
@@ -33,6 +34,9 @@ public:
 
 private:
     struct Controls {
+        HWND profileLabel = nullptr;
+        HWND comboProfiles = nullptr;
+        HWND buttonNewProfile = nullptr;
         HWND graphLabel = nullptr;
         HWND graphHint = nullptr;
         HWND bandsLabel = nullptr;
@@ -55,6 +59,8 @@ private:
         HWND qLabel = nullptr;
         HWND qSlider = nullptr;
         HWND qValue = nullptr;
+        HWND commentLabel = nullptr;
+        HWND commentValue = nullptr;
     };
 
     static constexpr wchar_t kPageClassName[] = L"WolfieTargetCurvePage";
@@ -71,6 +77,9 @@ private:
     static constexpr int kGainEdit = 3311;
     static constexpr int kQSlider = 3312;
     static constexpr int kQEdit = 3313;
+    static constexpr int kComboProfiles = 3314;
+    static constexpr int kCommentEdit = 3315;
+    static constexpr int kButtonNewProfile = 3316;
     static constexpr WORD kBandToggleNotification = 0x7F14;
     static constexpr int kFrequencySliderMax = 1000;
     static constexpr int kGainSliderMax = 240;
@@ -93,16 +102,21 @@ private:
     static double sliderPositionToGain(int position);
     static int qToSliderPosition(double q);
     static double sliderPositionToQ(int position);
+    static std::wstring requestProfileName(HWND owner, HINSTANCE instance);
 
     void createControls();
     bool handleMouseWheel(WPARAM wParam, LPARAM lParam);
     bool adjustValueField(HWND control, int wheelSteps);
     void syncAllOffState(TargetCurveSettings& settings) const;
+    void syncActiveProfileFromWorkspaceState(WorkspaceState& workspace) const;
+    void selectActiveProfile(WorkspaceState& workspace, const std::string& profileName);
     void refreshList(const WorkspaceState& workspace);
+    void refreshProfileControls(const WorkspaceState& workspace);
     void refreshDetailControls(const WorkspaceState& workspace);
     void refreshGraph(const WorkspaceState& workspace);
     void selectBand(int index, WorkspaceState& workspace);
     void addBand(WorkspaceState& workspace);
+    void createProfile(WorkspaceState& workspace);
     void deleteSelectedBand(WorkspaceState& workspace);
     void resetTarget(WorkspaceState& workspace);
     void toggleBandEnabled(int index, WorkspaceState& workspace);

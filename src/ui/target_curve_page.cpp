@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <string>
 
 #include <commctrl.h>
 #include <windowsx.h>
@@ -18,6 +19,75 @@ namespace {
 constexpr double kFrequencyWheelScalePerStep = 1.0166666667;
 constexpr double kGainWheelStepDb = 0.1;
 constexpr double kQWheelStep = 0.1;
+constexpr wchar_t kProfilePromptClassName[] = L"WolfieTargetCurveProfilePrompt";
+
+struct ProfilePromptDialogState {
+    std::wstring value;
+    bool accepted = false;
+    bool finished = false;
+    HWND edit = nullptr;
+};
+
+LRESULT CALLBACK ProfilePromptWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    auto* state = reinterpret_cast<ProfilePromptDialogState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    switch (message) {
+    case WM_NCCREATE: {
+        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
+        return TRUE;
+    }
+    case WM_COMMAND:
+        if (state == nullptr) {
+            break;
+        }
+        switch (LOWORD(wParam)) {
+        case IDOK: {
+            const int length = GetWindowTextLengthW(state->edit);
+            std::wstring value(static_cast<size_t>(length), L'\0');
+            if (length > 0) {
+                GetWindowTextW(state->edit, value.data(), length + 1);
+            }
+            state->value = value;
+            state->accepted = true;
+            state->finished = true;
+            DestroyWindow(window);
+            return 0;
+        }
+        case IDCANCEL:
+            state->finished = true;
+            DestroyWindow(window);
+            return 0;
+        default:
+            break;
+        }
+        break;
+    case WM_CLOSE:
+        if (state != nullptr) {
+            state->finished = true;
+        }
+        DestroyWindow(window);
+        return 0;
+    default:
+        break;
+    }
+    return DefWindowProcW(window, message, wParam, lParam);
+}
+
+void ensureProfilePromptWindowClass(HINSTANCE instance) {
+    static bool registered = false;
+    if (registered) {
+        return;
+    }
+
+    WNDCLASSW windowClass{};
+    windowClass.lpfnWndProc = ProfilePromptWindowProc;
+    windowClass.hInstance = instance;
+    windowClass.lpszClassName = kProfilePromptClassName;
+    windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
+    RegisterClassW(&windowClass);
+    registered = true;
+}
 
 template <typename T>
 T clampValue(T value, T low, T high) {
@@ -59,6 +129,20 @@ void TargetCurvePage::create(HWND parent, HINSTANCE instance) {
 }
 
 void TargetCurvePage::createControls() {
+    controls_.profileLabel = CreateWindowW(L"STATIC", L"Profile", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.comboProfiles = CreateWindowW(L"COMBOBOX",
+                                            nullptr,
+                                            WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                            0,
+                                            0,
+                                            0,
+                                            0,
+                                            window_,
+                                            reinterpret_cast<HMENU>(kComboProfiles),
+                                            instance_,
+                                            nullptr);
+    controls_.buttonNewProfile = CreateWindowW(L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonNewProfile), instance_, nullptr);
     controls_.graphLabel = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.graphHint = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.bandsLabel = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -100,6 +184,19 @@ void TargetCurvePage::createControls() {
                                         0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kQSlider), instance_, nullptr);
     controls_.qValue = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
                                        0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kQEdit), instance_, nullptr);
+    controls_.commentLabel = CreateWindowW(L"STATIC", L"Comment", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.commentValue = CreateWindowExW(WS_EX_CLIENTEDGE,
+                                             L"EDIT",
+                                             L"",
+                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOVSCROLL | ES_MULTILINE | WS_VSCROLL,
+                                             0,
+                                             0,
+                                             0,
+                                             0,
+                                             window_,
+                                             reinterpret_cast<HMENU>(kCommentEdit),
+                                             instance_,
+                                             nullptr);
 
     SendMessageW(controls_.frequencySlider, TBM_SETRANGEMIN, FALSE, 0);
     SendMessageW(controls_.frequencySlider, TBM_SETRANGEMAX, FALSE, kFrequencySliderMax);
@@ -135,11 +232,14 @@ void TargetCurvePage::layout() {
     const RECT graphBounds{contentLeft, contentTop, contentLeft + graphWidth, contentTop + innerHeight};
     graph_.layout(graphBounds);
 
-    MoveWindow(controls_.buttonNew, sidebarLeft, contentTop, 72, 28, TRUE);
-    MoveWindow(controls_.buttonDelete, sidebarLeft + 80, contentTop, 72, 28, TRUE);
-    MoveWindow(controls_.buttonReset, sidebarLeft + 160, contentTop, 72, 28, TRUE);
-    MoveWindow(controls_.checkboxBypassAll, sidebarLeft, contentTop + 34, sidebarWidth, 20, TRUE);
-    const int listTop = contentTop + 62;
+    MoveWindow(controls_.profileLabel, sidebarLeft, contentTop, 56, 20, TRUE);
+    MoveWindow(controls_.comboProfiles, sidebarLeft, contentTop + 22, sidebarWidth - 80, 240, TRUE);
+    MoveWindow(controls_.buttonNewProfile, sidebarLeft + sidebarWidth - 72, contentTop + 21, 72, 26, TRUE);
+    MoveWindow(controls_.buttonNew, sidebarLeft, contentTop + 58, 72, 28, TRUE);
+    MoveWindow(controls_.buttonDelete, sidebarLeft + 80, contentTop + 58, 72, 28, TRUE);
+    MoveWindow(controls_.buttonReset, sidebarLeft + 160, contentTop + 58, 72, 28, TRUE);
+    MoveWindow(controls_.checkboxBypassAll, sidebarLeft, contentTop + 92, sidebarWidth, 20, TRUE);
+    const int listTop = contentTop + 120;
     const int listHeight = 180;
     MoveWindow(controls_.listBands, sidebarLeft, listTop, sidebarWidth, listHeight, TRUE);
 
@@ -149,19 +249,25 @@ void TargetCurvePage::layout() {
 
     const int sliderWidth = sidebarWidth - 98;
     const int editLeft = sidebarLeft + sidebarWidth - 70;
-    MoveWindow(controls_.frequencyLabel, sidebarLeft, detailTop + 32, 80, 18, TRUE);
-    MoveWindow(controls_.frequencySlider, sidebarLeft, detailTop + 54, sliderWidth, 28, TRUE);
-    MoveWindow(controls_.frequencyValue, editLeft, detailTop + 50, 54, 26, TRUE);
-    MoveWindow(controls_.frequencyUnit, editLeft + 56, detailTop + 54, 20, 18, TRUE);
+    MoveWindow(controls_.frequencyLabel, sidebarLeft, detailTop + 24, 80, 18, TRUE);
+    MoveWindow(controls_.frequencySlider, sidebarLeft, detailTop + 42, sliderWidth, 24, TRUE);
+    MoveWindow(controls_.frequencyValue, editLeft, detailTop + 38, 54, 24, TRUE);
+    MoveWindow(controls_.frequencyUnit, editLeft + 56, detailTop + 42, 20, 18, TRUE);
 
-    MoveWindow(controls_.gainLabel, sidebarLeft, detailTop + 90, 80, 18, TRUE);
-    MoveWindow(controls_.gainSlider, sidebarLeft, detailTop + 112, sliderWidth, 28, TRUE);
-    MoveWindow(controls_.gainValue, editLeft, detailTop + 108, 54, 26, TRUE);
-    MoveWindow(controls_.gainUnit, editLeft + 56, detailTop + 112, 24, 18, TRUE);
+    MoveWindow(controls_.gainLabel, sidebarLeft, detailTop + 70, 80, 18, TRUE);
+    MoveWindow(controls_.gainSlider, sidebarLeft, detailTop + 88, sliderWidth, 24, TRUE);
+    MoveWindow(controls_.gainValue, editLeft, detailTop + 84, 54, 24, TRUE);
+    MoveWindow(controls_.gainUnit, editLeft + 56, detailTop + 88, 24, 18, TRUE);
 
-    MoveWindow(controls_.qLabel, sidebarLeft, detailTop + 148, 80, 18, TRUE);
-    MoveWindow(controls_.qSlider, sidebarLeft, detailTop + 170, sliderWidth, 28, TRUE);
-    MoveWindow(controls_.qValue, editLeft, detailTop + 166, 54, 26, TRUE);
+    MoveWindow(controls_.qLabel, sidebarLeft, detailTop + 116, 80, 18, TRUE);
+    MoveWindow(controls_.qSlider, sidebarLeft, detailTop + 134, sliderWidth, 24, TRUE);
+    MoveWindow(controls_.qValue, editLeft, detailTop + 130, 54, 24, TRUE);
+
+    const int commentTop = detailTop + 168;
+    MoveWindow(controls_.commentLabel, sidebarLeft, commentTop, 80, 18, TRUE);
+    const int availableCommentHeight = static_cast<int>(pageRect.bottom) - (commentTop + 44);
+    const int commentHeight = std::max(80, availableCommentHeight);
+    MoveWindow(controls_.commentValue, sidebarLeft, commentTop + 22, sidebarWidth, commentHeight, TRUE);
 }
 
 void TargetCurvePage::setVisible(bool visible) const {
@@ -170,6 +276,7 @@ void TargetCurvePage::setVisible(bool visible) const {
 
 void TargetCurvePage::populate(const WorkspaceState& workspace) {
     updatingControls_ = true;
+    refreshProfileControls(workspace);
     SendMessageW(controls_.checkboxBypassAll,
                  BM_SETCHECK,
                  workspace.targetCurve.bypassEqBands ? BST_CHECKED : BST_UNCHECKED,
@@ -193,6 +300,8 @@ void TargetCurvePage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.ui.targetCurveGraphVisibleMinDb = graph_.visibleMinDb();
     workspace.ui.targetCurveGraphVisibleMaxDb = graph_.visibleMaxDb();
     workspace.targetCurve = graph_.settings();
+    workspace.activeTargetCurveComment = toUtf8(getWindowTextValue(controls_.commentValue));
+    syncActiveProfileFromWorkspaceState(workspace);
 }
 
 bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& workspaceChanged) {
@@ -227,6 +336,10 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
     }
 
     switch (commandId) {
+    case kButtonNewProfile:
+        createProfile(workspace);
+        workspaceChanged = true;
+        return true;
     case kButtonNew:
         addBand(workspace);
         workspaceChanged = true;
@@ -284,6 +397,28 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
             refreshList(workspace);
             refreshDetailControls(workspace);
             refreshGraph(workspace);
+            workspaceChanged = true;
+            return true;
+        }
+        return false;
+    case kComboProfiles:
+        if (notificationCode == CBN_SELCHANGE) {
+            syncActiveProfileFromWorkspaceState(workspace);
+            const int selection = static_cast<int>(SendMessageW(controls_.comboProfiles, CB_GETCURSEL, 0, 0));
+            if (selection >= 0) {
+                wchar_t buffer[256] = {};
+                SendMessageW(controls_.comboProfiles, CB_GETLBTEXT, selection, reinterpret_cast<LPARAM>(buffer));
+                selectActiveProfile(workspace, toUtf8(buffer));
+                populate(workspace);
+            }
+            workspaceChanged = true;
+            return true;
+        }
+        return false;
+    case kCommentEdit:
+        if (!updatingControls_ && notificationCode == EN_CHANGE) {
+            workspace.activeTargetCurveComment = toUtf8(getWindowTextValue(controls_.commentValue));
+            syncActiveProfileFromWorkspaceState(workspace);
             workspaceChanged = true;
             return true;
         }
@@ -550,6 +685,68 @@ std::wstring TargetCurvePage::getWindowTextValue(HWND control) {
     return value;
 }
 
+std::wstring TargetCurvePage::requestProfileName(HWND owner, HINSTANCE instance) {
+    ensureProfilePromptWindowClass(instance);
+
+    ProfilePromptDialogState state;
+    const int dialogWidth = 360;
+    const int dialogHeight = 144;
+    RECT ownerRect{0, 0, dialogWidth, dialogHeight};
+    if (owner != nullptr) {
+        GetWindowRect(owner, &ownerRect);
+    }
+    const int x = ownerRect.left + std::max(0L, ((ownerRect.right - ownerRect.left) - dialogWidth) / 2);
+    const int y = ownerRect.top + std::max(0L, ((ownerRect.bottom - ownerRect.top) - dialogHeight) / 2);
+
+    HWND dialog = CreateWindowExW(WS_EX_DLGMODALFRAME,
+                                  kProfilePromptClassName,
+                                  L"New Target Curve",
+                                  WS_POPUP | WS_CAPTION | WS_SYSMENU,
+                                  x,
+                                  y,
+                                  dialogWidth,
+                                  dialogHeight,
+                                  owner,
+                                  nullptr,
+                                  instance,
+                                  &state);
+    if (dialog == nullptr) {
+        return {};
+    }
+
+    CreateWindowW(L"STATIC", L"Profile name", WS_CHILD | WS_VISIBLE, 16, 16, 100, 18, dialog, nullptr, instance, nullptr);
+    state.edit = CreateWindowExW(WS_EX_CLIENTEDGE,
+                                 L"EDIT",
+                                 L"",
+                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                                 16,
+                                 38,
+                                 312,
+                                 24,
+                                 dialog,
+                                 nullptr,
+                                 instance,
+                                 nullptr);
+    CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 168, 78, 72, 26, dialog, reinterpret_cast<HMENU>(IDOK), instance, nullptr);
+    CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 256, 78, 72, 26, dialog, reinterpret_cast<HMENU>(IDCANCEL), instance, nullptr);
+
+    EnableWindow(owner, FALSE);
+    ShowWindow(dialog, SW_SHOW);
+    SetFocus(state.edit);
+
+    MSG message{};
+    while (!state.finished && GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (!IsDialogMessageW(dialog, &message)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+
+    EnableWindow(owner, TRUE);
+    SetActiveWindow(owner);
+    return state.accepted ? state.value : std::wstring();
+}
+
 void TargetCurvePage::setWindowTextValue(HWND control, const std::wstring& text) {
     SetWindowTextW(control, text.c_str());
 }
@@ -622,6 +819,36 @@ void TargetCurvePage::syncAllOffState(TargetCurveSettings& settings) const {
     (void)settings;
 }
 
+void TargetCurvePage::syncActiveProfileFromWorkspaceState(WorkspaceState& workspace) const {
+    for (TargetCurveProfile& profile : workspace.targetCurveProfiles) {
+        if (profile.name == workspace.activeTargetCurveProfileName) {
+            profile.curve = workspace.targetCurve;
+            profile.comment = workspace.activeTargetCurveComment;
+            return;
+        }
+    }
+
+    TargetCurveProfile profile;
+    profile.name = workspace.activeTargetCurveProfileName.empty() ? "Default" : workspace.activeTargetCurveProfileName;
+    profile.comment = workspace.activeTargetCurveComment;
+    profile.curve = workspace.targetCurve;
+    workspace.targetCurveProfiles.push_back(profile);
+}
+
+void TargetCurvePage::selectActiveProfile(WorkspaceState& workspace, const std::string& profileName) {
+    for (const TargetCurveProfile& profile : workspace.targetCurveProfiles) {
+        if (profile.name == profileName) {
+            workspace.activeTargetCurveProfileName = profile.name;
+            workspace.activeTargetCurveComment = profile.comment;
+            workspace.targetCurve = profile.curve;
+            if (selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
+                selectedBandIndex_ = workspace.targetCurve.eqBands.empty() ? -1 : static_cast<int>(workspace.targetCurve.eqBands.size() - 1);
+            }
+            return;
+        }
+    }
+}
+
 int TargetCurvePage::frequencyToSliderPosition(double frequencyHz, double minFrequencyHz, double maxFrequencyHz) {
     const double minLog = std::log10(std::max(minFrequencyHz, 1e-6));
     const double maxLog = std::log10(std::max(maxFrequencyHz, minFrequencyHz + 1.0));
@@ -685,6 +912,22 @@ void TargetCurvePage::refreshList(const WorkspaceState& workspace) {
     EnableWindow(controls_.buttonDelete,
                  !workspace.targetCurve.bypassEqBands && !workspace.targetCurve.eqBands.empty());
     updatingControls_ = false;
+}
+
+void TargetCurvePage::refreshProfileControls(const WorkspaceState& workspace) {
+    SendMessageW(controls_.comboProfiles, CB_RESETCONTENT, 0, 0);
+    int selectedIndex = -1;
+    for (size_t index = 0; index < workspace.targetCurveProfiles.size(); ++index) {
+        const std::wstring name = toWide(workspace.targetCurveProfiles[index].name);
+        const LRESULT itemIndex = SendMessageW(controls_.comboProfiles, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name.c_str()));
+        if (workspace.targetCurveProfiles[index].name == workspace.activeTargetCurveProfileName) {
+            selectedIndex = static_cast<int>(itemIndex);
+        }
+    }
+    if (selectedIndex >= 0) {
+        SendMessageW(controls_.comboProfiles, CB_SETCURSEL, selectedIndex, 0);
+    }
+    setWindowTextValue(controls_.commentValue, toWide(workspace.activeTargetCurveComment));
 }
 
 void TargetCurvePage::refreshDetailControls(const WorkspaceState& workspace) {
@@ -765,6 +1008,40 @@ void TargetCurvePage::addBand(WorkspaceState& workspace) {
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
+    syncActiveProfileFromWorkspaceState(workspace);
+}
+
+void TargetCurvePage::createProfile(WorkspaceState& workspace) {
+    const std::wstring requestedName = requestProfileName(window_, instance_);
+    if (requestedName.empty()) {
+        return;
+    }
+
+    const std::string name = toUtf8(requestedName);
+    if (name.empty()) {
+        return;
+    }
+    for (const TargetCurveProfile& profile : workspace.targetCurveProfiles) {
+        if (profile.name == name) {
+            MessageBoxW(window_, L"A target-curve profile with that name already exists.", L"Target Curve", MB_OK | MB_ICONWARNING);
+            return;
+        }
+    }
+
+    syncActiveProfileFromWorkspaceState(workspace);
+
+    TargetCurveProfile profile;
+    profile.name = name;
+    workspace.targetCurve = {};
+    measurement::normalizeTargetCurveSettings(workspace.targetCurve,
+                                              std::max(workspace.measurement.startFrequencyHz, 20.0),
+                                              std::min(workspace.measurement.endFrequencyHz, 20000.0));
+    profile.curve = workspace.targetCurve;
+    workspace.activeTargetCurveProfileName = profile.name;
+    workspace.activeTargetCurveComment.clear();
+    workspace.targetCurveProfiles.push_back(profile);
+    selectedBandIndex_ = workspace.targetCurve.eqBands.empty() ? -1 : 0;
+    populate(workspace);
 }
 
 void TargetCurvePage::deleteSelectedBand(WorkspaceState& workspace) {
@@ -781,6 +1058,7 @@ void TargetCurvePage::deleteSelectedBand(WorkspaceState& workspace) {
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
+    syncActiveProfileFromWorkspaceState(workspace);
 }
 
 void TargetCurvePage::resetTarget(WorkspaceState& workspace) {
@@ -790,6 +1068,7 @@ void TargetCurvePage::resetTarget(WorkspaceState& workspace) {
                                               std::min(workspace.measurement.endFrequencyHz, 20000.0));
     syncAllOffState(workspace.targetCurve);
     selectedBandIndex_ = workspace.targetCurve.eqBands.empty() ? -1 : 0;
+    syncActiveProfileFromWorkspaceState(workspace);
     populate(workspace);
 }
 
@@ -806,6 +1085,7 @@ void TargetCurvePage::toggleBandEnabled(int index, WorkspaceState& workspace) {
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
+    syncActiveProfileFromWorkspaceState(workspace);
 }
 
 }  // namespace wolfie::ui
