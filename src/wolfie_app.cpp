@@ -593,6 +593,7 @@ void WolfieApp::saveCurrentWorkspaceIfOpen() {
 
     syncStateFromControls();
     workspaceRepository_.save(workspace_);
+    targetCurvePersistencePending_ = false;
 }
 
 void WolfieApp::refreshWindowTitle() {
@@ -862,11 +863,24 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     }
 
     bool targetCurveChanged = false;
-    if (targetCurvePage_.handleCommand(commandId, notificationCode, workspace_, targetCurveChanged)) {
+    bool targetCurvePersistencePending = false;
+    bool targetCurvePersistNowRequested = false;
+    if (targetCurvePage_.handleCommand(commandId,
+                                       notificationCode,
+                                       workspace_,
+                                       targetCurveChanged,
+                                       targetCurvePersistencePending,
+                                       targetCurvePersistNowRequested)) {
         if (targetCurveChanged) {
             invalidateFilterDesign();
+        }
+        if (targetCurvePersistencePending) {
+            targetCurvePersistencePending_ = true;
+        }
+        if (targetCurvePersistNowRequested) {
             syncStateFromControls();
             workspaceRepository_.save(workspace_);
+            targetCurvePersistencePending_ = false;
         }
         return;
     }
@@ -959,11 +973,13 @@ void WolfieApp::onHScroll(HWND source) {
     }
 
     bool targetCurveChanged = false;
-    if (targetCurvePage_.handleHScroll(source, workspace_, targetCurveChanged)) {
+    bool targetCurvePersistencePending = false;
+    if (targetCurvePage_.handleHScroll(source, workspace_, targetCurveChanged, targetCurvePersistencePending)) {
         if (targetCurveChanged) {
             invalidateFilterDesign();
-            syncStateFromControls();
-            workspaceRepository_.save(workspace_);
+        }
+        if (targetCurvePersistencePending) {
+            targetCurvePersistencePending_ = true;
         }
     }
 }
@@ -971,6 +987,10 @@ void WolfieApp::onHScroll(HWND source) {
 void WolfieApp::onNotify(LPARAM lParam) {
     const auto* header = reinterpret_cast<const NMHDR*>(lParam);
     if (header != nullptr && header->hwndFrom == tabControl_ && header->code == TCN_SELCHANGE) {
+        const int selected = TabCtrl_GetCurSel(tabControl_);
+        if (activeTabIndex_ == 2 && selected != 2) {
+            persistTargetCurveStateIfPending();
+        }
         updateVisibleTab();
         layoutContent();
     }
@@ -1015,6 +1035,20 @@ void WolfieApp::updateVisibleTab() {
     targetCurvePage_.setVisible(selected == 2);
     filtersPage_.setVisible(selected == 3);
     ShowWindow(pageExport_, selected == 4 ? SW_SHOW : SW_HIDE);
+    activeTabIndex_ = selected;
+}
+
+void WolfieApp::persistTargetCurveStateIfPending() {
+    if (!targetCurvePersistencePending_) {
+        return;
+    }
+    if (workspace_.rootPath.empty()) {
+        return;
+    }
+
+    syncStateFromControls();
+    workspaceRepository_.save(workspace_);
+    targetCurvePersistencePending_ = false;
 }
 
 void WolfieApp::newWorkspace() {
@@ -1084,6 +1118,7 @@ void WolfieApp::saveWorkspace(bool saveAs) {
 
     syncStateFromControls();
     workspaceRepository_.save(workspace_);
+    targetCurvePersistencePending_ = false;
     refreshWindowTitle();
     updateExportControls();
     appendLog(L"Workspace saved: " + workspace_.rootPath.wstring());

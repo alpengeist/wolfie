@@ -18,6 +18,7 @@ constexpr int kMinBrushPixels = 6;
 constexpr int kResetButtonHeight = 20;
 constexpr int kResetButtonWidth = 54;
 constexpr double kMinimumAutoYSpan = 1.0;
+constexpr double kMinimumVisibleXSpan = 1.0e-6;
 
 template <typename T>
 T clampValue(T value, T low, T high) {
@@ -653,11 +654,11 @@ bool PlotGraph::zoomX(double factor) {
 
     const double fullMinX = data_.xValues.front();
     const double fullMaxX = data_.xValues.back();
-    const double fullSpan = std::max(fullMaxX - fullMinX, 1.0e-6);
+    const double fullSpan = std::max(fullMaxX - fullMinX, kMinimumVisibleXSpan);
     const double currentMinX = hasCustomXRange_ ? visibleMinX_ : (hasDefaultXRange_ ? defaultMinX_ : fullMinX);
     const double currentMaxX = hasCustomXRange_ ? visibleMaxX_ : (hasDefaultXRange_ ? defaultMaxX_ : fullMaxX);
-    const double currentSpan = std::max(currentMaxX - currentMinX, fullSpan * 0.001);
-    const double nextSpan = clampValue(currentSpan / factor, fullSpan * 0.001, fullSpan);
+    const double currentSpan = std::max(currentMaxX - currentMinX, kMinimumVisibleXSpan);
+    const double nextSpan = clampValue(currentSpan / factor, kMinimumVisibleXSpan, fullSpan);
     const double centerX = (currentMinX + currentMaxX) * 0.5;
 
     double nextMinX = centerX - (nextSpan * 0.5);
@@ -688,11 +689,11 @@ bool PlotGraph::zoomXFromMin(double factor) {
 
     const double fullMinX = data_.xValues.front();
     const double fullMaxX = data_.xValues.back();
-    const double fullSpan = std::max(fullMaxX - fullMinX, 1.0e-6);
+    const double fullSpan = std::max(fullMaxX - fullMinX, kMinimumVisibleXSpan);
     const double currentMinX = hasCustomXRange_ ? visibleMinX_ : (hasDefaultXRange_ ? defaultMinX_ : fullMinX);
     const double currentMaxX = hasCustomXRange_ ? visibleMaxX_ : (hasDefaultXRange_ ? defaultMaxX_ : fullMaxX);
-    const double currentSpan = std::max(currentMaxX - currentMinX, fullSpan * 0.001);
-    const double nextSpan = clampValue(currentSpan / factor, fullSpan * 0.001, fullSpan);
+    const double currentSpan = std::max(currentMaxX - currentMinX, kMinimumVisibleXSpan);
+    const double nextSpan = clampValue(currentSpan / factor, kMinimumVisibleXSpan, fullSpan);
 
     const double anchorMinX = clampValue(currentMinX, fullMinX, fullMaxX);
     double nextMinX = anchorMinX;
@@ -1118,7 +1119,7 @@ void PlotGraph::onCaptureChanged() {
                                                 std::max(brush_.anchor.x, brush_.current.x));
         const double fullMinX = data_.xValues.front();
         const double fullMaxX = data_.xValues.back();
-        if ((nextMaxX - nextMinX) > std::max((fullMaxX - fullMinX) * 0.001, 1.0e-6)) {
+        if ((nextMaxX - nextMinX) > kMinimumVisibleXSpan) {
             hasCustomXRange_ = true;
             visibleMinX_ = nextMinX;
             visibleMaxX_ = nextMaxX;

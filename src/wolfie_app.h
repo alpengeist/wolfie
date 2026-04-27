@@ -74,6 +74,7 @@ private:
     void onTimer(UINT_PTR timerId);
     void onResize();
     void updateVisibleTab();
+    void persistTargetCurveStateIfPending();
 
     void newWorkspace();
     void openWorkspace();
@@ -105,6 +106,8 @@ private:
     bool exportRunning_ = false;
     bool resizingLog_ = false;
     bool measurementCompletionHandled_ = true;
+    int activeTabIndex_ = 0;
+    bool targetCurvePersistencePending_ = false;
     RECT logSplitterRect_{};
     WorkspaceState workspace_;
     AppState appState_;

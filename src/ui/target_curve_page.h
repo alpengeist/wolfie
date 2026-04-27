@@ -26,8 +26,13 @@ public:
     void setVisible(bool visible) const;
     void populate(const WorkspaceState& workspace);
     void syncToWorkspace(WorkspaceState& workspace) const;
-    bool handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& workspaceChanged);
-    bool handleHScroll(HWND source, WorkspaceState& workspace, bool& workspaceChanged);
+    bool handleCommand(WORD commandId,
+                       WORD notificationCode,
+                       WorkspaceState& workspace,
+                       bool& curveChanged,
+                       bool& persistencePending,
+                       bool& persistNowRequested);
+    bool handleHScroll(HWND source, WorkspaceState& workspace, bool& curveChanged, bool& persistencePending);
     bool handleDrawItem(const DRAWITEMSTRUCT* draw) const;
 
     [[nodiscard]] HWND window() const { return window_; }

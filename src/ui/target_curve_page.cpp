@@ -304,7 +304,12 @@ void TargetCurvePage::syncToWorkspace(WorkspaceState& workspace) const {
     syncActiveProfileFromWorkspaceState(workspace);
 }
 
-bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, WorkspaceState& workspace, bool& workspaceChanged) {
+bool TargetCurvePage::handleCommand(WORD commandId,
+                                    WORD notificationCode,
+                                    WorkspaceState& workspace,
+                                    bool& curveChanged,
+                                    bool& persistencePending,
+                                    bool& persistNowRequested) {
     if (commandId == kGraph && notificationCode == TargetCurveGraph::kZoomChangedNotification) {
         workspace.ui.targetCurveGraphExtraRangeDb = 0.0;
         workspace.ui.targetCurveGraphVerticalOffsetDb = 0.0;
@@ -331,29 +336,34 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
         selectedBandIndex_ = graph_.selectedBandIndex();
         refreshList(workspace);
         refreshDetailControls(workspace);
-        workspaceChanged = true;
+        curveChanged = true;
+        persistencePending = true;
         return true;
     }
 
     switch (commandId) {
     case kButtonNewProfile:
         createProfile(workspace);
-        workspaceChanged = true;
+        curveChanged = true;
+        persistNowRequested = true;
         return true;
     case kButtonNew:
         addBand(workspace);
-        workspaceChanged = true;
+        curveChanged = true;
+        persistencePending = true;
         return true;
     case kButtonDelete:
         if (workspace.targetCurve.bypassEqBands) {
             return true;
         }
         deleteSelectedBand(workspace);
-        workspaceChanged = true;
+        curveChanged = true;
+        persistencePending = true;
         return true;
     case kButtonReset:
         resetTarget(workspace);
-        workspaceChanged = true;
+        curveChanged = true;
+        persistencePending = true;
         return true;
     case kCheckboxBypassAll:
         workspace.targetCurve.bypassEqBands =
@@ -361,7 +371,8 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
         refreshList(workspace);
         refreshDetailControls(workspace);
         refreshGraph(workspace);
-        workspaceChanged = true;
+        curveChanged = true;
+        persistencePending = true;
         return true;
     case kListBands:
         if (workspace.targetCurve.bypassEqBands) {
@@ -370,7 +381,8 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
         if (notificationCode == kBandToggleNotification && pendingBandToggleIndex_ != -1) {
             toggleBandEnabled(pendingBandToggleIndex_, workspace);
             pendingBandToggleIndex_ = -1;
-            workspaceChanged = true;
+            curveChanged = true;
+            persistencePending = true;
             return true;
         }
         if (notificationCode == LBN_SELCHANGE) {
@@ -382,7 +394,8 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
             if (listIndex >= 0) {
                 const int bandIndex = static_cast<int>(SendMessageW(controls_.listBands, LB_GETITEMDATA, listIndex, 0));
                 toggleBandEnabled(bandIndex, workspace);
-                workspaceChanged = true;
+                curveChanged = true;
+                persistencePending = true;
                 return true;
             }
         }
@@ -397,7 +410,8 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
             refreshList(workspace);
             refreshDetailControls(workspace);
             refreshGraph(workspace);
-            workspaceChanged = true;
+            curveChanged = true;
+            persistencePending = true;
             return true;
         }
         return false;
@@ -411,15 +425,19 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
                 selectActiveProfile(workspace, toUtf8(buffer));
                 populate(workspace);
             }
-            workspaceChanged = true;
+            curveChanged = true;
+            persistNowRequested = true;
             return true;
         }
         return false;
     case kCommentEdit:
-        if (!updatingControls_ && notificationCode == EN_CHANGE) {
+        if (updatingControls_) {
+            return false;
+        }
+        if (notificationCode == EN_CHANGE) {
             workspace.activeTargetCurveComment = toUtf8(getWindowTextValue(controls_.commentValue));
             syncActiveProfileFromWorkspaceState(workspace);
-            workspaceChanged = true;
+            persistencePending = true;
             return true;
         }
         return false;
@@ -462,11 +480,12 @@ bool TargetCurvePage::handleCommand(WORD commandId, WORD notificationCode, Works
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
-    workspaceChanged = true;
+    curveChanged = true;
+    persistencePending = true;
     return true;
 }
 
-bool TargetCurvePage::handleHScroll(HWND source, WorkspaceState& workspace, bool& workspaceChanged) {
+bool TargetCurvePage::handleHScroll(HWND source, WorkspaceState& workspace, bool& curveChanged, bool& persistencePending) {
     if (selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
         return false;
     }
@@ -495,7 +514,8 @@ bool TargetCurvePage::handleHScroll(HWND source, WorkspaceState& workspace, bool
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
-    workspaceChanged = true;
+    curveChanged = true;
+    persistencePending = true;
     return true;
 }
 
@@ -590,12 +610,18 @@ LRESULT CALLBACK TargetCurvePage::PageWindowProc(HWND window, UINT message, WPAR
     case WM_CTLCOLORDLG:
         return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
     case WM_CTLCOLORSTATIC:
-    case WM_CTLCOLOREDIT:
     case WM_CTLCOLORBTN: {
         HDC hdc = reinterpret_cast<HDC>(wParam);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, ui_theme::kText);
         return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+    }
+    case WM_CTLCOLOREDIT: {
+        static HBRUSH editBackgroundBrush = CreateSolidBrush(ui_theme::kPanelBackground);
+        HDC hdc = reinterpret_cast<HDC>(wParam);
+        SetBkColor(hdc, ui_theme::kPanelBackground);
+        SetTextColor(hdc, ui_theme::kText);
+        return reinterpret_cast<INT_PTR>(editBackgroundBrush);
     }
     case WM_CTLCOLORLISTBOX: {
         HDC hdc = reinterpret_cast<HDC>(wParam);

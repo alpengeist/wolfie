@@ -497,7 +497,7 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
         settings.highTaperOctaves = 1.25;
     }
 
-    const int taps[] = {16384, 32768, 65536};
+    const int taps[] = {16384, 32768, 65536, 131072};
     int closestTapCount = taps[0];
     int closestDistance = std::abs(settings.tapCount - taps[0]);
     for (const int tapCount : taps) {

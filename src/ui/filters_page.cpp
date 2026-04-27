@@ -964,6 +964,7 @@ void FiltersPage::populateTapCountCombo(HWND combo) {
     SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"16384"));
     SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"32768"));
     SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"65536"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"131072"));
 }
 
 int FiltersPage::comboIndexFromTapCount(int tapCount) {
@@ -973,8 +974,10 @@ int FiltersPage::comboIndexFromTapCount(int tapCount) {
     case 32768:
         return 1;
     case 65536:
-    default:
         return 2;
+    case 131072:
+    default:
+        return 3;
     }
 }
 
@@ -985,8 +988,10 @@ int FiltersPage::tapCountFromComboIndex(int index) {
     case 1:
         return 32768;
     case 2:
-    default:
         return 65536;
+    case 3:
+    default:
+        return 131072;
     }
 }
 
