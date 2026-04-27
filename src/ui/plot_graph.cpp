@@ -441,6 +441,108 @@ std::vector<AxisLabel> buildXLabels(HDC hdc,
     return labels.empty() ? candidates : labels;
 }
 
+std::wstring formatHoverFrequency(double frequencyHz) {
+    const int decimals = frequencyHz < 100.0 ? 1 : 0;
+    return formatWideDouble(frequencyHz, decimals) + L" Hz";
+}
+
+std::wstring formatHoverValue(double value, const std::wstring& unit) {
+    std::wstring text = formatWideDouble(value, 1);
+    if (!unit.empty()) {
+        text += L" ";
+        text += unit;
+    }
+    return text;
+}
+
+std::wstring formatBrushXRange(const PlotGraphData& data, double minX, double maxX) {
+    if (data.xAxisMode == PlotGraphXAxisMode::LogFrequency) {
+        return L"Zoom " + formatHoverFrequency(minX) + L" to " + formatHoverFrequency(maxX);
+    }
+
+    std::wstring info = L"Zoom " + formatAxisValue(minX);
+    if (!data.xUnit.empty()) {
+        info += L" ";
+        info += data.xUnit;
+    }
+    info += L" to ";
+    info += formatAxisValue(maxX);
+    if (!data.xUnit.empty()) {
+        info += L" ";
+        info += data.xUnit;
+    }
+    return info;
+}
+
+bool sampleSeriesValue(const PlotGraphData& data, const PlotGraphSeries& series, double xValue, double& sampledValue) {
+    if (data.xValues.empty() || series.values.empty()) {
+        return false;
+    }
+
+    const size_t count = std::min(data.xValues.size(), series.values.size());
+    if (count == 0) {
+        return false;
+    }
+
+    if (xValue <= data.xValues.front()) {
+        sampledValue = series.values.front();
+        return std::isfinite(sampledValue);
+    }
+    if (xValue >= data.xValues[count - 1]) {
+        sampledValue = series.values[count - 1];
+        return std::isfinite(sampledValue);
+    }
+
+    const auto upper = std::lower_bound(data.xValues.begin(),
+                                        data.xValues.begin() + static_cast<std::ptrdiff_t>(count),
+                                        xValue);
+    const size_t upperIndex = static_cast<size_t>(std::distance(data.xValues.begin(), upper));
+    if (upperIndex == 0) {
+        sampledValue = series.values.front();
+        return std::isfinite(sampledValue);
+    }
+
+    const size_t lowerIndex = upperIndex - 1;
+    const double x0 = data.xValues[lowerIndex];
+    const double x1 = data.xValues[upperIndex];
+    const double y0 = series.values[lowerIndex];
+    const double y1 = series.values[upperIndex];
+    if (!std::isfinite(y0) || !std::isfinite(y1)) {
+        return false;
+    }
+
+    const double position0 = data.xAxisMode == PlotGraphXAxisMode::LogFrequency ? std::log10(std::max(x0, 1.0e-6)) : x0;
+    const double position1 = data.xAxisMode == PlotGraphXAxisMode::LogFrequency ? std::log10(std::max(x1, 1.0e-6)) : x1;
+    const double position = data.xAxisMode == PlotGraphXAxisMode::LogFrequency ? std::log10(std::max(xValue, 1.0e-6)) : xValue;
+    const double t = clampValue((position - position0) / std::max(position1 - position0, 1.0e-9), 0.0, 1.0);
+    sampledValue = y0 + ((y1 - y0) * t);
+    return std::isfinite(sampledValue);
+}
+
+std::wstring buildHoverInfoText(const PlotGraphData& data, double xValue) {
+    if (data.xAxisMode == PlotGraphXAxisMode::LogFrequency) {
+        std::wstring info = formatHoverFrequency(xValue);
+        bool appendedSeriesValue = false;
+        for (const PlotGraphSeries& series : data.series) {
+            double sampledValue = 0.0;
+            if (!sampleSeriesValue(data, series, xValue, sampledValue)) {
+                continue;
+            }
+
+            info += appendedSeriesValue ? L"    " : L" @ ";
+            appendedSeriesValue = true;
+            if (!series.label.empty()) {
+                info += series.label;
+                info += L" ";
+            }
+            info += formatHoverValue(sampledValue, data.yUnit);
+        }
+        return info;
+    }
+
+    return {};
+}
+
 void drawResetButton(HDC hdc, const RECT& rect, bool enabled) {
     const COLORREF fill = enabled ? RGB(235, 240, 247) : RGB(243, 246, 250);
     const COLORREF textColor = enabled ? ui_theme::kText : ui_theme::kMuted;
@@ -1061,7 +1163,7 @@ void PlotGraph::onMouseMove(LPARAM lParam) {
     hover_.xValue = hoveredX;
     if (hoverChanged) {
         notifyHoverChanged();
-        if (!brush_.active && sharedHoverMarker_.enabled) {
+        if (!brush_.active && (sharedHoverMarker_.enabled || data_.xAxisMode == PlotGraphXAxisMode::LogFrequency)) {
             invalidate();
         }
     }
@@ -1084,7 +1186,7 @@ void PlotGraph::onMouseLeave() {
     hover_.tracking = false;
     if (hoverWasActive) {
         notifyHoverChanged();
-        if (!brush_.active && sharedHoverMarker_.enabled) {
+        if (!brush_.active && (sharedHoverMarker_.enabled || data_.xAxisMode == PlotGraphXAxisMode::LogFrequency)) {
             invalidate();
         }
     }
@@ -1233,6 +1335,41 @@ void PlotGraph::onPaint() const {
 
     if (sharedHoverMarker_.enabled && sharedHoverMarker_.active) {
         drawSharedHoverMarker(frameDc, layout, data_, sharedHoverMarker_.xValue);
+    }
+
+    RECT infoRect{layout.graph.left, rect.top + 2, layout.resetButton.left - 8, layout.graph.top - 4};
+    if (brush_.active && hasBrushWidth(brush_.anchor, brush_.current)) {
+        const double minX = valueFromGraphX(layout.graph,
+                                            data_.xAxisMode,
+                                            layout.visibleMinX,
+                                            layout.visibleMaxX,
+                                            std::min(brush_.anchor.x, brush_.current.x));
+        const double maxX = valueFromGraphX(layout.graph,
+                                            data_.xAxisMode,
+                                            layout.visibleMinX,
+                                            layout.visibleMaxX,
+                                            std::max(brush_.anchor.x, brush_.current.x));
+        const std::wstring infoText = formatBrushXRange(data_, minX, maxX);
+        SetTextColor(frameDc, ui_theme::kAccent);
+        DrawTextW(frameDc, infoText.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    } else {
+        double infoXValue = 0.0;
+        bool hasInfoXValue = false;
+        if (hover_.active) {
+            infoXValue = hover_.xValue;
+            hasInfoXValue = true;
+        } else if (sharedHoverMarker_.enabled && sharedHoverMarker_.active) {
+            infoXValue = sharedHoverMarker_.xValue;
+            hasInfoXValue = true;
+        }
+
+        if (hasInfoXValue) {
+            const std::wstring infoText = buildHoverInfoText(data_, infoXValue);
+            if (!infoText.empty()) {
+                SetTextColor(frameDc, ui_theme::kAccent);
+                DrawTextW(frameDc, infoText.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            }
+        }
     }
 
     BitBlt(hdc, 0, 0, rect.right - rect.left, rect.bottom - rect.top, frameDc, 0, 0, SRCCOPY);

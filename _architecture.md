@@ -2,21 +2,32 @@
 
 ## Intent
 
-The codebase is organized around one main constraint: the Win32 app shell should not own business logic, device I/O, persistence, and rendering details at the same time.
+`wolfie` is organized around a simple rule: the Win32 app shell should coordinate the workflow, not implement the workflow.
+
+The codebase stays maintainable when these concerns remain separate:
+
+- domain calculations
+- audio and driver access
+- persistence and file formats
+- reusable plotting and page UI
+- top-level application composition
+
+The goal is local changeability, not abstraction for its own sake.
 
 ## Design Principles
 
-- Keep platform UI code at the edge.
-- Keep pure calculation code independent from Win32 and device APIs where possible.
-- Isolate audio backends behind an interface so measurement orchestration does not depend on WinMM details.
-- Isolate file formats and persistence from UI state management.
-- Make reusable views, especially response graphs, independent from any one workflow.
+- Keep Win32 UI code at the edge.
+- Keep measurement and filter math independent from platform APIs.
+- Centralize persistence so pages and dialogs do not parse files directly.
+- Keep reusable graphs generic; they should consume prepared view data, not application state.
+- Prefer small, explicit data contracts in `src/core` over ad hoc coupling between modules.
+- Let `WolfieApp` compose modules and move data between them, but not grow back into a monolith.
 
 ## Module Overview
 
 ### `src/core`
 
-Purpose: shared domain types and basic text conversion helpers.
+Purpose: shared data contracts and basic text helpers.
 
 Files:
 
@@ -25,13 +36,14 @@ Files:
 
 Responsibilities:
 
-- Define shared application data structures such as `WorkspaceState`, `AudioSettings`, `MeasurementSettings`, `MeasurementResult`, and `MeasurementStatus`.
-- Provide UTF-8 / UTF-16 conversion and numeric formatting helpers used across UI and services.
+- Define shared types such as `WorkspaceState`, `MeasurementResult`, `SmoothedResponse`, `FilterDesignSettings`, and `FilterDesignResult`.
+- Carry the data exchanged between measurement, persistence, UI, and app-shell code.
+- Provide UTF-8 / UTF-16 conversion and numeric formatting helpers.
 
 Reasoning:
 
-- These types are the contract between modules.
-- Keeping them separate prevents UI, persistence, and measurement code from redefining or reshaping the same concepts differently.
+- These types are the seam between modules.
+- Keeping them centralized prevents each subsystem from inventing slightly different versions of the same state.
 
 ### `src/measurement`
 
@@ -48,17 +60,17 @@ Files:
 
 Responsibilities:
 
-- `sweep_generator` creates playback sweep data and writes the generated sweep WAV file.
-- `response_analyzer` computes amplitude and frequency response data from captured audio.
-- `measurement_controller` orchestrates a single measurement run, tracks progress, and converts backend capture data into a final `MeasurementResult`.
-- `target_curve_designer` computes target-curve view data from the basic curve and bell bands without depending on Win32 UI code.
-- `filter_designer` computes correction curves, minimum-phase FIR filters, and simulation data for the filter-design workflow without depending on Win32 UI code.
-- `waterfall_builder` derives waterfall-plot view data from measured impulse responses without depending on Win32 UI code.
+- `sweep_generator` creates playback sweep data and exported sweep WAV content.
+- `response_analyzer` turns captured audio into `MeasurementResult` value sets and analysis metadata.
+- `measurement_controller` orchestrates a measurement run through an audio backend.
+- `target_curve_designer` computes target-curve view data without UI dependencies.
+- `filter_designer` computes correction curves, minimum-phase FIR filters, simulated responses, phase-derived diagnostics, and filter-design view data without UI dependencies.
+- `waterfall_builder` derives waterfall data from measured impulse responses.
 
 Reasoning:
 
-- Signal generation and response analysis are core domain logic, not UI logic.
-- `measurement_controller` is intentionally above the pure math layer and below the UI layer. It knows the workflow of a measurement, but not how to draw controls or talk directly to Win32 widgets.
+- Signal analysis, target evaluation, and filter design are domain logic.
+- UI code should not own FFTs, smoothing, phase handling, or filter prediction rules.
 
 ### `src/audio`
 
@@ -74,23 +86,18 @@ Files:
 
 Responsibilities:
 
-- `audio_backend.h` defines the abstraction for a measurement session and audio backend.
-- `asio_sdk` owns the shared COM/driver interop definitions used by ASIO-facing modules.
-- `asio_audio_backend` implements routed playback/capture using the selected ASIO driver and channels.
-- `winmm_audio_backend` implements playback/capture using WinMM.
-- `asio_service` handles ASIO driver enumeration and opening a driver control panel.
+- Define audio-session abstractions.
+- Implement playback and capture through WinMM or ASIO.
+- Handle driver enumeration and ASIO control-panel access.
 
 Reasoning:
 
-- Audio device I/O is platform-specific and operationally fragile; it should be isolated.
-- The measurement workflow should depend on an interface, not on `waveIn*` / `waveOut*` calls.
-- ASIO settings and driver control-panel access are service concerns, not dialog concerns.
-
-This split also leaves room for future backends without changing measurement orchestration.
+- Audio device access is platform-specific and operationally fragile.
+- The measurement workflow should depend on an interface, not on direct device API calls.
 
 ### `src/persistence`
 
-Purpose: file I/O and serialization of application/workspace state.
+Purpose: workspace and app-state serialization.
 
 Files:
 
@@ -99,145 +106,313 @@ Files:
 
 Responsibilities:
 
-- Load and save workspace files such as `workspace.json`, `ui.json`, and `measurement/response.csv`.
-- Load and save app-level state such as recent workspaces.
+- Load and save workspace files and recent-workspace state.
+- Persist measurement value sets, workspace settings, and app-level state.
 
 Reasoning:
 
-- The UI should not parse JSON-like text or CSV directly.
-- Persistence logic is easier to test and replace when it is grouped behind repository-style modules.
-- Keeping this separate also reduces accidental coupling between widget state and on-disk format.
+- Pages and dialogs should not parse structured files.
+- File-format rules belong in one place so compatibility changes stay contained.
 
 ### `src/ui`
 
-Purpose: reusable UI components and window-specific UI modules.
+Purpose: reusable UI widgets and page modules.
 
 Files:
 
 - `ui_theme.h`
 - `response_graph.h/.cpp`
+- `plot_graph.h/.cpp`
 - `measurement_page.h/.cpp`
-- `settings_dialog.h/.cpp`
 - `target_curve_graph.h/.cpp`
 - `target_curve_page.h/.cpp`
-- `plot_graph.h/.cpp`
 - `filters_page.h/.cpp`
+- `settings_dialog.h/.cpp`
 - `waterfall_graph.h/.cpp`
 
 Responsibilities:
 
-- `ui_theme` contains shared colors and visual constants.
-- `response_graph` is a reusable graph widget for response displays.
-- `measurement_page` owns the measurement tab controls, layout, and widget synchronization.
-- `settings_dialog` owns the settings window behavior and delegates ASIO-specific actions to `AsioService`.
-- `target_curve_graph` owns the interactive graph rendering and drag behavior for target-curve editing.
-- `target_curve_page` owns the target-curve tab controls, EQ band list, and widget synchronization.
-- `plot_graph` renders reusable non-interactive plots for the filter-design workflow.
-- `filters_page` owns the filters tab controls, scrollable layout, and graph synchronization.
-- `waterfall_graph` renders the dedicated waterfall-decay view used by the measurement page.
+- `ui_theme` defines shared colors and visual constants.
+- `response_graph` renders reusable response displays for measurement workflows.
+- `plot_graph` renders reusable non-interactive plots for filter-design workflows.
+- `measurement_page`, `target_curve_page`, and `filters_page` own their controls, layout, legend state, and graph synchronization.
+- `target_curve_graph` and `waterfall_graph` implement specialized graph behavior for their workflows.
+- `settings_dialog` owns settings-window behavior and delegates ASIO-specific work outward.
 
 Reasoning:
 
-- The response graph will be reused in multiple workflows, so it should not depend on `WolfieApp` or directly read application state.
-- The measurement page is a UI module, not an app-wide controller.
-- Dialog code becomes easier to change when it only handles dialog behavior and delegates persistence and services outward.
+- Widgets should render supplied data, not reach into `WolfieApp`.
+- Page modules should own page behavior so the app shell stays focused on coordination.
 
 ### `src/wolfie_app.*`
 
-Purpose: application shell and top-level coordination.
+Purpose: application shell and composition root.
 
 Responsibilities:
 
-- Create the main window, menus, tabs, and high-level layout.
-- Coordinate workspace lifecycle actions.
-- Connect the UI modules with repositories, services, and the measurement controller.
-- Own top-level message handling.
+- Create the main window, tabs, menus, and top-level layout.
+- Coordinate workspace loading and saving.
+- Connect repositories, services, controllers, and page modules.
+- Trigger derived-state refresh such as smoothing and filter design when needed.
 
 Reasoning:
 
-- `WolfieApp` should be the composition root.
-- It wires modules together, but it should avoid embedding domain logic or low-level platform logic that belongs elsewhere.
+- `WolfieApp` is where modules are wired together.
+- It should move data between modules, not reimplement module internals.
 
 ## Dependency Direction
 
 The intended dependency flow is:
 
-`core` <- shared by everything
+- `core` is shared by everything.
+- `measurement` depends on `core` and audio abstractions.
+- `audio` depends on `core` and platform APIs.
+- `persistence` depends on `core`.
+- `ui` depends on `core` and prepared view data.
+- `wolfie_app` depends on all modules and composes them.
 
-`measurement` depends on `core` and `audio` abstractions
+Practical examples:
 
-`audio` depends on `core` and platform APIs
-
-`persistence` depends on `core`
-
-`ui` depends on `core` and service/controller-facing interfaces
-
-`wolfie_app` depends on all modules and composes them
-
-More practically:
-
-- `response_graph` does not know about `WorkspaceState`
-- `winmm_audio_backend` does not know about Win32 controls
-- `workspace_repository` does not know about tabs, dialogs, or progress bars
-- `measurement_controller` does not know how the UI is drawn
+- `response_graph` and `plot_graph` do not know about `WorkspaceState`.
+- `workspace_repository` does not know about tabs or graph widgets.
+- `measurement_controller` does not know how pages are drawn.
+- `filter_designer` does not call Win32 APIs.
 
 ## Runtime Flow
 
 ### Startup
 
-1. `WolfieApp` loads app state from `AppStateRepository`.
-2. `WolfieApp` creates the main window and UI modules.
-3. If possible, the last workspace is loaded through `WorkspaceRepository`.
-4. `MeasurementPage` is populated from `WorkspaceState`.
+1. `WolfieApp` loads app state through `AppStateRepository`.
+2. `WolfieApp` creates the main window and page modules.
+3. If possible, `WorkspaceRepository` loads the last workspace.
+4. Pages populate from `WorkspaceState`.
 
 ### Measurement
 
 1. `MeasurementPage` pushes edited settings into `WorkspaceState`.
-2. `WolfieApp` calls `MeasurementController::start`.
-3. `MeasurementController` builds sweep playback data using `sweep_generator`.
-4. `MeasurementController` starts an `IAudioMeasurementSession` through the audio backend.
-5. Timer ticks call `MeasurementController::tick`.
-6. The controller polls the backend, updates progress/status, and when finished computes `MeasurementResult` through `response_analyzer`.
-7. `WolfieApp` stores the result via `WorkspaceRepository`.
-8. `MeasurementPage` passes graph data into `ResponseGraph`.
+2. `WolfieApp` starts `MeasurementController`.
+3. `MeasurementController` drives sweep playback and capture through an audio backend.
+4. `response_analyzer` produces `MeasurementResult`.
+5. `WorkspaceRepository` persists the result.
+6. `WolfieApp` can derive `SmoothedResponse` from the result when later workflows need it.
 
-### Settings
+### Filter Design
 
-1. `WolfieApp` opens `SettingsDialog`.
-2. `SettingsDialog` uses `AsioService` to enumerate drivers and open the ASIO control panel.
-3. On save, dialog changes are returned to `WolfieApp`.
-4. `WolfieApp` persists them through `WorkspaceRepository`.
+1. `WolfieApp` ensures smoothed response data is available.
+2. `WolfieApp` calls `measurement::designFilters(...)`.
+3. `filter_designer` computes a `FilterDesignResult`.
+4. `FiltersPage` builds chart data from `FilterDesignResult` and local legend-toggle state.
+
+## Filter Design
+
+This chapter captures the current architectural decisions for the filter-design workflow and its plots.
+
+### Inputs And Outputs
+
+The filter-design workflow consumes:
+
+- `SmoothedResponse` for magnitude-domain source data
+- `MeasurementSettings` and `TargetCurveSettings`
+- `FilterDesignSettings`
+- optionally `MeasurementResult` when phase-derived diagnostics are needed
+
+The workflow produces `FilterDesignResult` in `src/core/models.h`. That result contains:
+
+- display frequency axis
+- aligned target curve
+- correction curve per channel
+- simulated filter response per channel
+- predicted corrected response per channel
+- filter group delay per channel
+- excess-phase diagnostics per channel
+- predicted group delay per channel
+- filter taps and impulse metadata
+
+Architectural rule:
+
+- `filter_designer` owns the calculations that fill `FilterDesignResult`
+- `filters_page` owns only chart assembly, legend toggles, and layout
+
+### Current Filter Model
+
+The current implementation is minimum-phase only.
+
+Consequences:
+
+- `FilterDesignSettings::phaseMode` is normalized to `"minimum"`.
+- Designed FIR filters are minimum-phase FIRs.
+- Magnitude correction and predicted corrected response are simulated from those filters.
+- Minimum-phase correction does not modify excess phase.
+
+That last point is intentional and currently visible in the data model:
+
+- `predictedExcessPhaseDegrees` is expected to match `inputExcessPhaseDegrees`
+- the excess-phase chart exists as a baseline for future excess-phase correction work, not as proof that excess phase is currently being corrected
+
+### Phase And Group-Delay Inputs
+
+Filter-design phase diagnostics must be derived from the dense measured phase spectrum, not from an already-downsampled display response.
+
+Current decisions:
+
+- `filter_designer` prefers `measurement.raw_phase_spectrum` from `MeasurementResult`
+- phase is unwrapped before it is resampled to the filter-design display axis
+- the measured impulse pre-roll delay is removed before excess-phase diagnostics are derived
+- a residual best-fit linear phase slope is also removed so leftover pure delay does not dominate the excess-phase view
+
+Reasoning:
+
+- using a sparse display-axis phase response for unwrap is unstable at high frequency
+- pure delay appears as a large linear phase ramp and should be separated from excess phase
+- group delay is the more trustworthy chart for timing trend; excess phase is a phase-shape diagnostic
+
+Implementation note:
+
+- `unwrapPhaseRadians` must compare adjacent raw wrapped samples, not adjacent already-unwrapped samples
+- that rule is important because the earlier incorrect behavior caused runaway wrap accumulation and absurd phase cliffs
+
+### Plot Responsibilities
+
+`FiltersPage` currently manages four plot families plus the impulse view:
+
+- Inversion
+- Predicted Corrected Response
+- Excess Phase
+- Filter + Predicted Group Delay
+- Filter Impulse
+
+The page owns:
+
+- checkbox state
+- section layout
+- legend entries
+- shared hover synchronization
+- conversion from `FilterDesignResult` into `PlotGraphData`
+
+The page does not own:
+
+- correction math
+- target alignment
+- FIR design
+- minimum-phase reconstruction
+- phase unwrapping or delay removal
+
+### Plot Semantics
+
+#### Inversion
+
+Purpose:
+
+- compare measured smoothed input magnitude against the computed correction curves
+
+Series/color convention:
+
+- right input: red
+- left input: green
+- right inversion: magenta
+- left inversion: gray
+
+#### Predicted Corrected Response
+
+Purpose:
+
+- compare target, input, and predicted corrected magnitude response
+
+Series/color convention:
+
+- target: accent
+- left input: green
+- right input: red
+- left predicted: gray
+- right predicted: magenta
+
+#### Excess Phase
+
+Purpose:
+
+- show residual phase after removing bulk delay and minimum-phase contribution
+- provide a before/after comparison even though the current minimum-phase filter leaves excess phase unchanged
+
+Current display decisions:
+
+- the chart shows wrapped excess phase, not accumulated unwrapped rotations
+- the y-axis is fixed to `-180..180` degrees
+- wrap crossings are rendered as discontinuities rather than connected with vertical spikes
+- the low-frequency portion is the useful planning region; the high-frequency portion is naturally more sensitive to noise, timing error, and reflections
+
+Series/color convention:
+
+- right before: red
+- left before: green
+- right after: magenta
+- left after: gray
+
+#### Filter + Predicted Group Delay
+
+Purpose:
+
+- show the filter's own group delay and the predicted total group delay after applying the filter
+
+Current display decisions:
+
+- predicted group delay belongs in this chart, not in the excess-phase chart
+- predicted curves are rendered as dashed lines to distinguish them from the filter-only curves
+
+Series/color convention:
+
+- left filter group delay: green
+- right filter group delay: red
+- left predicted group delay: gray dashed
+- right predicted group delay: magenta dashed
+
+### Generic Plotting Rules
+
+`plot_graph` is a reusable plotting widget for filter-design charts.
+
+Current responsibilities and behaviors:
+
+- log-frequency and linear x-axis support
+- automatic or fixed y-range support
+- brush-based zoom on the x-axis
+- reset support
+- shared hover marker support across charts
+- dashed-line rendering support
+- non-finite values break a series instead of being drawn through
+
+Architectural rule:
+
+- generic graph widgets should continue to work from `PlotGraphData`
+- workflow-specific meaning belongs in the page module that prepares that data
 
 ## Why This Shape Works
 
-This architecture is intentionally conservative. It does not introduce a deep framework or elaborate abstraction hierarchy. It solves the immediate problem of a monolithic app file by introducing clear seams with practical value:
+This architecture stays intentionally conservative:
 
-- pure logic is easier to reason about
-- platform APIs are isolated
-- reusable widgets can be reused
-- file formats are centralized
-- the top-level app shell is smaller and clearer
+- calculations live in measurement modules
+- graph widgets stay reusable
+- page modules stay UI-focused
+- persistence remains centralized
+- the app shell remains a coordinator
 
-The goal is not maximum abstraction. The goal is local changeability.
-
-## Future Extensions
-
-This layout supports several likely future changes:
-
-- additional response graphs can reuse `ResponseGraph`, while specialized time-frequency views can follow the `waterfall_builder` + `waterfall_graph` split
-- a future ASIO or WASAPI measurement backend can implement `IAudioBackend`
-- target-curve, filter, and export tabs can each become their own UI modules
-- persistence can move to a real JSON library later without touching UI code
-- measurement analysis can grow without re-entering `WolfieApp`
+That balance is what makes ongoing filter-design iteration practical. We can keep refining the design math and the chart semantics without having to move logic back into the Win32 shell.
 
 ## Boundaries To Preserve
 
-When extending the codebase, these boundaries should remain intact:
+When extending the codebase, keep these rules intact:
 
-- Do not put file parsing/writing back into UI modules.
-- Do not put device API calls into `WolfieApp` or dialog classes.
-- Do not let graph widgets read application state directly from the app shell.
-- Do not put sweep generation or response analysis into UI handlers.
-- Keep `WolfieApp` as a coordinator, not as the implementation site for all behavior.
+- Do not move file parsing or writing into UI modules.
+- Do not let graph widgets read application state directly.
+- Do not move measurement, target-curve, or filter-design math into page message handlers.
+- Do not move device API work into dialogs or `WolfieApp`.
+- Keep `WolfieApp` as a coordinator rather than an implementation dump.
+- Keep filter-design calculations in `src/measurement` even when the output is only used by a chart.
+- Keep plot semantics in `filters_page` and generic drawing behavior in `plot_graph`.
 
-If a new feature does not fit a current module, prefer adding a focused new module over expanding `WolfieApp` again.
+## Future Extensions
+
+This structure supports several likely next steps:
+
+- a true excess-phase correction mode can extend `filter_designer` without redesigning the page module
+- additional filter diagnostics can be added to `FilterDesignResult` and visualized through `PlotGraph`
+- persistence can evolve independently of the page modules
+- new audio backends can plug into the existing controller structure
