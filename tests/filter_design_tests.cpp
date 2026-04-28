@@ -145,6 +145,30 @@ double bandMeanAbs(const std::vector<double>& frequencyAxisHz,
     return sum / static_cast<double>(used);
 }
 
+double bandMeanAbsDelta(const std::vector<double>& frequencyAxisHz,
+                        const std::vector<double>& leftValues,
+                        const std::vector<double>& rightValues,
+                        double minFrequencyHz,
+                        double maxFrequencyHz) {
+    const size_t count = std::min({frequencyAxisHz.size(), leftValues.size(), rightValues.size()});
+    double sum = 0.0;
+    size_t used = 0;
+    for (size_t index = 0; index < count; ++index) {
+        if (!std::isfinite(leftValues[index]) || !std::isfinite(rightValues[index])) {
+            continue;
+        }
+        if (frequencyAxisHz[index] < minFrequencyHz || frequencyAxisHz[index] > maxFrequencyHz) {
+            continue;
+        }
+        sum += std::abs(leftValues[index] - rightValues[index]);
+        ++used;
+    }
+    if (used == 0) {
+        return std::numeric_limits<double>::infinity();
+    }
+    return sum / static_cast<double>(used);
+}
+
 bool expectDesignedFilterLooksSane() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -439,6 +463,224 @@ bool expectBulkDelayIsNotTreatedAsExcessPhase() {
     return true;
 }
 
+bool expectExcessLfModeLeavesMinimumPhaseInputAlone() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.phaseMode = "excess-lf";
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid || result.phaseMode != "excess-lf") {
+        std::cerr << "excess-lf minimum-phase baseline did not produce the expected mode\n";
+        return false;
+    }
+
+    const double leftPredictedBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                     result.left.predictedExcessPhaseDegrees,
+                                                     20.0,
+                                                     300.0);
+    const double rightPredictedBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                      result.right.predictedExcessPhaseDegrees,
+                                                      20.0,
+                                                      300.0);
+    if (leftPredictedBandMean > 2.0 || rightPredictedBandMean > 2.0) {
+        std::cerr << "excess-lf mode introduced excess phase on minimum-phase input (left="
+                  << leftPredictedBandMean << ", right=" << rightPredictedBandMean << ")\n";
+        return false;
+    }
+
+    const double magnitudeDeltaLeft = bandMeanAbsDelta(result.frequencyAxisHz,
+                                                       response.leftChannelDb,
+                                                       result.left.correctedResponseDb,
+                                                       20.0,
+                                                       20000.0);
+    const double magnitudeDeltaRight = bandMeanAbsDelta(result.frequencyAxisHz,
+                                                        response.rightChannelDb,
+                                                        result.right.correctedResponseDb,
+                                                        20.0,
+                                                        20000.0);
+    if (magnitudeDeltaLeft > 0.05 || magnitudeDeltaRight > 0.05) {
+        std::cerr << "excess-lf mode changed magnitude on a phase-only baseline (left="
+                  << magnitudeDeltaLeft << ", right=" << magnitudeDeltaRight << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectExcessLfModeIgnoresBulkDelay() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.phaseMode = "excess-lf";
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0065);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "excess-lf bulk-delay baseline did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double leftPredictedBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                     result.left.predictedExcessPhaseDegrees,
+                                                     20.0,
+                                                     300.0);
+    const double rightPredictedBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                      result.right.predictedExcessPhaseDegrees,
+                                                      20.0,
+                                                      300.0);
+    if (leftPredictedBandMean > 3.0 || rightPredictedBandMean > 3.0) {
+        std::cerr << "excess-lf mode reacted to pure bulk delay (left="
+                  << leftPredictedBandMean << ", right=" << rightPredictedBandMean << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectExcessLfModeReducesLowFrequencyExcessPhase() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.phaseMode = "excess-lf";
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 1.0, 0.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "excess-lf reduction case did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double leftInputBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                 result.left.inputExcessPhaseDegrees,
+                                                 20.0,
+                                                 200.0);
+    const double leftPredictedBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                     result.left.predictedExcessPhaseDegrees,
+                                                     20.0,
+                                                     200.0);
+    if (leftInputBandMean < 8.0) {
+        std::cerr << "synthetic excess-phase fixture did not produce a meaningful LF phase error\n";
+        return false;
+    }
+    if (leftPredictedBandMean > leftInputBandMean * 0.6) {
+        std::cerr << "excess-lf mode did not materially reduce LF excess phase (before="
+                  << leftInputBandMean << ", after=" << leftPredictedBandMean << ")\n";
+        return false;
+    }
+
+    const double rightPredictedBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                      result.right.predictedExcessPhaseDegrees,
+                                                      20.0,
+                                                      200.0);
+    if (rightPredictedBandMean > 2.0) {
+        std::cerr << "excess-lf mode changed the clean channel while correcting the left channel (right="
+                  << rightPredictedBandMean << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectExcessLfModeContainsCorrectionToLowFrequencies() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.phaseMode = "excess-lf";
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 1.0, 0.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "excess-lf containment case did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double highBandDelta = bandMeanAbsDelta(result.frequencyAxisHz,
+                                                  result.left.inputExcessPhaseDegrees,
+                                                  result.left.predictedExcessPhaseDegrees,
+                                                  500.0,
+                                                  5000.0);
+    if (highBandDelta > 5.0) {
+        std::cerr << "excess-lf mode changed too much phase out of band (" << highBandDelta << " deg)\n";
+        return false;
+    }
+
+    const double leftMagnitudeDelta = bandMeanAbsDelta(result.frequencyAxisHz,
+                                                       response.leftChannelDb,
+                                                       result.left.correctedResponseDb,
+                                                       20.0,
+                                                       20000.0);
+    const double rightMagnitudeDelta = bandMeanAbsDelta(result.frequencyAxisHz,
+                                                        response.rightChannelDb,
+                                                        result.right.correctedResponseDb,
+                                                        20.0,
+                                                        20000.0);
+    if (leftMagnitudeDelta > 0.05 || rightMagnitudeDelta > 0.05) {
+        std::cerr << "excess-lf mode changed magnitude while still in isolated phase preview (left="
+                  << leftMagnitudeDelta << ", right=" << rightMagnitudeDelta << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectRoonExportSupportsCommonSampleRates() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -549,5 +791,9 @@ bool runFilterDesignTests() {
            expectTargetCurveAnchorsToMeasuredLevel() &&
            expectMinimumPhaseInputNeedsNoExcessCorrection() &&
            expectBulkDelayIsNotTreatedAsExcessPhase() &&
+           expectExcessLfModeLeavesMinimumPhaseInputAlone() &&
+           expectExcessLfModeIgnoresBulkDelay() &&
+           expectExcessLfModeReducesLowFrequencyExcessPhase() &&
+           expectExcessLfModeContainsCorrectionToLowFrequencies() &&
            expectRoonExportSupportsCommonSampleRates();
 }

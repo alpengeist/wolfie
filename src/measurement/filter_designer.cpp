@@ -1,6 +1,7 @@
 #include "measurement/filter_designer.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <complex>
 #include <numbers>
@@ -15,6 +16,11 @@ namespace {
 
 constexpr double kRadiansToDegrees = 180.0 / std::numbers::pi_v<double>;
 constexpr double kDegreesToRadians = std::numbers::pi_v<double> / 180.0;
+
+enum class NormalizedPhaseMode {
+    Minimum,
+    ExcessLf
+};
 
 template <typename T>
 T clampValue(T value, T low, T high) {
@@ -70,6 +76,24 @@ std::vector<double> resampleLogFrequency(const std::vector<double>& sourceAxisHz
 double smoothRamp(double t) {
     const double clamped = clampValue(t, 0.0, 1.0);
     return 0.5 - (0.5 * std::cos(clamped * std::numbers::pi));
+}
+
+NormalizedPhaseMode normalizePhaseMode(std::string& phaseMode) {
+    std::string lowered = phaseMode;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+
+    if (lowered == "excess-lf" ||
+        lowered == "excess_lf" ||
+        lowered == "lf-excess" ||
+        lowered == "lf_excess") {
+        phaseMode = "excess-lf";
+        return NormalizedPhaseMode::ExcessLf;
+    }
+
+    phaseMode = "minimum";
+    return NormalizedPhaseMode::Minimum;
 }
 
 double correctionWeightAt(double frequencyHz, const FilterDesignSettings& settings) {
@@ -586,6 +610,110 @@ std::vector<double> buildMinimumPhaseDegrees(int sampleRate,
     return radiansToDegrees(displayPhaseRadians);
 }
 
+struct PhaseDiagnostics {
+    std::vector<double> sourcePhaseRadians;
+    std::vector<double> minimumSourcePhaseRadians;
+    std::vector<double> inputExcessPhaseRadians;
+    std::vector<double> inputExcessPhaseDegrees;
+    std::vector<double> inputGroupDelayMs;
+};
+
+PhaseDiagnostics buildPhaseDiagnostics(int sampleRate,
+                                       int fftSize,
+                                       const std::vector<double>& displayFrequencyAxisHz,
+                                       const std::vector<double>& sourceCurveDb,
+                                       const std::vector<double>& sourcePhaseDegrees) {
+    PhaseDiagnostics diagnostics;
+    if (sourcePhaseDegrees.size() != displayFrequencyAxisHz.size()) {
+        return diagnostics;
+    }
+
+    diagnostics.sourcePhaseRadians = degreesToRadians(sourcePhaseDegrees);
+    const std::vector<double> minimumSourcePhaseDegrees =
+        buildMinimumPhaseDegrees(sampleRate, fftSize, displayFrequencyAxisHz, sourceCurveDb);
+    diagnostics.minimumSourcePhaseRadians = degreesToRadians(minimumSourcePhaseDegrees);
+
+    std::vector<double> residualExcessRadians;
+    const size_t phaseCount = std::min(diagnostics.sourcePhaseRadians.size(),
+                                       diagnostics.minimumSourcePhaseRadians.size());
+    residualExcessRadians.reserve(phaseCount);
+    for (size_t index = 0; index < phaseCount; ++index) {
+        residualExcessRadians.push_back(diagnostics.sourcePhaseRadians[index] -
+                                        diagnostics.minimumSourcePhaseRadians[index]);
+    }
+
+    const double residualDelaySeconds =
+        estimateLinearDelaySeconds(displayFrequencyAxisHz, residualExcessRadians);
+    removeLinearDelay(diagnostics.sourcePhaseRadians, displayFrequencyAxisHz, residualDelaySeconds);
+
+    diagnostics.inputExcessPhaseRadians.reserve(phaseCount);
+    for (size_t index = 0; index < phaseCount; ++index) {
+        diagnostics.inputExcessPhaseRadians.push_back(diagnostics.sourcePhaseRadians[index] -
+                                                      diagnostics.minimumSourcePhaseRadians[index]);
+    }
+    diagnostics.inputExcessPhaseDegrees =
+        wrappedPhaseDifferenceDegrees(diagnostics.sourcePhaseRadians,
+                                      diagnostics.minimumSourcePhaseRadians);
+    diagnostics.inputGroupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz,
+                                                      diagnostics.sourcePhaseRadians);
+    return diagnostics;
+}
+
+double excessPhaseCorrectionWeightAt(double frequencyHz,
+                                     const FilterDesignSettings& settings,
+                                     int sampleRate) {
+    const double nyquist = static_cast<double>(std::max(sampleRate, 1)) * 0.5;
+    const double fullCorrectionHz =
+        clampValue(std::max(settings.lowCorrectionHz * 8.0, 200.0), 120.0, std::max(240.0, nyquist * 0.08));
+    const double taperEndHz =
+        clampValue(fullCorrectionHz * 2.0, fullCorrectionHz + 40.0, std::max(fullCorrectionHz + 40.0, nyquist * 0.18));
+
+    if (frequencyHz <= fullCorrectionHz) {
+        return 1.0;
+    }
+    if (frequencyHz >= taperEndHz) {
+        return 0.0;
+    }
+    return 1.0 - smoothRamp((frequencyHz - fullCorrectionHz) /
+                            std::max(taperEndHz - fullCorrectionHz, 1.0e-9));
+}
+
+std::vector<double> buildExcessPhaseCorrectionDegrees(const std::vector<double>& displayFrequencyAxisHz,
+                                                      const std::vector<double>& inputExcessPhaseRadians,
+                                                      const FilterDesignSettings& settings,
+                                                      int sampleRate) {
+    const size_t count = std::min(displayFrequencyAxisHz.size(), inputExcessPhaseRadians.size());
+    std::vector<double> inputExcessPhaseDegrees;
+    inputExcessPhaseDegrees.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        inputExcessPhaseDegrees.push_back(inputExcessPhaseRadians[index] * kRadiansToDegrees);
+    }
+
+    std::vector<double> desiredCorrectionDegrees(count, 0.0);
+    std::vector<double> trackingWeights(count, 0.0);
+    std::vector<double> taperWeights(count, 0.0);
+    for (size_t index = 0; index < count; ++index) {
+        const double taperWeight =
+            excessPhaseCorrectionWeightAt(displayFrequencyAxisHz[index], settings, sampleRate);
+        taperWeights[index] = taperWeight;
+        desiredCorrectionDegrees[index] = -inputExcessPhaseDegrees[index] * taperWeight;
+        trackingWeights[index] = taperWeight * taperWeight;
+    }
+
+    const double regularization = 48.0 *
+                                  std::max(static_cast<double>(count) / 512.0, 1.0) *
+                                  smoothnessRegularizationScale(std::max(settings.smoothness, 1.0));
+    std::vector<double> correctionDegrees =
+        solveRegularizedCurve(desiredCorrectionDegrees, trackingWeights, regularization);
+    for (size_t index = 0; index < correctionDegrees.size() && index < taperWeights.size(); ++index) {
+        const double taperWeight = taperWeights[index];
+        const double limitedDegrees = 120.0 * taperWeight;
+        correctionDegrees[index] =
+            clampValue(correctionDegrees[index] * taperWeight, -limitedDegrees, limitedDegrees);
+    }
+    return correctionDegrees;
+}
+
 size_t maxAbsIndex(const std::vector<double>& values) {
     size_t bestIndex = 0;
     double bestValue = 0.0;
@@ -617,6 +745,14 @@ std::vector<double> buildImpulseTimeAxisMs(size_t sampleCount, size_t peakIndex,
     return axis;
 }
 
+std::vector<double> buildUnitImpulse(int tapCount) {
+    std::vector<double> impulse(static_cast<size_t>(std::max(tapCount, 0)), 0.0);
+    if (!impulse.empty()) {
+        impulse.front() = 1.0;
+    }
+    return impulse;
+}
+
 struct DesignedChannel {
     std::vector<double> correctionDb;
     std::vector<double> filterResponseDb;
@@ -636,55 +772,76 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
                               const std::vector<double>& sourceCurveDb,
                               const std::vector<double>& sourcePhaseDegrees,
                               const FilterDesignSettings& settings,
+                              NormalizedPhaseMode phaseMode,
                               int sampleRate,
                               int fftSize) {
     DesignedChannel channel;
-    channel.correctionDb = buildCorrectionCurve(displayFrequencyAxisHz, targetCurveDb, sourceCurveDb, settings);
-    const std::vector<double> positiveMagnitude =
-        buildPositiveMagnitudeResponse(sampleRate, fftSize, displayFrequencyAxisHz, channel.correctionDb);
-    channel.filterTaps = buildMinimumPhaseImpulse(positiveMagnitude, fftSize, settings.tapCount);
-    channel.impulsePeakIndex = static_cast<int>(maxAbsIndex(channel.filterTaps));
-    channel.peakAmplitude = maxAbsSample(channel.filterTaps);
-    channel.impulseTimeMs = buildImpulseTimeAxisMs(channel.filterTaps.size(),
-                                                   static_cast<size_t>(std::max(channel.impulsePeakIndex, 0)),
-                                                   sampleRate);
+    if (phaseMode == NormalizedPhaseMode::ExcessLf) {
+        channel.correctionDb.assign(displayFrequencyAxisHz.size(), 0.0);
+        channel.filterResponseDb.assign(displayFrequencyAxisHz.size(), 0.0);
+        channel.correctedResponseDb = sourceCurveDb;
+        channel.filterTaps = buildUnitImpulse(settings.tapCount);
+        channel.impulsePeakIndex = 0;
+        channel.peakAmplitude = channel.filterTaps.empty() ? 0.0 : 1.0;
+        channel.impulseTimeMs = buildImpulseTimeAxisMs(channel.filterTaps.size(), 0, sampleRate);
+    } else {
+        channel.correctionDb = buildCorrectionCurve(displayFrequencyAxisHz, targetCurveDb, sourceCurveDb, settings);
+        const std::vector<double> positiveMagnitude =
+            buildPositiveMagnitudeResponse(sampleRate, fftSize, displayFrequencyAxisHz, channel.correctionDb);
+        channel.filterTaps = buildMinimumPhaseImpulse(positiveMagnitude, fftSize, settings.tapCount);
+        channel.impulsePeakIndex = static_cast<int>(maxAbsIndex(channel.filterTaps));
+        channel.peakAmplitude = maxAbsSample(channel.filterTaps);
+        channel.impulseTimeMs = buildImpulseTimeAxisMs(channel.filterTaps.size(),
+                                                       static_cast<size_t>(std::max(channel.impulsePeakIndex, 0)),
+                                                       sampleRate);
 
-    const std::vector<std::complex<double>> spectrum = spectrumOfRealSignal(channel.filterTaps, fftSize);
-    const std::vector<double> binFrequencyAxisHz = buildLinearFrequencyAxis(sampleRate, fftSize);
-    const std::vector<double> binMagnitudeDb = buildMagnitudeDbSeries(spectrum);
-    const std::vector<double> binPhaseRadians = buildPhaseSeries(spectrum);
+        const std::vector<std::complex<double>> spectrum = spectrumOfRealSignal(channel.filterTaps, fftSize);
+        const std::vector<double> binFrequencyAxisHz = buildLinearFrequencyAxis(sampleRate, fftSize);
+        const std::vector<double> binMagnitudeDb = buildMagnitudeDbSeries(spectrum);
+        const std::vector<double> binPhaseRadians = buildPhaseSeries(spectrum);
 
-    channel.filterResponseDb = resampleLogFrequency(binFrequencyAxisHz, binMagnitudeDb, displayFrequencyAxisHz);
-    channel.correctedResponseDb.reserve(displayFrequencyAxisHz.size());
-    for (size_t index = 0; index < displayFrequencyAxisHz.size() &&
-                           index < sourceCurveDb.size() &&
-                           index < channel.filterResponseDb.size(); ++index) {
-        channel.correctedResponseDb.push_back(sourceCurveDb[index] + channel.filterResponseDb[index]);
-    }
-    const std::vector<double> displayPhaseRadians =
-        resampleLogFrequency(binFrequencyAxisHz, binPhaseRadians, displayFrequencyAxisHz);
-    channel.groupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, displayPhaseRadians);
-    if (sourcePhaseDegrees.size() == displayFrequencyAxisHz.size()) {
-        std::vector<double> sourcePhaseRadians = degreesToRadians(sourcePhaseDegrees);
-        const std::vector<double> minimumSourcePhaseDegrees =
-            buildMinimumPhaseDegrees(sampleRate, fftSize, displayFrequencyAxisHz, sourceCurveDb);
-        const std::vector<double> minimumSourcePhaseRadians = degreesToRadians(minimumSourcePhaseDegrees);
-        std::vector<double> residualExcessRadians;
-        const size_t phaseCount = std::min(sourcePhaseRadians.size(), minimumSourcePhaseRadians.size());
-        residualExcessRadians.reserve(phaseCount);
-        for (size_t index = 0; index < phaseCount; ++index) {
-            residualExcessRadians.push_back(sourcePhaseRadians[index] - minimumSourcePhaseRadians[index]);
+        channel.filterResponseDb = resampleLogFrequency(binFrequencyAxisHz, binMagnitudeDb, displayFrequencyAxisHz);
+        channel.correctedResponseDb.reserve(displayFrequencyAxisHz.size());
+        for (size_t index = 0; index < displayFrequencyAxisHz.size() &&
+                               index < sourceCurveDb.size() &&
+                               index < channel.filterResponseDb.size(); ++index) {
+            channel.correctedResponseDb.push_back(sourceCurveDb[index] + channel.filterResponseDb[index]);
         }
+        const std::vector<double> displayPhaseRadians =
+            resampleLogFrequency(binFrequencyAxisHz, binPhaseRadians, displayFrequencyAxisHz);
+        channel.groupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, displayPhaseRadians);
+    }
 
-        const double residualDelaySeconds =
-            estimateLinearDelaySeconds(displayFrequencyAxisHz, residualExcessRadians);
-        removeLinearDelay(sourcePhaseRadians, displayFrequencyAxisHz, residualDelaySeconds);
-        channel.inputExcessPhaseDegrees = wrappedPhaseDifferenceDegrees(sourcePhaseRadians, minimumSourcePhaseRadians);
+    if (sourcePhaseDegrees.size() == displayFrequencyAxisHz.size()) {
+        const PhaseDiagnostics phaseDiagnostics =
+            buildPhaseDiagnostics(sampleRate, fftSize, displayFrequencyAxisHz, sourceCurveDb, sourcePhaseDegrees);
+        channel.inputExcessPhaseDegrees = phaseDiagnostics.inputExcessPhaseDegrees;
 
-        // Minimum-phase filters alter the minimum-phase component only, so excess phase is unchanged.
-        channel.predictedExcessPhaseDegrees = channel.inputExcessPhaseDegrees;
-        const std::vector<double> inputGroupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, sourcePhaseRadians);
-        channel.predictedGroupDelayMs = addSeries(inputGroupDelayMs, channel.groupDelayMs);
+        if (phaseMode == NormalizedPhaseMode::ExcessLf) {
+            const std::vector<double> correctionPhaseDegrees =
+                buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
+                                                  phaseDiagnostics.inputExcessPhaseRadians,
+                                                  settings,
+                                                  sampleRate);
+            const std::vector<double> correctionPhaseRadians = degreesToRadians(correctionPhaseDegrees);
+            std::vector<double> predictedPhaseRadians = phaseDiagnostics.sourcePhaseRadians;
+            for (size_t index = 0; index < predictedPhaseRadians.size() &&
+                                   index < correctionPhaseRadians.size(); ++index) {
+                predictedPhaseRadians[index] += correctionPhaseRadians[index];
+            }
+
+            channel.groupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, correctionPhaseRadians);
+            channel.predictedExcessPhaseDegrees =
+                wrappedPhaseDifferenceDegrees(predictedPhaseRadians,
+                                              phaseDiagnostics.minimumSourcePhaseRadians);
+            channel.predictedGroupDelayMs =
+                buildGroupDelayMs(displayFrequencyAxisHz, predictedPhaseRadians);
+        } else {
+            // Minimum-phase filters alter the minimum-phase component only, so excess phase is unchanged.
+            channel.predictedExcessPhaseDegrees = channel.inputExcessPhaseDegrees;
+            channel.predictedGroupDelayMs =
+                addSeries(phaseDiagnostics.inputGroupDelayMs, channel.groupDelayMs);
+        }
     }
     return channel;
 }
@@ -694,6 +851,7 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
 void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRate) {
     const int safeSampleRate = std::max(sampleRate, 44100);
     const int nyquist = safeSampleRate / 2;
+    normalizePhaseMode(settings.phaseMode);
 
     const bool legacyEdgeDefaults =
         std::abs(settings.lowCorrectionHz - 20.0) < 0.001 &&
@@ -727,7 +885,6 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
         clampValue(settings.highCorrectionHz, settings.lowCorrectionHz + 10.0, static_cast<double>(std::max(nyquist - 1, 1000)));
     settings.highTaperOctaves = clampValue(settings.highTaperOctaves, 0.0, 4.0);
     settings.displayPointCount = clampValue(settings.displayPointCount, 256, 4096);
-    settings.phaseMode = "minimum";
 }
 
 FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
@@ -753,6 +910,7 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
 
     FilterDesignSettings settings = sourceSettings;
     normalizeFilterDesignSettings(settings, exportMeasurement.sampleRate);
+    const NormalizedPhaseMode phaseMode = normalizePhaseMode(settings.phaseMode);
 
     const std::vector<double> displayFrequencyAxisHz =
         buildLogFrequencyAxis(targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz, settings.displayPointCount);
@@ -772,6 +930,7 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
                                                leftSourceDb,
                                                phaseInput.leftDegrees,
                                                settings,
+                                               phaseMode,
                                                exportMeasurement.sampleRate,
                                                fftSize);
     const DesignedChannel right = designChannel(displayFrequencyAxisHz,
@@ -779,6 +938,7 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
                                                 rightSourceDb,
                                                 phaseInput.rightDegrees,
                                                 settings,
+                                                phaseMode,
                                                 exportMeasurement.sampleRate,
                                                 fftSize);
 

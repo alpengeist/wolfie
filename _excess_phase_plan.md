@@ -8,9 +8,11 @@ This should stay inside the measurement module. The UI can surface the mode late
 
 ## Current State
 
-As of 2026-04-28:
+As of 2026-04-28 after the latest implementation slice:
 
-- `FilterDesignSettings::phaseMode` is still normalized to `"minimum"`.
+- `FilterDesignSettings::phaseMode` now normalizes to either:
+  - `"minimum"`
+  - `"excess-lf"`
 - `filter_designer` already derives:
   - input excess phase
   - predicted excess phase
@@ -18,6 +20,12 @@ As of 2026-04-28:
   - predicted total group delay
 - phase diagnostics already consume `measurement.raw_phase_spectrum` from `MeasurementResult` when available.
 - bulk delay removal currently depends on `measurement.raw_impulse_response`.
+- `"minimum"` behavior is preserved.
+- `"excess-lf"` is currently an isolated preview mode:
+  - it derives a tapered LF excess-phase correction from measured phase
+  - it updates predicted excess phase and predicted group delay
+  - it does not mix that correction with the existing minimum-phase magnitude FIR yet
+  - corrected magnitude remains unchanged in that mode
 
 ## Test Harness Added In This Session
 
@@ -35,6 +43,13 @@ Added baseline guardrail tests:
 
 - `expectMinimumPhaseInputNeedsNoExcessCorrection()`
 - `expectBulkDelayIsNotTreatedAsExcessPhase()`
+
+Added isolated excess-phase preview tests:
+
+- `expectExcessLfModeLeavesMinimumPhaseInputAlone()`
+- `expectExcessLfModeIgnoresBulkDelay()`
+- `expectExcessLfModeReducesLowFrequencyExcessPhase()`
+- `expectExcessLfModeContainsCorrectionToLowFrequencies()`
 
 These are intentionally pre-implementation tests. They verify that:
 
@@ -88,11 +103,11 @@ These are current no-false-positive thresholds:
 
 These should stay green throughout the implementation.
 
-## Tests To Add With The Implementation
+## Tests To Add With The Next Implementation Slice
 
-Do not land these as failing tests ahead of the algorithm. Add them in the same branch as the new phase mode.
+The isolated `"excess-lf"` preview mode is now in place. The next tests should land together with the first true combination step.
 
-### 1. LF Excess Phase Reduction
+### 1. Combined Minimum-Phase + LF Excess Phase Reduction
 
 Synthetic input:
 
@@ -105,7 +120,11 @@ Expected:
 - left `inputExcessPhaseDegrees` in `20..200 Hz` is materially nonzero
 - left `predictedExcessPhaseDegrees` in `20..200 Hz` drops by at least `40%`
 
-Good first assertion:
+Current isolated preview assertion:
+
+- `predicted / input <= 0.6` on mean absolute excess phase in `20..200 Hz`
+
+Next combined assertion:
 
 - `predicted / input <= 0.6` on mean absolute excess phase in `20..200 Hz`
 
@@ -172,7 +191,10 @@ Add support in `filter_designer` for a second mode, likely one of:
 - `"mixed"`
 - `"minimum_plus_excess_lf"`
 
-Do not wire UI text first. Get the measurement-side behavior and tests stable first.
+Status:
+
+- done for isolated `"excess-lf"` preview mode
+- UI text is still intentionally unchanged
 
 ### Step 3: Build The LF Excess-Phase Correction From Measured Phase
 
@@ -185,6 +207,12 @@ The correction path should:
 5. derive a stable low-frequency phase correction with tapering
 
 The correction should taper out smoothly above the configured LF region.
+
+Status:
+
+- done for the isolated preview mode
+- the current implementation derives LF correction from measured excess phase with smoothing and tapering
+- it is not yet combined with the minimum-phase FIR path
 
 ### Step 4: Combine With Existing FIR Path
 
