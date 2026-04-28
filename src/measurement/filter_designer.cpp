@@ -248,9 +248,6 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
         fullCorrectionDb.push_back(applyAsymmetricSoftLimit(rawCorrectionDb, -settings.maxCutDb, settings.maxBoostDb));
     }
 
-    const double lowCorrectionHz = std::max(settings.lowCorrectionHz, 1.0);
-    const double lowEdgeCorrectionDb = interpolateLogFrequency(frequencyAxisHz, fullCorrectionDb, lowCorrectionHz);
-
     std::vector<double> desiredCorrectionDb;
     desiredCorrectionDb.reserve(count);
     std::vector<double> trackingWeights;
@@ -263,7 +260,7 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
     for (size_t index = 0; index < count; ++index) {
         const double frequencyHz = frequencyAxisHz[index];
         const double weight = correctionWeightAt(frequencyHz, settings);
-        const double rawCorrectionDb = frequencyHz < lowCorrectionHz ? lowEdgeCorrectionDb : fullCorrectionDb[index];
+        const double rawCorrectionDb = fullCorrectionDb[index];
         const double minValueDb = -settings.maxCutDb * weight;
         const double maxValueDb = settings.maxBoostDb * weight;
         desiredCorrectionDb.push_back(applyAsymmetricSoftLimit(rawCorrectionDb, minValueDb, maxValueDb));

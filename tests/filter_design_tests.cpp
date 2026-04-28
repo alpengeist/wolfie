@@ -47,6 +47,26 @@ wolfie::SmoothedResponse buildFlatResponse(double levelDb) {
     return response;
 }
 
+wolfie::SmoothedResponse buildLowFrequencyRollOffResponse() {
+    wolfie::SmoothedResponse response;
+    response.frequencyAxisHz = buildLogAxis(20.0, 20000.0, 512);
+    response.leftChannelDb.reserve(response.frequencyAxisHz.size());
+    response.rightChannelDb.reserve(response.frequencyAxisHz.size());
+    const double logLow = std::log10(20.0);
+    const double logHigh = std::log10(120.0);
+    for (const double frequencyHz : response.frequencyAxisHz) {
+        const double clampedFrequencyHz = std::clamp(frequencyHz, 20.0, 120.0);
+        const double lowTiltT = (logHigh - std::log10(clampedFrequencyHz)) / (logHigh - logLow);
+        const double lowTiltDb = -14.0 * std::max(lowTiltT, 0.0);
+        const double resonanceDb =
+            -6.0 * std::exp(-std::pow((std::log10(std::max(frequencyHz, 1.0)) - std::log10(34.0)) / 0.09, 2.0));
+        const double responseDb = lowTiltDb + resonanceDb;
+        response.leftChannelDb.push_back(responseDb);
+        response.rightChannelDb.push_back(responseDb);
+    }
+    return response;
+}
+
 double wrapDegrees(double phaseDegrees) {
     double wrapped = std::remainder(phaseDegrees, 360.0);
     if (wrapped <= -180.0) {
@@ -370,6 +390,64 @@ bool expectTargetCurveAnchorsToMeasuredLevel() {
     }
     if (std::abs(targetMeanDb - 18.0) > 0.25) {
         std::cerr << "target curve was not anchored to the measured response level\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectLowCorrectionBoundChangesBassCorrectionShape() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings lowBound30;
+    lowBound30.tapCount = 16384;
+    lowBound30.maxBoostDb = 18.0;
+    lowBound30.maxCutDb = 12.0;
+    lowBound30.smoothness = 0.5;
+    lowBound30.lowCorrectionHz = 30.0;
+    lowBound30.highCorrectionHz = 18000.0;
+
+    wolfie::FilterDesignSettings lowBound50 = lowBound30;
+    lowBound50.lowCorrectionHz = 50.0;
+
+    const wolfie::SmoothedResponse response = buildLowFrequencyRollOffResponse();
+    const wolfie::FilterDesignResult lowBound30Result =
+        wolfie::measurement::designFilters(response, measurement, targetCurve, lowBound30);
+    const wolfie::FilterDesignResult lowBound50Result =
+        wolfie::measurement::designFilters(response, measurement, targetCurve, lowBound50);
+    if (!lowBound30Result.valid || !lowBound50Result.valid) {
+        std::cerr << "low correction bound regression case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double bassBandDelta = bandMeanAbsDelta(lowBound30Result.frequencyAxisHz,
+                                                  lowBound30Result.left.correctionCurveDb,
+                                                  lowBound50Result.left.correctionCurveDb,
+                                                  30.0,
+                                                  55.0);
+    if (bassBandDelta < 1.0) {
+        std::cerr << "changing low correction bound had too little effect on bass correction (delta="
+                  << bassBandDelta << ")\n";
+        return false;
+    }
+
+    const double lowBandCorrection = bandMeanAbs(lowBound30Result.frequencyAxisHz,
+                                                 lowBound30Result.left.correctionCurveDb,
+                                                 30.0,
+                                                 38.0);
+    const double upperBassCorrection = bandMeanAbs(lowBound30Result.frequencyAxisHz,
+                                                   lowBound30Result.left.correctionCurveDb,
+                                                   45.0,
+                                                   55.0);
+    if (lowBandCorrection < upperBassCorrection + 1.0) {
+        std::cerr << "low correction taper flattened the 30-55 Hz correction shape (low="
+                  << lowBandCorrection << ", upper=" << upperBassCorrection << ")\n";
         return false;
     }
 
@@ -1509,6 +1587,7 @@ bool expectRoonMixedExportDiffersFromMinimum() {
 
 bool runFilterDesignTests() {
     return expectDesignedFilterLooksSane() &&
+           expectLowCorrectionBoundChangesBassCorrectionShape() &&
            expectExactTargetCurveEvaluationCapturesBellPeak() &&
            expectTargetCurveAnchorsToMeasuredLevel() &&
            expectMinimumPhaseInputNeedsNoExcessCorrection() &&

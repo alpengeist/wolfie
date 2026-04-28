@@ -646,13 +646,14 @@ void FiltersPage::layout() {
     const int viewportWidth = std::max(480L, pageRect.right);
     const int viewportHeight = std::max(360L, pageRect.bottom);
     const int contentLeft = 20;
+    const int contentTop = 20;
     const int contentWidth = std::max(420, viewportWidth - (contentLeft * 2) - GetSystemMetrics(SM_CXVSCROLL));
     const int graphHeight = 320;
     const int graphGap = 34;
     const int sectionGap = 26;
     const int legendGap = 14;
     const int legendWidth = 128;
-    const int top = 20 - scrollOffset_;
+    const int top = contentTop - scrollOffset_;
     const int comboDropHeight = 220;
 
     MoveWindow(controls_.labelTapCount, contentLeft, top, 84, 18, TRUE);
