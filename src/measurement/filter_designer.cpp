@@ -282,37 +282,6 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
     return correction;
 }
 
-std::vector<double> alignTargetCurveLevel(const std::vector<double>& frequencyAxisHz,
-                                          const std::vector<double>& targetCurveDb,
-                                          const std::vector<double>& leftSourceDb,
-                                          const std::vector<double>& rightSourceDb,
-                                          const FilterDesignSettings& settings) {
-    const size_t count = std::min({frequencyAxisHz.size(), targetCurveDb.size(), leftSourceDb.size(), rightSourceDb.size()});
-    std::vector<double> alignedTargetDb(targetCurveDb.begin(), targetCurveDb.begin() + static_cast<std::ptrdiff_t>(count));
-    if (count == 0) {
-        return alignedTargetDb;
-    }
-
-    double weightedOffsetSum = 0.0;
-    double totalWeight = 0.0;
-    for (size_t index = 0; index < count; ++index) {
-        const double weight = correctionWeightAt(frequencyAxisHz[index], settings);
-        if (weight <= 1.0e-9) {
-            continue;
-        }
-
-        const double sourceMeanDb = (leftSourceDb[index] + rightSourceDb[index]) * 0.5;
-        weightedOffsetSum += (sourceMeanDb - targetCurveDb[index]) * weight;
-        totalWeight += weight;
-    }
-
-    const double levelOffsetDb = totalWeight > 1.0e-9 ? weightedOffsetSum / totalWeight : 0.0;
-    for (double& valueDb : alignedTargetDb) {
-        valueDb += levelOffsetDb;
-    }
-    return alignedTargetDb;
-}
-
 std::vector<double> buildPositiveMagnitudeResponse(int sampleRate,
                                                    int fftSize,
                                                    const std::vector<double>& frequencyAxisHz,
@@ -1215,8 +1184,7 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
         resampleLogFrequency(response.frequencyAxisHz, response.leftChannelDb, displayFrequencyAxisHz);
     const std::vector<double> rightSourceDb =
         resampleLogFrequency(response.frequencyAxisHz, response.rightChannelDb, displayFrequencyAxisHz);
-    const std::vector<double> targetCurveDb =
-        alignTargetCurveLevel(displayFrequencyAxisHz, rawTargetCurveDb, leftSourceDb, rightSourceDb, settings);
+    const std::vector<double> targetCurveDb = rawTargetCurveDb;
     const PhaseInput phaseInput = buildPhaseInput(sourceMeasurement, displayFrequencyAxisHz);
 
     const int fftSize = static_cast<int>(nextPowerOfTwo(static_cast<size_t>(settings.tapCount * 4)));
