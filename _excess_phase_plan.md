@@ -399,6 +399,11 @@ Status:
 - the UI also exposes the two mixed-mode control parameters:
   - `Phase Limit` in Hz
   - `Phase Strength` in the range `0..1`
+- the Group Delay graph now exposes three distinct trace families:
+  - measured/input group delay
+  - filter group delay
+  - predicted corrected group delay
+- the filter trace labels were renamed to make the comparison explicit and avoid confusing filter delay with measured delay
 - `excess-lf` stays internal for testing and algorithm iteration only
 
 ## Important Constraints

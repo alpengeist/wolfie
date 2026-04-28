@@ -110,6 +110,12 @@ private:
         HWND checkboxShowPredictedGroupDelayLeft = nullptr;
         HWND linePredictedGroupDelayLeft = nullptr;
         HWND labelPredictedGroupDelayLeft = nullptr;
+        HWND checkboxShowInputGroupDelayLeft = nullptr;
+        HWND lineInputGroupDelayLeft = nullptr;
+        HWND labelInputGroupDelayLeft = nullptr;
+        HWND checkboxShowInputGroupDelayRight = nullptr;
+        HWND lineInputGroupDelayRight = nullptr;
+        HWND labelInputGroupDelayRight = nullptr;
         HWND groupDelayTitle = nullptr;
         HWND groupDelayLegendFrame = nullptr;
         HWND checkboxShowFilterGroupDelayLeft = nullptr;
@@ -168,6 +174,8 @@ private:
     static constexpr int kCheckboxShowFilterGroupDelayRight = 3439;
     static constexpr int kEditMixedPhaseMax = 3441;
     static constexpr int kEditMixedPhaseStrength = 3442;
+    static constexpr int kCheckboxShowInputGroupDelayLeft = 3443;
+    static constexpr int kCheckboxShowInputGroupDelayRight = 3444;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
@@ -222,6 +230,8 @@ private:
     bool showExcessPhaseInputLeft_ = true;
     bool showExcessPhasePredictedRight_ = true;
     bool showExcessPhasePredictedLeft_ = true;
+    bool showInputGroupDelayLeft_ = true;
+    bool showInputGroupDelayRight_ = true;
     bool showPredictedGroupDelayRight_ = true;
     bool showPredictedGroupDelayLeft_ = true;
     bool showFilterGroupDelayLeft_ = true;

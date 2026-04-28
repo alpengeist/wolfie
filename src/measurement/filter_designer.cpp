@@ -937,6 +937,7 @@ struct DesignedChannel {
     std::vector<double> correctionDb;
     std::vector<double> filterResponseDb;
     std::vector<double> correctedResponseDb;
+    std::vector<double> inputGroupDelayMs;
     std::vector<double> groupDelayMs;
     std::vector<double> inputExcessPhaseDegrees;
     std::vector<double> predictedExcessPhaseDegrees;
@@ -1026,6 +1027,7 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
     }
 
     if (hasSourcePhase) {
+        channel.inputGroupDelayMs = phaseDiagnostics.inputGroupDelayMs;
         channel.inputExcessPhaseDegrees = phaseDiagnostics.inputExcessPhaseDegrees;
 
         if (useExcessPreview) {
@@ -1169,6 +1171,7 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     result.left.correctionCurveDb = left.correctionDb;
     result.left.filterResponseDb = left.filterResponseDb;
     result.left.correctedResponseDb = left.correctedResponseDb;
+    result.left.inputGroupDelayMs = left.inputGroupDelayMs;
     result.left.groupDelayMs = left.groupDelayMs;
     result.left.inputExcessPhaseDegrees = left.inputExcessPhaseDegrees;
     result.left.predictedExcessPhaseDegrees = left.predictedExcessPhaseDegrees;
@@ -1180,6 +1183,7 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     result.right.correctionCurveDb = right.correctionDb;
     result.right.filterResponseDb = right.filterResponseDb;
     result.right.correctedResponseDb = right.correctedResponseDb;
+    result.right.inputGroupDelayMs = right.inputGroupDelayMs;
     result.right.groupDelayMs = right.groupDelayMs;
     result.right.inputExcessPhaseDegrees = right.inputExcessPhaseDegrees;
     result.right.predictedExcessPhaseDegrees = right.predictedExcessPhaseDegrees;

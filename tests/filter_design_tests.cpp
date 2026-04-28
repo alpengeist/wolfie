@@ -1090,6 +1090,57 @@ bool expectMixedModePhaseLimitControlsCorrectionExtent() {
     return true;
 }
 
+bool expectInputGroupDelayIsPublishedFromMeasuredPhase() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    filterSettings.phaseMode = "mixed";
+
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 1.0, 0.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "input group-delay publication case did not produce a valid filter result\n";
+        return false;
+    }
+
+    if (result.left.inputGroupDelayMs.size() != result.frequencyAxisHz.size() ||
+        result.right.inputGroupDelayMs.size() != result.frequencyAxisHz.size()) {
+        std::cerr << "measured input group delay was not published at display resolution\n";
+        return false;
+    }
+
+    const double leftInputDelay = bandMeanAbs(result.frequencyAxisHz,
+                                              result.left.inputGroupDelayMs,
+                                              20.0,
+                                              200.0);
+    const double rightInputDelay = bandMeanAbs(result.frequencyAxisHz,
+                                               result.right.inputGroupDelayMs,
+                                               20.0,
+                                               200.0);
+    if (leftInputDelay < 0.02 || rightInputDelay > 0.01) {
+        std::cerr << "measured input group delay was not preserved in the filter result (left="
+                  << leftInputDelay << ", right=" << rightInputDelay << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectRoonExportSupportsCommonSampleRates() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -1211,5 +1262,6 @@ bool runFilterDesignTests() {
            expectMixedModePreservesMagnitudeVsMinimum() &&
            expectMixedModeStrengthZeroMatchesMinimum() &&
            expectMixedModePhaseLimitControlsCorrectionExtent() &&
+           expectInputGroupDelayIsPublishedFromMeasuredPhase() &&
            expectRoonExportSupportsCommonSampleRates();
 }

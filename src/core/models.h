@@ -256,6 +256,7 @@ struct FilterDesignChannelResult {
     std::vector<double> correctionCurveDb;
     std::vector<double> filterResponseDb;
     std::vector<double> correctedResponseDb;
+    std::vector<double> inputGroupDelayMs;
     std::vector<double> groupDelayMs;
     std::vector<double> inputExcessPhaseDegrees;
     std::vector<double> predictedExcessPhaseDegrees;
