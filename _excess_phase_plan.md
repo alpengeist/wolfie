@@ -32,6 +32,8 @@ As of 2026-04-28 after the latest implementation slice:
   - it applies the LF excess-phase correction inside a single realized FIR synthesis path
   - it analyzes the realized taps and uses those realized taps for predicted magnitude and phase diagnostics
   - it is now wired into the Filters page as the user-facing mixed-phase mode
+  - its LF excess-phase correction must stay common to left and right in stereo use; solving that correction independently per channel made bass widen and become locatable off-center
+  - its realized FIRs must share one common stereo latency; letting each channel keep an independent mixed-phase peak position pulled the phantom center apart
 - the Filters page now exposes only:
   - `"Minimum phase"`
   - `"Mixed phase"`
@@ -73,6 +75,8 @@ Added combined mixed-mode tests:
 - `expectMixedModePreservesMagnitudeVsMinimum()`
 - `expectMixedModeStrengthZeroMatchesMinimum()`
 - `expectMixedModePhaseLimitControlsCorrectionExtent()`
+- `expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay()`
+- `expectMixedModePreservesStereoLowFrequencyPhaseRelationship()`
 
 These are intentionally pre-implementation tests. They verify that:
 
@@ -333,6 +337,8 @@ Practical rule:
 
 - `predictedExcessPhaseDegrees` should ignore intentional bulk delay
 - `predictedGroupDelayMs` should include the actual realized filter delay
+- stereo exports must keep a shared realized latency across left and right
+- that shared latency should be the minimum delay needed to keep the pair aligned, not an automatic re-centering to half the FIR length
 
 ### Why Not IIR All-Pass First
 
@@ -377,6 +383,9 @@ The key rule for Step 4:
 Current status:
 
 - the current tests cover LF reduction, containment, magnitude preservation versus `"minimum"`, and no-false-positive behavior
+- the current mixed-mode path now also preserves stereo bass coherence by:
+  - averaging the derived LF mixed-phase correction across left and right before FIR realization
+  - delaying the earlier channel after realization so both channels share one common peak latency
 - the remaining useful follow-up for this step is an explicit impulse-domain quality check for pre-ringing / late-energy concentration
 - current UI inspection of the aligned Group Delay view shows that the mixed excess-phase compensation is materially effective above roughly `50..70 Hz`, but weak below that region
 - this weak sub-70 Hz behavior is likely not caused primarily by `mixedPhaseMaxFrequencyHz`; the correction weighting is already full below that limit
@@ -453,6 +462,9 @@ Status:
 - the current code now publishes continuous input/predicted excess-phase series for that purpose, and the UI unwrap view uses those directly
 - current practical status:
   - the interesting low-frequency region used for excess-phase correction is working well enough for tuning and validation
+  - real listening confirmed two stereo constraints that are easy to miss in synthetic per-channel checks:
+    - if mixed LF phase correction differs between channels, centered bass becomes airy and laterally locatable
+    - if mixed FIR latency differs between channels, the phantom center moves outside the middle
   - the unwrapped Excess Phase view looks somewhat better than before, but it can still drift into implausible thousands of degrees at higher frequencies
   - that means the continuous excess-phase diagnostic is still not fully trustworthy outside the LF region of interest
   - leave this as a known limitation for now; do not use the high-frequency unwrapped excess-phase trace as a decision-grade diagnostic

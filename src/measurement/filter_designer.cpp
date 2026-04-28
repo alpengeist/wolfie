@@ -486,6 +486,16 @@ std::vector<double> addSeries(const std::vector<double>& left, const std::vector
     return result;
 }
 
+std::vector<double> averageSeries(const std::vector<double>& left, const std::vector<double>& right) {
+    const size_t count = std::min(left.size(), right.size());
+    std::vector<double> result;
+    result.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        result.push_back((left[index] + right[index]) * 0.5);
+    }
+    return result;
+}
+
 std::vector<double> unwrapPhaseDegrees(const std::vector<double>& wrappedDegrees) {
     return radiansToDegrees(unwrapPhaseRadians(degreesToRadians(wrappedDegrees)));
 }
@@ -831,6 +841,21 @@ void applyTailFade(std::vector<double>& impulse) {
     }
 }
 
+void delayImpulse(std::vector<double>& impulse, size_t delaySamples) {
+    if (delaySamples == 0 || impulse.empty()) {
+        return;
+    }
+    if (delaySamples >= impulse.size()) {
+        std::fill(impulse.begin(), impulse.end(), 0.0);
+        return;
+    }
+
+    for (size_t index = impulse.size(); index-- > delaySamples;) {
+        impulse[index] = impulse[index - delaySamples];
+    }
+    std::fill(impulse.begin(), impulse.begin() + static_cast<std::ptrdiff_t>(delaySamples), 0.0);
+}
+
 std::vector<double> buildMixedPhaseImpulse(const std::vector<double>& positiveMagnitude,
                                            const std::vector<double>& positivePhaseCorrectionRadians,
                                            int fftSize,
@@ -845,19 +870,8 @@ std::vector<double> buildMixedPhaseImpulse(const std::vector<double>& positiveMa
     applyPositivePhaseCorrection(combinedSpectrum, positivePhaseCorrectionRadians);
     const std::vector<double> fullImpulse = buildRealImpulseFromSpectrum(combinedSpectrum);
     size_t windowStart = bestCircularWindowStart(fullImpulse, outputLength);
-    const std::vector<double> bestWindow = extractCircularWindow(fullImpulse, windowStart, outputLength);
-    if (!bestWindow.empty() && !fullImpulse.empty()) {
-        const size_t targetPeakIndex = std::min(outputLength / 2, outputLength - 1);
-        const size_t peakIndex = dominantSampleIndex(bestWindow);
-        if (peakIndex != targetPeakIndex) {
-            const size_t fullLength = fullImpulse.size();
-            const size_t offset =
-                peakIndex >= targetPeakIndex
-                    ? (peakIndex - targetPeakIndex)
-                    : (fullLength - ((targetPeakIndex - peakIndex) % fullLength)) % fullLength;
-            windowStart = (windowStart + offset) % fullLength;
-        }
-    }
+    // Keep the dominant energy near its natural causal position. Re-centering the peak adds
+    // a large bulk delay, which makes zero-strength mixed mode stop behaving like minimum phase.
     std::vector<double> impulse =
         extractCircularWindow(fullImpulse, windowStart, outputLength);
     applyTailFade(impulse);
@@ -979,12 +993,62 @@ struct DesignedChannel {
     double peakAmplitude = 0.0;
 };
 
+void refreshMixedPhaseChannel(DesignedChannel& channel,
+                              const std::vector<double>& sourceCurveDb,
+                              const std::vector<double>& sourcePhaseDegrees,
+                              const std::vector<double>& displayFrequencyAxisHz,
+                              int sampleRate,
+                              int fftSize) {
+    channel.impulsePeakIndex = static_cast<int>(maxAbsIndex(channel.filterTaps));
+    channel.peakAmplitude = maxAbsSample(channel.filterTaps);
+    channel.impulseTimeMs = buildImpulseTimeAxisMs(channel.filterTaps.size(),
+                                                   static_cast<size_t>(std::max(channel.impulsePeakIndex, 0)),
+                                                   sampleRate);
+
+    const RealizedFilterAnalysis realized =
+        analyzeRealizedFilter(channel.filterTaps,
+                              sourceCurveDb,
+                              displayFrequencyAxisHz,
+                              sampleRate,
+                              fftSize);
+    channel.filterResponseDb = realized.filterResponseDb;
+    channel.correctedResponseDb = realized.correctedResponseDb;
+    channel.groupDelayMs = realized.groupDelayMs;
+
+    if (sourcePhaseDegrees.size() != displayFrequencyAxisHz.size()) {
+        return;
+    }
+
+    const PhaseDiagnostics phaseDiagnostics =
+        buildPhaseDiagnostics(sampleRate, fftSize, displayFrequencyAxisHz, sourceCurveDb, sourcePhaseDegrees);
+    channel.inputGroupDelayMs = phaseDiagnostics.inputGroupDelayMs;
+    channel.inputExcessPhaseDegrees = phaseDiagnostics.inputExcessPhaseDegrees;
+    channel.inputExcessPhaseContinuousDegrees = phaseDiagnostics.inputExcessPhaseContinuousDegrees;
+
+    std::vector<double> predictedPhaseRadians = phaseDiagnostics.sourcePhaseRadians;
+    for (size_t index = 0; index < predictedPhaseRadians.size() &&
+                           index < realized.filterPhaseRadians.size(); ++index) {
+        predictedPhaseRadians[index] += realized.filterPhaseRadians[index];
+    }
+    const ExcessPhaseSeries predictedExcessPhase =
+        buildPredictedExcessPhaseSeries(sampleRate,
+                                        fftSize,
+                                        displayFrequencyAxisHz,
+                                        channel.correctedResponseDb,
+                                        predictedPhaseRadians);
+    channel.predictedExcessPhaseDegrees = predictedExcessPhase.wrappedDegrees;
+    channel.predictedExcessPhaseContinuousDegrees = predictedExcessPhase.continuousDegrees;
+    channel.predictedGroupDelayMs =
+        buildGroupDelayMs(displayFrequencyAxisHz, predictedPhaseRadians);
+}
+
 DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
                               const std::vector<double>& targetCurveDb,
                               const std::vector<double>& sourceCurveDb,
                               const std::vector<double>& sourcePhaseDegrees,
                               const FilterDesignSettings& settings,
                               NormalizedPhaseMode phaseMode,
+                              const std::vector<double>* sharedMixedCorrectionDegrees,
                               int sampleRate,
                               int fftSize) {
     DesignedChannel channel;
@@ -1009,10 +1073,13 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
             buildPositiveMagnitudeResponse(sampleRate, fftSize, displayFrequencyAxisHz, channel.correctionDb);
         if (useMixedMode) {
             const std::vector<double> correctionPhaseDegrees =
-                buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
-                                                  phaseDiagnostics.inputExcessPhaseRadians,
-                                                  settings,
-                                                  sampleRate);
+                sharedMixedCorrectionDegrees != nullptr &&
+                        sharedMixedCorrectionDegrees->size() == displayFrequencyAxisHz.size()
+                    ? *sharedMixedCorrectionDegrees
+                    : buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
+                                                        phaseDiagnostics.inputExcessPhaseRadians,
+                                                        settings,
+                                                        sampleRate);
             const std::vector<double> positivePhaseCorrectionRadians =
                 buildPositivePhaseCorrectionRadians(sampleRate,
                                                     fftSize,
@@ -1185,22 +1252,78 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     const PhaseInput phaseInput = buildPhaseInput(sourceMeasurement, displayFrequencyAxisHz);
 
     const int fftSize = static_cast<int>(nextPowerOfTwo(static_cast<size_t>(settings.tapCount * 4)));
-    const DesignedChannel left = designChannel(displayFrequencyAxisHz,
-                                               targetCurveDb,
-                                               leftSourceDb,
-                                               phaseInput.leftDegrees,
-                                               settings,
-                                               phaseMode,
-                                               exportMeasurement.sampleRate,
-                                               fftSize);
-    const DesignedChannel right = designChannel(displayFrequencyAxisHz,
-                                                targetCurveDb,
-                                                rightSourceDb,
-                                                phaseInput.rightDegrees,
-                                                settings,
-                                                phaseMode,
-                                                exportMeasurement.sampleRate,
-                                                fftSize);
+    std::vector<double> sharedMixedCorrectionDegrees;
+    if (phaseMode == NormalizedPhaseMode::Mixed &&
+        phaseInput.leftDegrees.size() == displayFrequencyAxisHz.size() &&
+        phaseInput.rightDegrees.size() == displayFrequencyAxisHz.size()) {
+        // Keep the mixed-phase LF correction common to both stereo channels. Solving it
+        // independently per side made bass content widen and become locatable off-center.
+        const PhaseDiagnostics leftPhaseDiagnostics =
+            buildPhaseDiagnostics(exportMeasurement.sampleRate,
+                                  fftSize,
+                                  displayFrequencyAxisHz,
+                                  leftSourceDb,
+                                  phaseInput.leftDegrees);
+        const PhaseDiagnostics rightPhaseDiagnostics =
+            buildPhaseDiagnostics(exportMeasurement.sampleRate,
+                                  fftSize,
+                                  displayFrequencyAxisHz,
+                                  rightSourceDb,
+                                  phaseInput.rightDegrees);
+        const std::vector<double> leftCorrectionDegrees =
+            buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
+                                              leftPhaseDiagnostics.inputExcessPhaseRadians,
+                                              settings,
+                                              exportMeasurement.sampleRate);
+        const std::vector<double> rightCorrectionDegrees =
+            buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
+                                              rightPhaseDiagnostics.inputExcessPhaseRadians,
+                                              settings,
+                                              exportMeasurement.sampleRate);
+        sharedMixedCorrectionDegrees = averageSeries(leftCorrectionDegrees, rightCorrectionDegrees);
+    }
+    DesignedChannel left = designChannel(displayFrequencyAxisHz,
+                                         targetCurveDb,
+                                         leftSourceDb,
+                                         phaseInput.leftDegrees,
+                                         settings,
+                                         phaseMode,
+                                         sharedMixedCorrectionDegrees.empty() ? nullptr : &sharedMixedCorrectionDegrees,
+                                         exportMeasurement.sampleRate,
+                                         fftSize);
+    DesignedChannel right = designChannel(displayFrequencyAxisHz,
+                                          targetCurveDb,
+                                          rightSourceDb,
+                                          phaseInput.rightDegrees,
+                                          settings,
+                                          phaseMode,
+                                          sharedMixedCorrectionDegrees.empty() ? nullptr : &sharedMixedCorrectionDegrees,
+                                          exportMeasurement.sampleRate,
+                                          fftSize);
+
+    if (phaseMode == NormalizedPhaseMode::Mixed &&
+        !left.filterTaps.empty() &&
+        left.filterTaps.size() == right.filterTaps.size()) {
+        const int sharedPeakIndex = std::max(left.impulsePeakIndex, right.impulsePeakIndex);
+        if (left.impulsePeakIndex < sharedPeakIndex) {
+            delayImpulse(left.filterTaps, static_cast<size_t>(sharedPeakIndex - left.impulsePeakIndex));
+        }
+        if (right.impulsePeakIndex < sharedPeakIndex) {
+            delayImpulse(right.filterTaps, static_cast<size_t>(sharedPeakIndex - right.impulsePeakIndex));
+        }
+        refreshMixedPhaseChannel(left,
+                                 leftSourceDb,
+                                 phaseInput.leftDegrees,
+                                 displayFrequencyAxisHz,
+                                 exportMeasurement.sampleRate,
+                                 fftSize);
+        refreshMixedPhaseChannel(right,
+                                 rightSourceDb,
+                                 phaseInput.rightDegrees,
+                                 displayFrequencyAxisHz,
+                                 exportMeasurement.sampleRate,
+                                 fftSize);
+    }
 
     result.valid = true;
     result.sampleRate = exportMeasurement.sampleRate;

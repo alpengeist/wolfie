@@ -1132,6 +1132,12 @@ bool expectMixedModeStrengthZeroMatchesMinimum() {
                   << leftResidualDelta << ", right=" << rightResidualDelta << ")\n";
         return false;
     }
+    if (std::abs(mixedResult.left.impulsePeakIndex - minimumResult.left.impulsePeakIndex) > 2 ||
+        std::abs(mixedResult.right.impulsePeakIndex - minimumResult.right.impulsePeakIndex) > 2) {
+        std::cerr << "mixed strength zero changed filter latency versus minimum phase (left="
+                  << mixedResult.left.impulsePeakIndex << ", right=" << mixedResult.right.impulsePeakIndex << ")\n";
+        return false;
+    }
 
     return true;
 }
@@ -1267,7 +1273,7 @@ bool expectMixedModePhaseCapControlsLowFrequencyReduction() {
     return true;
 }
 
-bool expectMixedModeStereoImpulsePeaksShareOneLatency() {
+bool expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
     measurement.startFrequencyHz = 20.0;
@@ -1295,17 +1301,71 @@ bool expectMixedModeStereoImpulsePeaksShareOneLatency() {
         return false;
     }
 
-    const int expectedPeakIndex = filterSettings.tapCount / 2;
     const int stereoPeakDelta = std::abs(result.left.impulsePeakIndex - result.right.impulsePeakIndex);
     if (stereoPeakDelta > 1) {
         std::cerr << "mixed stereo filter peaks diverged in latency (left="
                   << result.left.impulsePeakIndex << ", right=" << result.right.impulsePeakIndex << ")\n";
         return false;
     }
-    if (std::abs(result.left.impulsePeakIndex - expectedPeakIndex) > 2 ||
-        std::abs(result.right.impulsePeakIndex - expectedPeakIndex) > 2) {
-        std::cerr << "mixed stereo filter peaks were not centered to a shared latency (left="
+    if (result.left.impulsePeakIndex > (filterSettings.tapCount / 8) ||
+        result.right.impulsePeakIndex > (filterSettings.tapCount / 8)) {
+        std::cerr << "mixed stereo filter peaks accumulated too much bulk delay (left="
                   << result.left.impulsePeakIndex << ", right=" << result.right.impulsePeakIndex << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectMixedModePreservesStereoLowFrequencyPhaseRelationship() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings minimumSettings;
+    minimumSettings.tapCount = 16384;
+
+    wolfie::FilterDesignSettings mixedSettings = minimumSettings;
+    mixedSettings.phaseMode = "mixed";
+    mixedSettings.mixedPhaseMaxCorrectionDegrees = 720.0;
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 3.0, -2.0);
+    const wolfie::FilterDesignResult minimumResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           minimumSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult mixedResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           mixedSettings,
+                                           &phaseMeasurement);
+    if (!minimumResult.valid || !mixedResult.valid) {
+        std::cerr << "mixed stereo phase-relationship case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double minimumStereoDelta = bandMeanAbsDelta(minimumResult.frequencyAxisHz,
+                                                       minimumResult.left.predictedExcessPhaseContinuousDegrees,
+                                                       minimumResult.right.predictedExcessPhaseContinuousDegrees,
+                                                       20.0,
+                                                       150.0);
+    const double mixedStereoDelta = bandMeanAbsDelta(mixedResult.frequencyAxisHz,
+                                                     mixedResult.left.predictedExcessPhaseContinuousDegrees,
+                                                     mixedResult.right.predictedExcessPhaseContinuousDegrees,
+                                                     20.0,
+                                                     150.0);
+    if (std::abs(mixedStereoDelta - minimumStereoDelta) > 5.0) {
+        std::cerr << "mixed mode changed low-frequency stereo phase relationship (minimum="
+                  << minimumStereoDelta << ", mixed=" << mixedStereoDelta << ")\n";
         return false;
     }
 
@@ -1604,7 +1664,8 @@ bool runFilterDesignTests() {
            expectMixedModeStrengthZeroMatchesMinimum() &&
            expectMixedModePhaseLimitControlsCorrectionExtent() &&
            expectMixedModePhaseCapControlsLowFrequencyReduction() &&
-           expectMixedModeStereoImpulsePeaksShareOneLatency() &&
+           expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay() &&
+           expectMixedModePreservesStereoLowFrequencyPhaseRelationship() &&
            expectInputGroupDelayIsPublishedFromMeasuredPhase() &&
            expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps() &&
            expectRoonExportSupportsCommonSampleRates() &&
