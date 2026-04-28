@@ -378,6 +378,18 @@ Current status:
 
 - the current tests cover LF reduction, containment, magnitude preservation versus `"minimum"`, and no-false-positive behavior
 - the remaining useful follow-up for this step is an explicit impulse-domain quality check for pre-ringing / late-energy concentration
+- current UI inspection of the aligned Group Delay view shows that the mixed excess-phase compensation is materially effective above roughly `50..70 Hz`, but weak below that region
+- this weak sub-70 Hz behavior is likely not caused primarily by `mixedPhaseMaxFrequencyHz`; the correction weighting is already full below that limit
+- the more likely causes are the current realization path:
+  - strong regularization in `buildExcessPhaseCorrectionDegrees(...)`
+  - the current `+-120 deg` phase-correction clamp
+  - the max-energy circular-window FIR realization plus tail fade in `buildMixedPhaseImpulse(...)`
+- the next implementation slice should treat this as a realization-fidelity problem, not just a UI-parameter-tuning problem
+- recommended follow-up:
+  - add a failing synthetic regression for `20..60 Hz` excess-phase reduction
+  - revisit the mixed FIR realization strategy with an explicit delay-budgeted complex fit
+  - make the LF phase-correction cap configurable or raise it
+  - decouple phase regularization from the existing magnitude `smoothness` control
 
 ### Step 5: Predict Combined Diagnostics And Expose Mixed Mode
 

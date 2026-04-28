@@ -117,6 +117,7 @@ private:
         HWND lineInputGroupDelayRight = nullptr;
         HWND labelInputGroupDelayRight = nullptr;
         HWND groupDelayTitle = nullptr;
+        HWND checkboxAlignGroupDelayLatency = nullptr;
         HWND groupDelayLegendFrame = nullptr;
         HWND checkboxShowFilterGroupDelayLeft = nullptr;
         HWND lineGroupDelayLeft = nullptr;
@@ -176,6 +177,7 @@ private:
     static constexpr int kEditMixedPhaseStrength = 3442;
     static constexpr int kCheckboxShowInputGroupDelayLeft = 3443;
     static constexpr int kCheckboxShowInputGroupDelayRight = 3444;
+    static constexpr int kCheckboxAlignGroupDelayLatency = 3445;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
@@ -236,6 +238,7 @@ private:
     bool showPredictedGroupDelayLeft_ = true;
     bool showFilterGroupDelayLeft_ = true;
     bool showFilterGroupDelayRight_ = true;
+    bool alignGroupDelayLatency_ = false;
     bool syncHoverFrequencyEnabled_ = false;
     bool sharedFrequencyHoverActive_ = false;
     double sharedFrequencyHoverHz_ = 1000.0;

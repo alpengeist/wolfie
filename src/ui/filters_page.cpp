@@ -135,6 +135,14 @@ std::vector<double> breakWrappedPhaseDiscontinuities(const std::vector<double>& 
     return values;
 }
 
+std::vector<double> subtractConstant(const std::vector<double>& values, double offset) {
+    std::vector<double> shifted = values;
+    for (double& value : shifted) {
+        value -= offset;
+    }
+    return shifted;
+}
+
 }  // namespace
 
 void FiltersPage::registerPageWindowClass(HINSTANCE instance) {
@@ -442,6 +450,17 @@ void FiltersPage::createControls() {
     controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L after", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxAlignGroupDelayLatency = CreateWindowW(L"BUTTON",
+                                                             L"Align latency",
+                                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                             0,
+                                                             0,
+                                                             0,
+                                                             0,
+                                                             window_,
+                                                             reinterpret_cast<HMENU>(kCheckboxAlignGroupDelayLatency),
+                                                             instance_,
+                                                             nullptr);
     controls_.groupDelayLegendFrame = CreateWindowW(L"STATIC",
                                                     L"",
                                                     WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
@@ -574,6 +593,7 @@ void FiltersPage::createControls() {
     SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_SETCHECK, showPredictedGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_SETCHECK, showFilterGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_SETCHECK, showFilterGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_SETCHECK, alignGroupDelayLatency_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxSyncHoverFrequency, BM_SETCHECK, syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED, 0);
     correctionGraph_.create(window_, instance_, kCorrectionGraph);
     correctedGraph_.create(window_, instance_, kCorrectedGraph);
@@ -698,6 +718,7 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxAlignGroupDelayLatency, graphRight - 124, y - 2, 124, 20, TRUE);
     MoveWindow(controls_.groupDelayLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     groupDelayGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int groupDelayFirstRowTop = y + 24 + 18;
@@ -784,6 +805,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_SETCHECK, showPredictedGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_SETCHECK, showFilterGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_SETCHECK, showFilterGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_SETCHECK, alignGroupDelayLatency_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxSyncHoverFrequency, BM_SETCHECK, syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED, 0);
     appliedSettings_ = settings;
     filterDesignValid_ = workspace.filterResult.valid;
@@ -1029,6 +1051,7 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowPredictedGroupDelayLeft ||
          commandId == kCheckboxShowFilterGroupDelayLeft ||
          commandId == kCheckboxShowFilterGroupDelayRight ||
+         commandId == kCheckboxAlignGroupDelayLatency ||
          commandId == kCheckboxSyncHoverFrequency) &&
         notificationCode == BN_CLICKED) {
         showInputRight_ = SendMessageW(controls_.checkboxShowInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -1049,6 +1072,7 @@ bool FiltersPage::handleCommand(WORD commandId,
         showPredictedGroupDelayLeft_ = SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showFilterGroupDelayLeft_ = SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
         showFilterGroupDelayRight_ = SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        alignGroupDelayLatency_ = SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
         syncHoverFrequencyEnabled_ = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
         if (!syncHoverFrequencyEnabled_) {
             sharedFrequencyHoverActive_ = false;
@@ -1660,21 +1684,42 @@ PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& worksp
     if (showInputGroupDelayRight_) {
         data.series.push_back({L"Right input", ui_theme::kRed, workspace.filterResult.right.inputGroupDelayMs});
     }
+    const double safeSampleRate = static_cast<double>(std::max(workspace.filterResult.sampleRate, 1));
+    const double leftLatencyMs =
+        std::max(workspace.filterResult.left.impulsePeakIndex, 0) * 1000.0 / safeSampleRate;
+    const double rightLatencyMs =
+        std::max(workspace.filterResult.right.impulsePeakIndex, 0) * 1000.0 / safeSampleRate;
+    const std::vector<double> leftFilterGroupDelay =
+        alignGroupDelayLatency_
+            ? subtractConstant(workspace.filterResult.left.groupDelayMs, leftLatencyMs)
+            : workspace.filterResult.left.groupDelayMs;
+    const std::vector<double> rightFilterGroupDelay =
+        alignGroupDelayLatency_
+            ? subtractConstant(workspace.filterResult.right.groupDelayMs, rightLatencyMs)
+            : workspace.filterResult.right.groupDelayMs;
+    const std::vector<double> leftPredictedGroupDelay =
+        alignGroupDelayLatency_
+            ? subtractConstant(workspace.filterResult.left.predictedGroupDelayMs, leftLatencyMs)
+            : workspace.filterResult.left.predictedGroupDelayMs;
+    const std::vector<double> rightPredictedGroupDelay =
+        alignGroupDelayLatency_
+            ? subtractConstant(workspace.filterResult.right.predictedGroupDelayMs, rightLatencyMs)
+            : workspace.filterResult.right.predictedGroupDelayMs;
     if (showFilterGroupDelayLeft_) {
-        data.series.push_back({L"Left filter", ui_theme::kTeal, workspace.filterResult.left.groupDelayMs});
+        data.series.push_back({L"Left filter", ui_theme::kTeal, std::move(leftFilterGroupDelay)});
     }
     if (showFilterGroupDelayRight_) {
-        data.series.push_back({L"Right filter", ui_theme::kOrange, workspace.filterResult.right.groupDelayMs});
+        data.series.push_back({L"Right filter", ui_theme::kOrange, std::move(rightFilterGroupDelay)});
     }
     if (showPredictedGroupDelayRight_) {
         data.series.push_back({L"Right predicted",
                                ui_theme::kMagenta,
-                               workspace.filterResult.right.predictedGroupDelayMs});
+                               std::move(rightPredictedGroupDelay)});
     }
     if (showPredictedGroupDelayLeft_) {
         data.series.push_back({L"Left predicted",
                                ui_theme::kGray,
-                               workspace.filterResult.left.predictedGroupDelayMs});
+                               std::move(leftPredictedGroupDelay)});
     }
     return data;
 }
