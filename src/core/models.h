@@ -250,6 +250,7 @@ struct FilterDesignSettings {
     std::string phaseMode = "minimum";
     double mixedPhaseMaxFrequencyHz = 220.0;
     double mixedPhaseStrength = 1.0;
+    double mixedPhaseMaxCorrectionDegrees = 360.0;
 };
 
 struct FilterDesignChannelResult {

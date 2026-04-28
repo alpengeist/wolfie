@@ -714,7 +714,7 @@ std::vector<double> buildExcessPhaseCorrectionDegrees(const std::vector<double>&
         solveRegularizedCurve(desiredCorrectionDegrees, trackingWeights, regularization);
     for (size_t index = 0; index < correctionDegrees.size() && index < taperWeights.size(); ++index) {
         const double taperWeight = taperWeights[index];
-        const double limitedDegrees = 120.0 * taperWeight;
+        const double limitedDegrees = settings.mixedPhaseMaxCorrectionDegrees * taperWeight;
         correctionDegrees[index] =
             clampValue(correctionDegrees[index] * taperWeight, -limitedDegrees, limitedDegrees);
     }
@@ -1103,6 +1103,8 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     settings.mixedPhaseMaxFrequencyHz =
         clampValue(settings.mixedPhaseMaxFrequencyHz, 60.0, static_cast<double>(std::max((nyquist / 2), 120)));
     settings.mixedPhaseStrength = clampValue(settings.mixedPhaseStrength, 0.0, 1.0);
+    settings.mixedPhaseMaxCorrectionDegrees =
+        clampValue(settings.mixedPhaseMaxCorrectionDegrees, 30.0, 720.0);
 }
 
 FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,

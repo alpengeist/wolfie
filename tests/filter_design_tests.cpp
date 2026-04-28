@@ -1090,6 +1090,69 @@ bool expectMixedModePhaseLimitControlsCorrectionExtent() {
     return true;
 }
 
+bool expectMixedModePhaseCapControlsLowFrequencyReduction() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings lowCapSettings;
+    lowCapSettings.tapCount = 16384;
+    lowCapSettings.phaseMode = "mixed";
+    lowCapSettings.mixedPhaseMaxFrequencyHz = 220.0;
+    lowCapSettings.mixedPhaseMaxCorrectionDegrees = 120.0;
+
+    wolfie::FilterDesignSettings highCapSettings = lowCapSettings;
+    highCapSettings.mixedPhaseMaxCorrectionDegrees = 360.0;
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 3.0, 0.0);
+    const wolfie::FilterDesignResult lowCapResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           lowCapSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult highCapResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           highCapSettings,
+                                           &phaseMeasurement);
+    if (!lowCapResult.valid || !highCapResult.valid) {
+        std::cerr << "mixed phase-cap case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double inputLowBand = bandMeanAbs(lowCapResult.frequencyAxisHz,
+                                            lowCapResult.left.inputExcessPhaseDegrees,
+                                            20.0,
+                                            80.0);
+    const double lowCapResidual = bandMeanAbs(lowCapResult.frequencyAxisHz,
+                                              lowCapResult.left.predictedExcessPhaseDegrees,
+                                              20.0,
+                                              80.0);
+    const double highCapResidual = bandMeanAbs(highCapResult.frequencyAxisHz,
+                                               highCapResult.left.predictedExcessPhaseDegrees,
+                                               20.0,
+                                               80.0);
+    if (inputLowBand < 40.0) {
+        std::cerr << "synthetic mixed phase-cap fixture did not produce enough LF excess phase\n";
+        return false;
+    }
+    if (highCapResidual > lowCapResidual * 0.9) {
+        std::cerr << "raising mixed phase cap did not materially improve LF reduction (low="
+                  << lowCapResidual << ", high=" << highCapResidual << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectInputGroupDelayIsPublishedFromMeasuredPhase() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -1262,6 +1325,7 @@ bool runFilterDesignTests() {
            expectMixedModePreservesMagnitudeVsMinimum() &&
            expectMixedModeStrengthZeroMatchesMinimum() &&
            expectMixedModePhaseLimitControlsCorrectionExtent() &&
+           expectMixedModePhaseCapControlsLowFrequencyReduction() &&
            expectInputGroupDelayIsPublishedFromMeasuredPhase() &&
            expectRoonExportSupportsCommonSampleRates();
 }

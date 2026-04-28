@@ -382,13 +382,13 @@ Current status:
 - this weak sub-70 Hz behavior is likely not caused primarily by `mixedPhaseMaxFrequencyHz`; the correction weighting is already full below that limit
 - the more likely causes are the current realization path:
   - strong regularization in `buildExcessPhaseCorrectionDegrees(...)`
-  - the current `+-120 deg` phase-correction clamp
+  - the former `+-120 deg` phase-correction clamp, now replaced with a configurable mixed-mode `Phase Cap` control
   - the max-energy circular-window FIR realization plus tail fade in `buildMixedPhaseImpulse(...)`
 - the next implementation slice should treat this as a realization-fidelity problem, not just a UI-parameter-tuning problem
 - recommended follow-up:
   - add a failing synthetic regression for `20..60 Hz` excess-phase reduction
   - revisit the mixed FIR realization strategy with an explicit delay-budgeted complex fit
-  - make the LF phase-correction cap configurable or raise it
+  - evaluate whether raising the now-configurable LF phase-correction cap materially helps below `70 Hz`
   - decouple phase regularization from the existing magnitude `smoothness` control
 
 ### Step 5: Predict Combined Diagnostics And Expose Mixed Mode

@@ -238,6 +238,10 @@ void FiltersPage::createControls() {
     controls_.editMixedPhaseStrength = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
                                                        0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMixedPhaseStrength), instance_, nullptr);
     controls_.unitMixedPhaseStrength = CreateWindowW(L"STATIC", L"0..1", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelMixedPhaseCap = CreateWindowW(L"STATIC", L"Phase Cap", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.editMixedPhaseCap = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMixedPhaseCap), instance_, nullptr);
+    controls_.unitMixedPhaseCap = CreateWindowW(L"STATIC", L"deg", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonRecalculate), instance_, nullptr);
     controls_.checkboxSyncHoverFrequency = CreateWindowW(L"BUTTON",
@@ -645,6 +649,9 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelMixedPhaseStrength, contentLeft + 128, mixedTop, 102, 18, TRUE);
     MoveWindow(controls_.editMixedPhaseStrength, contentLeft + 128, mixedTop + 22, 68, 26, TRUE);
     MoveWindow(controls_.unitMixedPhaseStrength, contentLeft + 200, mixedTop + 26, 34, 18, TRUE);
+    MoveWindow(controls_.labelMixedPhaseCap, contentLeft + 248, mixedTop, 74, 18, TRUE);
+    MoveWindow(controls_.editMixedPhaseCap, contentLeft + 248, mixedTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitMixedPhaseCap, contentLeft + 320, mixedTop + 26, 28, 18, TRUE);
     MoveWindow(controls_.buttonRecalculate, contentLeft, top + 124, contentWidth, 32, TRUE);
 
     int y = top + 174;
@@ -786,6 +793,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     setSelectedSmoothness(settings.smoothness);
     setWindowTextValue(controls_.editMixedPhaseMax, formatWideDouble(settings.mixedPhaseMaxFrequencyHz, 0));
     setWindowTextValue(controls_.editMixedPhaseStrength, formatWideDouble(settings.mixedPhaseStrength, 2));
+    setWindowTextValue(controls_.editMixedPhaseCap, formatWideDouble(settings.mixedPhaseMaxCorrectionDegrees, 0));
     refreshPhaseModeControls();
     SendMessageW(controls_.checkboxShowInputRight, BM_SETCHECK, showInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -843,6 +851,9 @@ void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseStrength), value)) {
         workspace.filters.mixedPhaseStrength = value;
     }
+    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseCap), value)) {
+        workspace.filters.mixedPhaseMaxCorrectionDegrees = value;
+    }
     measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
 }
 
@@ -873,6 +884,9 @@ void FiltersPage::refreshPhaseModeControls() const {
     EnableWindow(controls_.labelMixedPhaseStrength, mixedEnabled);
     EnableWindow(controls_.editMixedPhaseStrength, mixedEnabled);
     EnableWindow(controls_.unitMixedPhaseStrength, mixedEnabled);
+    EnableWindow(controls_.labelMixedPhaseCap, mixedEnabled);
+    EnableWindow(controls_.editMixedPhaseCap, mixedEnabled);
+    EnableWindow(controls_.unitMixedPhaseCap, mixedEnabled);
 }
 
 FilterDesignSettings FiltersPage::currentSettings() const {
@@ -900,6 +914,9 @@ FilterDesignSettings FiltersPage::currentSettings() const {
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseStrength), value)) {
         settings.mixedPhaseStrength = value;
     }
+    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseCap), value)) {
+        settings.mixedPhaseMaxCorrectionDegrees = value;
+    }
 
     measurement::normalizeFilterDesignSettings(settings, sampleRate_);
     return settings;
@@ -914,7 +931,8 @@ bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const Filte
            std::abs(left.maxBoostDb - right.maxBoostDb) < 0.001 &&
            std::abs(left.maxCutDb - right.maxCutDb) < 0.001 &&
            std::abs(left.mixedPhaseMaxFrequencyHz - right.mixedPhaseMaxFrequencyHz) < 0.001 &&
-           std::abs(left.mixedPhaseStrength - right.mixedPhaseStrength) < 0.001;
+           std::abs(left.mixedPhaseStrength - right.mixedPhaseStrength) < 0.001 &&
+           std::abs(left.mixedPhaseMaxCorrectionDegrees - right.mixedPhaseMaxCorrectionDegrees) < 0.001;
 }
 
 void FiltersPage::refreshRecalculateButton() {
@@ -1027,7 +1045,8 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kEditMaxBoost ||
          commandId == kEditMaxCut ||
          commandId == kEditMixedPhaseMax ||
-         commandId == kEditMixedPhaseStrength) &&
+         commandId == kEditMixedPhaseStrength ||
+         commandId == kEditMixedPhaseCap) &&
         notificationCode == EN_CHANGE) {
         refreshRecalculateButton();
         return true;

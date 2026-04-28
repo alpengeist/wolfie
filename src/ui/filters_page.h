@@ -58,6 +58,9 @@ private:
         HWND labelMixedPhaseStrength = nullptr;
         HWND editMixedPhaseStrength = nullptr;
         HWND unitMixedPhaseStrength = nullptr;
+        HWND labelMixedPhaseCap = nullptr;
+        HWND editMixedPhaseCap = nullptr;
+        HWND unitMixedPhaseCap = nullptr;
         HWND buttonRecalculate = nullptr;
         HWND checkboxSyncHoverFrequency = nullptr;
         HWND inversionTitle = nullptr;
@@ -178,6 +181,7 @@ private:
     static constexpr int kCheckboxShowInputGroupDelayLeft = 3443;
     static constexpr int kCheckboxShowInputGroupDelayRight = 3444;
     static constexpr int kCheckboxAlignGroupDelayLatency = 3445;
+    static constexpr int kEditMixedPhaseCap = 3446;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
