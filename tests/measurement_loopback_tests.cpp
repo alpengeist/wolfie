@@ -39,6 +39,46 @@ std::vector<int16_t> synthesizeMeasurementCapture(const wolfie::measurement::Swe
     return capture;
 }
 
+struct ImpulseSharpnessMetrics {
+    size_t peakIndex = 0;
+    double peakMagnitude = 0.0;
+    double sideRms = 0.0;
+    double sideEnergyFraction = 1.0;
+};
+
+ImpulseSharpnessMetrics analyzeImpulseSharpness(const std::vector<double>& values, size_t exclusionRadius) {
+    ImpulseSharpnessMetrics metrics;
+    if (values.empty()) {
+        return metrics;
+    }
+
+    double totalEnergy = 0.0;
+    for (size_t index = 0; index < values.size(); ++index) {
+        const double magnitude = std::abs(values[index]);
+        if (magnitude > metrics.peakMagnitude) {
+            metrics.peakMagnitude = magnitude;
+            metrics.peakIndex = index;
+        }
+        totalEnergy += values[index] * values[index];
+    }
+
+    const size_t exclusionBegin = metrics.peakIndex > exclusionRadius ? metrics.peakIndex - exclusionRadius : 0;
+    const size_t exclusionEnd = std::min(values.size(), metrics.peakIndex + exclusionRadius + 1);
+    double sideEnergy = 0.0;
+    size_t sideCount = 0;
+    for (size_t index = 0; index < values.size(); ++index) {
+        if (index >= exclusionBegin && index < exclusionEnd) {
+            continue;
+        }
+        sideEnergy += values[index] * values[index];
+        ++sideCount;
+    }
+
+    metrics.sideRms = sideCount == 0 ? 0.0 : std::sqrt(sideEnergy / static_cast<double>(sideCount));
+    metrics.sideEnergyFraction = totalEnergy <= 1.0e-12 ? 0.0 : sideEnergy / totalEnergy;
+    return metrics;
+}
+
 bool expectMeasurementResultValueSets() {
     wolfie::MeasurementSettings settings;
     settings.sampleRate = 48000;
@@ -101,6 +141,65 @@ bool expectMeasurementResultValueSets() {
     return true;
 }
 
+bool expectSweepDeconvolutionProducesImpulseLikePeak() {
+    wolfie::MeasurementSettings settings;
+    settings.sampleRate = 48000;
+    settings.durationSeconds = 1.0;
+    settings.fadeInSeconds = 0.05;
+    settings.fadeOutSeconds = 0.05;
+    settings.leadInSamples = 1024;
+    settings.targetLengthSamples = 4096;
+
+    const int delaySamples = 180;
+    const wolfie::measurement::SweepPlaybackPlan plan =
+        wolfie::measurement::buildSweepPlaybackPlan(settings, -12.0);
+    const std::vector<int16_t> capture = synthesizeMeasurementCapture(plan,
+                                                                      delaySamples,
+                                                                      0.8,
+                                                                      0.5);
+    const wolfie::MeasurementResult result =
+        wolfie::measurement::buildMeasurementResultFromCapture(capture,
+                                                               plan,
+                                                               settings.sampleRate,
+                                                               wolfie::AudioSettings{},
+                                                               settings);
+
+    const wolfie::MeasurementValueSet* impulse = result.findValueSet("measurement.raw_impulse_response");
+    if (impulse == nullptr || !impulse->valid()) {
+        std::cerr << "deconvolution impulse response is missing\n";
+        return false;
+    }
+
+    constexpr size_t kImpulseMainLobeRadius = 8;
+    const ImpulseSharpnessMetrics leftMetrics =
+        analyzeImpulseSharpness(impulse->leftValues, kImpulseMainLobeRadius);
+    const ImpulseSharpnessMetrics rightMetrics =
+        analyzeImpulseSharpness(impulse->rightValues, kImpulseMainLobeRadius);
+
+    auto channelLooksImpulseLike = [](const ImpulseSharpnessMetrics& metrics, const char* label) {
+        if (metrics.peakMagnitude <= 1.0e-6) {
+            std::cerr << label << " deconvolution peak was too small\n";
+            return false;
+        }
+
+        const double sideToPeakRatio = metrics.sideRms / metrics.peakMagnitude;
+        if (sideToPeakRatio > 0.01) {
+            std::cerr << label << " deconvolution left too much off-peak energy (ratio="
+                      << sideToPeakRatio << ")\n";
+            return false;
+        }
+        if (metrics.sideEnergyFraction > 0.01) {
+            std::cerr << label << " deconvolution spread too much energy away from the main impulse (fraction="
+                      << metrics.sideEnergyFraction << ")\n";
+            return false;
+        }
+        return true;
+    };
+
+    return channelLooksImpulseLike(leftMetrics, "left") &&
+           channelLooksImpulseLike(rightMetrics, "right");
+}
+
 bool expectWaterfallPlotData() {
     wolfie::MeasurementSettings settings;
     settings.sampleRate = 48000;
@@ -144,5 +243,8 @@ bool expectWaterfallPlotData() {
 }  // namespace
 
 int main() {
-    return expectMeasurementResultValueSets() && expectWaterfallPlotData() && runFilterDesignTests() ? 0 : 1;
+    return expectMeasurementResultValueSets() &&
+           expectSweepDeconvolutionProducesImpulseLikePeak() &&
+           expectWaterfallPlotData() &&
+           runFilterDesignTests() ? 0 : 1;
 }
