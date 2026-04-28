@@ -681,6 +681,415 @@ bool expectExcessLfModeContainsCorrectionToLowFrequencies() {
     return true;
 }
 
+bool expectMixedModeLeavesMinimumPhaseInputAlone() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings minimumSettings;
+    minimumSettings.tapCount = 16384;
+
+    wolfie::FilterDesignSettings mixedSettings = minimumSettings;
+    mixedSettings.phaseMode = "mixed";
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0);
+    const wolfie::FilterDesignResult minimumResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           minimumSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult mixedResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           mixedSettings,
+                                           &phaseMeasurement);
+    if (!minimumResult.valid || !mixedResult.valid || mixedResult.phaseMode != "mixed") {
+        std::cerr << "mixed minimum-phase baseline did not produce valid results\n";
+        return false;
+    }
+
+    const double leftPredictedBandMean = bandMeanAbs(mixedResult.frequencyAxisHz,
+                                                     mixedResult.left.predictedExcessPhaseDegrees,
+                                                     20.0,
+                                                     300.0);
+    const double rightPredictedBandMean = bandMeanAbs(mixedResult.frequencyAxisHz,
+                                                      mixedResult.right.predictedExcessPhaseDegrees,
+                                                      20.0,
+                                                      300.0);
+    if (leftPredictedBandMean > 2.0 || rightPredictedBandMean > 2.0) {
+        std::cerr << "mixed mode introduced excess phase on a minimum-phase baseline (left="
+                  << leftPredictedBandMean << ", right=" << rightPredictedBandMean << ")\n";
+        return false;
+    }
+
+    const double leftMagnitudeDelta = bandMeanAbsDelta(mixedResult.frequencyAxisHz,
+                                                       minimumResult.left.correctedResponseDb,
+                                                       mixedResult.left.correctedResponseDb,
+                                                       20.0,
+                                                       20000.0);
+    const double rightMagnitudeDelta = bandMeanAbsDelta(mixedResult.frequencyAxisHz,
+                                                        minimumResult.right.correctedResponseDb,
+                                                        mixedResult.right.correctedResponseDb,
+                                                        20.0,
+                                                        20000.0);
+    if (leftMagnitudeDelta > 0.1 || rightMagnitudeDelta > 0.1) {
+        std::cerr << "mixed mode changed magnitude on a minimum-phase baseline (left="
+                  << leftMagnitudeDelta << ", right=" << rightMagnitudeDelta << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectMixedModeIgnoresBulkDelay() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.phaseMode = "mixed";
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0065);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "mixed bulk-delay baseline did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double leftPredictedBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                     result.left.predictedExcessPhaseDegrees,
+                                                     20.0,
+                                                     300.0);
+    const double rightPredictedBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                      result.right.predictedExcessPhaseDegrees,
+                                                      20.0,
+                                                      300.0);
+    if (leftPredictedBandMean > 3.0 || rightPredictedBandMean > 3.0) {
+        std::cerr << "mixed mode reacted to pure bulk delay (left="
+                  << leftPredictedBandMean << ", right=" << rightPredictedBandMean << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectMixedModeReducesLowFrequencyExcessPhase() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.phaseMode = "mixed";
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 1.0, 0.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "mixed reduction case did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double leftInputBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                 result.left.inputExcessPhaseDegrees,
+                                                 20.0,
+                                                 200.0);
+    const double leftPredictedBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                     result.left.predictedExcessPhaseDegrees,
+                                                     20.0,
+                                                     200.0);
+    if (leftInputBandMean < 8.0) {
+        std::cerr << "synthetic mixed-mode fixture did not produce a meaningful LF phase error\n";
+        return false;
+    }
+    if (leftPredictedBandMean > leftInputBandMean * 0.6) {
+        std::cerr << "mixed mode did not materially reduce LF excess phase (before="
+                  << leftInputBandMean << ", after=" << leftPredictedBandMean << ")\n";
+        return false;
+    }
+
+    const double rightPredictedBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                      result.right.predictedExcessPhaseDegrees,
+                                                      20.0,
+                                                      200.0);
+    if (rightPredictedBandMean > 2.0) {
+        std::cerr << "mixed mode changed the clean channel while correcting the left channel (right="
+                  << rightPredictedBandMean << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectMixedModeContainsCorrectionToLowFrequencies() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.phaseMode = "mixed";
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 1.0, 0.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "mixed containment case did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double highBandDelta = bandMeanAbsDelta(result.frequencyAxisHz,
+                                                  result.left.inputExcessPhaseDegrees,
+                                                  result.left.predictedExcessPhaseDegrees,
+                                                  500.0,
+                                                  5000.0);
+    if (highBandDelta > 5.0) {
+        std::cerr << "mixed mode changed too much phase out of band (" << highBandDelta << " deg)\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectMixedModePreservesMagnitudeVsMinimum() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    targetCurve.lowGainDb = 2.0;
+    targetCurve.midGainDb = 0.0;
+    targetCurve.highGainDb = -1.5;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings minimumSettings;
+    minimumSettings.tapCount = 16384;
+    minimumSettings.maxBoostDb = 6.0;
+    minimumSettings.maxCutDb = 12.0;
+    minimumSettings.highCorrectionHz = 18000.0;
+
+    wolfie::FilterDesignSettings mixedSettings = minimumSettings;
+    mixedSettings.phaseMode = "mixed";
+
+    const wolfie::SmoothedResponse response = buildSyntheticResponse();
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 1.0, 0.0);
+    const wolfie::FilterDesignResult minimumResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           minimumSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult mixedResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           mixedSettings,
+                                           &phaseMeasurement);
+    if (!minimumResult.valid || !mixedResult.valid) {
+        std::cerr << "mixed magnitude-preservation case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double leftMagnitudeDelta = bandMeanAbsDelta(mixedResult.frequencyAxisHz,
+                                                       minimumResult.left.correctedResponseDb,
+                                                       mixedResult.left.correctedResponseDb,
+                                                       20.0,
+                                                       20000.0);
+    const double rightMagnitudeDelta = bandMeanAbsDelta(mixedResult.frequencyAxisHz,
+                                                        minimumResult.right.correctedResponseDb,
+                                                        mixedResult.right.correctedResponseDb,
+                                                        20.0,
+                                                        20000.0);
+    if (leftMagnitudeDelta > 0.25 || rightMagnitudeDelta > 0.25) {
+        std::cerr << "mixed mode changed magnitude too much versus minimum phase (left="
+                  << leftMagnitudeDelta << ", right=" << rightMagnitudeDelta << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectMixedModeStrengthZeroMatchesMinimum() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings minimumSettings;
+    minimumSettings.tapCount = 16384;
+
+    wolfie::FilterDesignSettings mixedSettings = minimumSettings;
+    mixedSettings.phaseMode = "mixed";
+    mixedSettings.mixedPhaseStrength = 0.0;
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 1.0, 0.0);
+    const wolfie::FilterDesignResult minimumResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           minimumSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult mixedResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           mixedSettings,
+                                           &phaseMeasurement);
+    if (!minimumResult.valid || !mixedResult.valid) {
+        std::cerr << "mixed strength-zero case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double leftMagnitudeDelta = bandMeanAbsDelta(mixedResult.frequencyAxisHz,
+                                                       minimumResult.left.correctedResponseDb,
+                                                       mixedResult.left.correctedResponseDb,
+                                                       20.0,
+                                                       20000.0);
+    const double rightMagnitudeDelta = bandMeanAbsDelta(mixedResult.frequencyAxisHz,
+                                                        minimumResult.right.correctedResponseDb,
+                                                        mixedResult.right.correctedResponseDb,
+                                                        20.0,
+                                                        20000.0);
+    if (leftMagnitudeDelta > 0.1 || rightMagnitudeDelta > 0.1) {
+        std::cerr << "mixed strength zero changed magnitude versus minimum phase (left="
+                  << leftMagnitudeDelta << ", right=" << rightMagnitudeDelta << ")\n";
+        return false;
+    }
+
+    const double leftResidualDelta = bandMeanAbsDelta(mixedResult.frequencyAxisHz,
+                                                      minimumResult.left.predictedExcessPhaseDegrees,
+                                                      mixedResult.left.predictedExcessPhaseDegrees,
+                                                      20.0,
+                                                      300.0);
+    const double rightResidualDelta = bandMeanAbsDelta(mixedResult.frequencyAxisHz,
+                                                       minimumResult.right.predictedExcessPhaseDegrees,
+                                                       mixedResult.right.predictedExcessPhaseDegrees,
+                                                       20.0,
+                                                       300.0);
+    if (leftResidualDelta > 2.0 || rightResidualDelta > 2.0) {
+        std::cerr << "mixed strength zero changed predicted excess phase versus minimum phase (left="
+                  << leftResidualDelta << ", right=" << rightResidualDelta << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectMixedModePhaseLimitControlsCorrectionExtent() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings narrowSettings;
+    narrowSettings.tapCount = 16384;
+    narrowSettings.phaseMode = "mixed";
+    narrowSettings.mixedPhaseMaxFrequencyHz = 120.0;
+
+    wolfie::FilterDesignSettings wideSettings = narrowSettings;
+    wideSettings.mixedPhaseMaxFrequencyHz = 320.0;
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 1.0, 0.0);
+    const wolfie::FilterDesignResult narrowResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           narrowSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult wideResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           wideSettings,
+                                           &phaseMeasurement);
+    if (!narrowResult.valid || !wideResult.valid) {
+        std::cerr << "mixed phase-limit case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double inputLowBand = bandMeanAbs(narrowResult.frequencyAxisHz,
+                                            narrowResult.left.inputExcessPhaseDegrees,
+                                            20.0,
+                                            90.0);
+    const double narrowLowBand = bandMeanAbs(narrowResult.frequencyAxisHz,
+                                             narrowResult.left.predictedExcessPhaseDegrees,
+                                             20.0,
+                                             90.0);
+    if (narrowLowBand > inputLowBand * 0.75) {
+        std::cerr << "narrow mixed phase limit stopped useful low-band reduction (before="
+                  << inputLowBand << ", after=" << narrowLowBand << ")\n";
+        return false;
+    }
+
+    const double narrowUpperBand = bandMeanAbs(narrowResult.frequencyAxisHz,
+                                               narrowResult.left.predictedExcessPhaseDegrees,
+                                               110.0,
+                                               220.0);
+    const double wideUpperBand = bandMeanAbs(wideResult.frequencyAxisHz,
+                                             wideResult.left.predictedExcessPhaseDegrees,
+                                             110.0,
+                                             220.0);
+    if (wideUpperBand > narrowUpperBand * 0.5) {
+        std::cerr << "mixed phase limit did not change the upper LF correction extent (narrow="
+                  << narrowUpperBand << ", wide=" << wideUpperBand << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectRoonExportSupportsCommonSampleRates() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -795,5 +1204,12 @@ bool runFilterDesignTests() {
            expectExcessLfModeIgnoresBulkDelay() &&
            expectExcessLfModeReducesLowFrequencyExcessPhase() &&
            expectExcessLfModeContainsCorrectionToLowFrequencies() &&
+           expectMixedModeLeavesMinimumPhaseInputAlone() &&
+           expectMixedModeIgnoresBulkDelay() &&
+           expectMixedModeReducesLowFrequencyExcessPhase() &&
+           expectMixedModeContainsCorrectionToLowFrequencies() &&
+           expectMixedModePreservesMagnitudeVsMinimum() &&
+           expectMixedModeStrengthZeroMatchesMinimum() &&
+           expectMixedModePhaseLimitControlsCorrectionExtent() &&
            expectRoonExportSupportsCommonSampleRates();
 }

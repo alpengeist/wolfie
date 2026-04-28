@@ -36,7 +36,7 @@ private:
         HWND labelTapCount = nullptr;
         HWND comboTapCount = nullptr;
         HWND labelPhaseMode = nullptr;
-        HWND phaseModeValue = nullptr;
+        HWND comboPhaseMode = nullptr;
         HWND labelLowCorrection = nullptr;
         HWND editLowCorrection = nullptr;
         HWND unitLowCorrection = nullptr;
@@ -52,6 +52,12 @@ private:
         HWND labelSmoothness = nullptr;
         HWND sliderSmoothness = nullptr;
         HWND valueSmoothness = nullptr;
+        HWND labelMixedPhaseMax = nullptr;
+        HWND editMixedPhaseMax = nullptr;
+        HWND unitMixedPhaseMax = nullptr;
+        HWND labelMixedPhaseStrength = nullptr;
+        HWND editMixedPhaseStrength = nullptr;
+        HWND unitMixedPhaseStrength = nullptr;
         HWND buttonRecalculate = nullptr;
         HWND checkboxSyncHoverFrequency = nullptr;
         HWND inversionTitle = nullptr;
@@ -124,6 +130,7 @@ private:
 
     static constexpr wchar_t kPageClassName[] = L"WolfieFiltersPage";
     static constexpr int kComboTapCount = 3401;
+    static constexpr int kComboPhaseMode = 3440;
     static constexpr int kEditMaxBoost = 3402;
     static constexpr int kEditMaxCut = 3403;
     static constexpr int kEditLowCorrection = 3404;
@@ -159,20 +166,27 @@ private:
     static constexpr int kExcessPhaseGraph = 3437;
     static constexpr int kCheckboxShowFilterGroupDelayLeft = 3438;
     static constexpr int kCheckboxShowFilterGroupDelayRight = 3439;
+    static constexpr int kEditMixedPhaseMax = 3441;
+    static constexpr int kEditMixedPhaseStrength = 3442;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
     static std::wstring getWindowTextValue(HWND control);
     static void setWindowTextValue(HWND control, const std::wstring& text);
     static void populateTapCountCombo(HWND combo);
+    static void populatePhaseModeCombo(HWND combo);
     static int comboIndexFromTapCount(int tapCount);
     static int tapCountFromComboIndex(int index);
+    static int comboIndexFromPhaseMode(const std::string& phaseMode);
+    static std::string phaseModeFromComboIndex(int index);
     static bool areSettingsEqual(const FilterDesignSettings& left, const FilterDesignSettings& right);
 
     void createControls();
     [[nodiscard]] double selectedSmoothness() const;
     void setSelectedSmoothness(double smoothness) const;
+    [[nodiscard]] bool mixedModeSelected() const;
     void refreshSmoothnessValue() const;
+    void refreshPhaseModeControls() const;
     [[nodiscard]] FilterDesignSettings currentSettings() const;
     void refreshRecalculateButton();
     bool drawRecalculateButton(const DRAWITEMSTRUCT& draw) const;

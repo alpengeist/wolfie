@@ -248,6 +248,8 @@ struct FilterDesignSettings {
     double highTaperOctaves = 1.25;
     int displayPointCount = 2048;
     std::string phaseMode = "minimum";
+    double mixedPhaseMaxFrequencyHz = 220.0;
+    double mixedPhaseStrength = 1.0;
 };
 
 struct FilterDesignChannelResult {

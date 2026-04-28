@@ -182,7 +182,17 @@ void FiltersPage::createControls() {
                                             instance_,
                                             nullptr);
     controls_.labelPhaseMode = CreateWindowW(L"STATIC", L"Phase Mode", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.phaseModeValue = CreateWindowW(L"STATIC", L"Minimum phase", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.comboPhaseMode = CreateWindowW(L"COMBOBOX",
+                                             nullptr,
+                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                             0,
+                                             0,
+                                             0,
+                                             0,
+                                             window_,
+                                             reinterpret_cast<HMENU>(kComboPhaseMode),
+                                             instance_,
+                                             nullptr);
     controls_.labelLowCorrection = CreateWindowW(L"STATIC", L"Low Bound", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editLowCorrection = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditLowCorrection), instance_, nullptr);
@@ -212,6 +222,14 @@ void FiltersPage::createControls() {
                                                instance_,
                                                nullptr);
     controls_.valueSmoothness = CreateWindowW(L"STATIC", L"1", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelMixedPhaseMax = CreateWindowW(L"STATIC", L"Phase Limit", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.editMixedPhaseMax = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMixedPhaseMax), instance_, nullptr);
+    controls_.unitMixedPhaseMax = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelMixedPhaseStrength = CreateWindowW(L"STATIC", L"Phase Strength", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.editMixedPhaseStrength = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMixedPhaseStrength), instance_, nullptr);
+    controls_.unitMixedPhaseStrength = CreateWindowW(L"STATIC", L"0..1", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonRecalculate), instance_, nullptr);
     controls_.checkboxSyncHoverFrequency = CreateWindowW(L"BUTTON",
@@ -505,6 +523,7 @@ void FiltersPage::createControls() {
                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseFit), instance_, nullptr);
 
     populateTapCountCombo(controls_.comboTapCount);
+    populatePhaseModeCombo(controls_.comboPhaseMode);
     SendMessageW(controls_.sliderSmoothness, TBM_SETRANGEMIN, FALSE, 0);
     SendMessageW(controls_.sliderSmoothness, TBM_SETRANGEMAX, FALSE, static_cast<LPARAM>(kSmoothnessStepCount - 1));
     SendMessageW(controls_.sliderSmoothness, TBM_SETTICFREQ, 1, 0);
@@ -533,6 +552,7 @@ void FiltersPage::createControls() {
     excessPhaseGraph_.create(window_, instance_, kExcessPhaseGraph);
     groupDelayGraph_.create(window_, instance_, kGroupDelayGraph);
     impulseGraph_.create(window_, instance_, kImpulseGraph);
+    refreshPhaseModeControls();
     refreshRecalculateButton();
 }
 
@@ -554,7 +574,7 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelTapCount, contentLeft, top, 84, 18, TRUE);
     MoveWindow(controls_.comboTapCount, contentLeft, top + 22, 120, comboDropHeight, TRUE);
     MoveWindow(controls_.labelPhaseMode, contentLeft + 148, top, 84, 18, TRUE);
-    MoveWindow(controls_.phaseModeValue, contentLeft + 148, top + 24, 120, 18, TRUE);
+    MoveWindow(controls_.comboPhaseMode, contentLeft + 148, top + 22, 132, comboDropHeight, TRUE);
     MoveWindow(controls_.labelLowCorrection, contentLeft + 292, top, 72, 18, TRUE);
     MoveWindow(controls_.editLowCorrection, contentLeft + 292, top + 22, 68, 26, TRUE);
     MoveWindow(controls_.unitLowCorrection, contentLeft + 364, top + 26, 22, 18, TRUE);
@@ -570,9 +590,16 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelSmoothness, contentLeft + 716, top, 78, 18, TRUE);
     MoveWindow(controls_.sliderSmoothness, contentLeft + 716, top + 20, 120, 32, TRUE);
     MoveWindow(controls_.valueSmoothness, contentLeft + 842, top + 24, 36, 18, TRUE);
-    MoveWindow(controls_.buttonRecalculate, contentLeft, top + 62, contentWidth, 32, TRUE);
+    const int mixedTop = top + 62;
+    MoveWindow(controls_.labelMixedPhaseMax, contentLeft, mixedTop, 84, 18, TRUE);
+    MoveWindow(controls_.editMixedPhaseMax, contentLeft, mixedTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitMixedPhaseMax, contentLeft + 72, mixedTop + 26, 22, 18, TRUE);
+    MoveWindow(controls_.labelMixedPhaseStrength, contentLeft + 128, mixedTop, 102, 18, TRUE);
+    MoveWindow(controls_.editMixedPhaseStrength, contentLeft + 128, mixedTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitMixedPhaseStrength, contentLeft + 200, mixedTop + 26, 34, 18, TRUE);
+    MoveWindow(controls_.buttonRecalculate, contentLeft, top + 124, contentWidth, 32, TRUE);
 
-    int y = top + 112;
+    int y = top + 174;
     const int legendLeft = contentLeft + contentWidth - legendWidth;
     const int graphRight = legendLeft - legendGap;
     MoveWindow(controls_.checkboxSyncHoverFrequency, graphRight - 168, y - 2, 168, 20, TRUE);
@@ -696,12 +723,15 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     measurement::normalizeFilterDesignSettings(settings, workspace.measurement.sampleRate);
     sampleRate_ = workspace.measurement.sampleRate;
     SendMessageW(controls_.comboTapCount, CB_SETCURSEL, comboIndexFromTapCount(settings.tapCount), 0);
-    SetWindowTextW(controls_.phaseModeValue, L"Minimum phase");
+    SendMessageW(controls_.comboPhaseMode, CB_SETCURSEL, comboIndexFromPhaseMode(settings.phaseMode), 0);
     setWindowTextValue(controls_.editLowCorrection, formatWideDouble(settings.lowCorrectionHz, 0));
     setWindowTextValue(controls_.editHighCorrection, formatWideDouble(settings.highCorrectionHz, 0));
     setWindowTextValue(controls_.editMaxBoost, formatWideDouble(settings.maxBoostDb, 1));
     setWindowTextValue(controls_.editMaxCut, formatWideDouble(settings.maxCutDb, 1));
     setSelectedSmoothness(settings.smoothness);
+    setWindowTextValue(controls_.editMixedPhaseMax, formatWideDouble(settings.mixedPhaseMaxFrequencyHz, 0));
+    setWindowTextValue(controls_.editMixedPhaseStrength, formatWideDouble(settings.mixedPhaseStrength, 2));
+    refreshPhaseModeControls();
     SendMessageW(controls_.checkboxShowInputRight, BM_SETCHECK, showInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInversionRight, BM_SETCHECK, showInversionRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -734,6 +764,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
 
 void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.filters.tapCount = tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
+    workspace.filters.phaseMode = phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
     double value = 0.0;
     workspace.filters.smoothness = selectedSmoothness();
     if (tryParseDouble(getWindowTextValue(controls_.editLowCorrection), value)) {
@@ -747,6 +778,12 @@ void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     }
     if (tryParseDouble(getWindowTextValue(controls_.editMaxCut), value)) {
         workspace.filters.maxCutDb = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseMax), value)) {
+        workspace.filters.mixedPhaseMaxFrequencyHz = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseStrength), value)) {
+        workspace.filters.mixedPhaseStrength = value;
     }
     measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
 }
@@ -766,9 +803,24 @@ void FiltersPage::refreshSmoothnessValue() const {
     setWindowTextValue(controls_.valueSmoothness, formatWideDouble(smoothness, digits));
 }
 
+bool FiltersPage::mixedModeSelected() const {
+    return phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0))) == "mixed";
+}
+
+void FiltersPage::refreshPhaseModeControls() const {
+    const BOOL mixedEnabled = mixedModeSelected() ? TRUE : FALSE;
+    EnableWindow(controls_.labelMixedPhaseMax, mixedEnabled);
+    EnableWindow(controls_.editMixedPhaseMax, mixedEnabled);
+    EnableWindow(controls_.unitMixedPhaseMax, mixedEnabled);
+    EnableWindow(controls_.labelMixedPhaseStrength, mixedEnabled);
+    EnableWindow(controls_.editMixedPhaseStrength, mixedEnabled);
+    EnableWindow(controls_.unitMixedPhaseStrength, mixedEnabled);
+}
+
 FilterDesignSettings FiltersPage::currentSettings() const {
     FilterDesignSettings settings = appliedSettings_;
     settings.tapCount = tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
+    settings.phaseMode = phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
     settings.smoothness = selectedSmoothness();
 
     double value = 0.0;
@@ -784,6 +836,12 @@ FilterDesignSettings FiltersPage::currentSettings() const {
     if (tryParseDouble(getWindowTextValue(controls_.editMaxCut), value)) {
         settings.maxCutDb = value;
     }
+    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseMax), value)) {
+        settings.mixedPhaseMaxFrequencyHz = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseStrength), value)) {
+        settings.mixedPhaseStrength = value;
+    }
 
     measurement::normalizeFilterDesignSettings(settings, sampleRate_);
     return settings;
@@ -791,11 +849,14 @@ FilterDesignSettings FiltersPage::currentSettings() const {
 
 bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const FilterDesignSettings& right) {
     return left.tapCount == right.tapCount &&
+           left.phaseMode == right.phaseMode &&
            std::abs(left.smoothness - right.smoothness) < 0.001 &&
            std::abs(left.lowCorrectionHz - right.lowCorrectionHz) < 0.001 &&
            std::abs(left.highCorrectionHz - right.highCorrectionHz) < 0.001 &&
            std::abs(left.maxBoostDb - right.maxBoostDb) < 0.001 &&
-           std::abs(left.maxCutDb - right.maxCutDb) < 0.001;
+           std::abs(left.maxCutDb - right.maxCutDb) < 0.001 &&
+           std::abs(left.mixedPhaseMaxFrequencyHz - right.mixedPhaseMaxFrequencyHz) < 0.001 &&
+           std::abs(left.mixedPhaseStrength - right.mixedPhaseStrength) < 0.001;
 }
 
 void FiltersPage::refreshRecalculateButton() {
@@ -892,10 +953,23 @@ bool FiltersPage::handleCommand(WORD commandId,
         return true;
     }
 
+    if (commandId == kComboPhaseMode && notificationCode == CBN_SELCHANGE) {
+        workspace.filters.phaseMode =
+            phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+        measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
+        refreshPhaseModeControls();
+        filterDesignValid_ = false;
+        refreshRecalculateButton();
+        settingsChanged = true;
+        return true;
+    }
+
     if ((commandId == kEditLowCorrection ||
          commandId == kEditHighCorrection ||
          commandId == kEditMaxBoost ||
-         commandId == kEditMaxCut) &&
+         commandId == kEditMaxCut ||
+         commandId == kEditMixedPhaseMax ||
+         commandId == kEditMixedPhaseStrength) &&
         notificationCode == EN_CHANGE) {
         refreshRecalculateButton();
         return true;
@@ -1189,6 +1263,12 @@ void FiltersPage::populateTapCountCombo(HWND combo) {
     SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"131072"));
 }
 
+void FiltersPage::populatePhaseModeCombo(HWND combo) {
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Minimum phase"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Mixed phase"));
+}
+
 int FiltersPage::comboIndexFromTapCount(int tapCount) {
     switch (tapCount) {
     case 16384:
@@ -1215,6 +1295,14 @@ int FiltersPage::tapCountFromComboIndex(int index) {
     default:
         return 131072;
     }
+}
+
+int FiltersPage::comboIndexFromPhaseMode(const std::string& phaseMode) {
+    return phaseMode == "mixed" ? 1 : 0;
+}
+
+std::string FiltersPage::phaseModeFromComboIndex(int index) {
+    return index == 1 ? "mixed" : "minimum";
 }
 
 void FiltersPage::updateScrollBar() {

@@ -13,6 +13,7 @@ As of 2026-04-28 after the latest implementation slice:
 - `FilterDesignSettings::phaseMode` now normalizes to either:
   - `"minimum"`
   - `"excess-lf"`
+  - `"mixed"`
 - `filter_designer` already derives:
   - input excess phase
   - predicted excess phase
@@ -26,6 +27,18 @@ As of 2026-04-28 after the latest implementation slice:
   - it updates predicted excess phase and predicted group delay
   - it does not mix that correction with the existing minimum-phase magnitude FIR yet
   - corrected magnitude remains unchanged in that mode
+- `"mixed"` is now the first combined realization mode:
+  - it uses the existing magnitude correction target
+  - it applies the LF excess-phase correction inside a single realized FIR synthesis path
+  - it analyzes the realized taps and uses those realized taps for predicted magnitude and phase diagnostics
+  - it is now wired into the Filters page as the user-facing mixed-phase mode
+- the Filters page now exposes only:
+  - `"Minimum phase"`
+  - `"Mixed phase"`
+- `"excess-lf"` remains internal and is not exposed in the UI
+- the user-editable mixed-mode controls are now:
+  - `mixedPhaseMaxFrequencyHz` with a default of `220 Hz`
+  - `mixedPhaseStrength` with a default of `1.0`
 
 ## Test Harness Added In This Session
 
@@ -50,6 +63,16 @@ Added isolated excess-phase preview tests:
 - `expectExcessLfModeIgnoresBulkDelay()`
 - `expectExcessLfModeReducesLowFrequencyExcessPhase()`
 - `expectExcessLfModeContainsCorrectionToLowFrequencies()`
+
+Added combined mixed-mode tests:
+
+- `expectMixedModeLeavesMinimumPhaseInputAlone()`
+- `expectMixedModeIgnoresBulkDelay()`
+- `expectMixedModeReducesLowFrequencyExcessPhase()`
+- `expectMixedModeContainsCorrectionToLowFrequencies()`
+- `expectMixedModePreservesMagnitudeVsMinimum()`
+- `expectMixedModeStrengthZeroMatchesMinimum()`
+- `expectMixedModePhaseLimitControlsCorrectionExtent()`
 
 These are intentionally pre-implementation tests. They verify that:
 
@@ -225,6 +248,13 @@ Then decide explicitly how the LF excess-phase correction is represented:
 
 Whichever representation is used, predicted diagnostics must reflect the combined result.
 
+Status:
+
+- done with a single realized FIR path for `"mixed"`
+- the implementation now synthesizes one combined FIR from magnitude correction plus LF excess-phase correction
+- predictions are based on realized taps, not the ideal target spectrum
+- the mode is still measurement-side only and not yet exposed in the UI
+
 ## Implementation Strategy
 
 ### Recommended Representation
@@ -280,6 +310,11 @@ The combined path should:
 6. populate predictions from the realized taps, not the ideal target spectrum
 
 That last point is mandatory. If the realized taps differ from the ideal target, the predicted curves must report the realized behavior.
+
+Status:
+
+- implemented
+- the current path builds the combined spectrum, realizes a time-domain impulse, extracts the strongest circular window, and analyzes the realized taps by FFT
 
 ### Delay Strategy
 
@@ -339,7 +374,12 @@ The key rule for Step 4:
 - implement one combined FIR synthesis problem
 - do not bolt excess-phase math onto the side of the current minimum-phase FIR without validating the realized taps
 
-### Step 5: Predict Combined Diagnostics
+Current status:
+
+- the current tests cover LF reduction, containment, magnitude preservation versus `"minimum"`, and no-false-positive behavior
+- the remaining useful follow-up for this step is an explicit impulse-domain quality check for pre-ringing / late-energy concentration
+
+### Step 5: Predict Combined Diagnostics And Expose Mixed Mode
 
 Update:
 
@@ -348,6 +388,18 @@ Update:
 - impulse diagnostics if needed
 
 The predicted curves must reflect the combined minimum-phase + LF excess-phase correction, not just the existing minimum-phase FIR.
+
+Status:
+
+- done for the measurement-side predicted diagnostics
+- done for the Filters page wiring
+- the UI now exposes a `Phase Mode` selector with:
+  - `Minimum phase`
+  - `Mixed phase`
+- the UI also exposes the two mixed-mode control parameters:
+  - `Phase Limit` in Hz
+  - `Phase Strength` in the range `0..1`
+- `excess-lf` stays internal for testing and algorithm iteration only
 
 ## Important Constraints
 

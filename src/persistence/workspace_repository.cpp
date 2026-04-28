@@ -1118,6 +1118,12 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonString(*content, "filterPhaseMode")) {
             workspace.filters.phaseMode = *value;
         }
+        if (const auto value = findJsonNumber(*content, "filterMixedPhaseMaxFrequencyHz")) {
+            workspace.filters.mixedPhaseMaxFrequencyHz = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "filterMixedPhaseStrength")) {
+            workspace.filters.mixedPhaseStrength = *value;
+        }
     }
 
     if (const auto uiContent = readTextFile(path / "ui.json")) {
@@ -1202,7 +1208,9 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"filterHighCorrectionHz\": " << workspace.filters.highCorrectionHz << ",\n"
                   << "    \"filterHighTaperOctaves\": " << workspace.filters.highTaperOctaves << ",\n"
                   << "    \"filterDisplayPointCount\": " << workspace.filters.displayPointCount << ",\n"
-                  << "    \"filterPhaseMode\": \"" << escapeJson(workspace.filters.phaseMode) << "\"\n"
+                  << "    \"filterPhaseMode\": \"" << escapeJson(workspace.filters.phaseMode) << "\",\n"
+                  << "    \"filterMixedPhaseMaxFrequencyHz\": " << workspace.filters.mixedPhaseMaxFrequencyHz << ",\n"
+                  << "    \"filterMixedPhaseStrength\": " << workspace.filters.mixedPhaseStrength << "\n"
                   << "  },\n"
                   << "  \"ui\": {\n"
                   << "    \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
