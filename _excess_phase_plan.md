@@ -225,6 +225,120 @@ Then decide explicitly how the LF excess-phase correction is represented:
 
 Whichever representation is used, predicted diagnostics must reflect the combined result.
 
+## Implementation Strategy
+
+### Recommended Representation
+
+Use single-shot FIR synthesis in the frequency domain for the combined mode.
+
+Do not introduce an IIR all-pass path for this feature first.
+
+Reasoning:
+
+- the app already uses FIR end to end
+- export is already FIR/WAV based
+- persistence and UI semantics already assume FIR output
+- one realized FIR is easier to validate than a mixed FIR + IIR representation
+
+Recommended mode split:
+
+- `"minimum"` keeps current behavior exactly
+- `"excess-lf"` remains an isolated preview/diagnostic mode
+- `"mixed"` becomes the first true combined exportable mode
+
+### Combined FIR Strategy
+
+For `"mixed"`:
+
+1. build the magnitude correction target exactly as the current minimum-phase path does
+2. derive the minimum-phase angle implied by that magnitude
+3. derive the LF excess-phase correction angle from the current `"excess-lf"` preview path
+4. form one complex target spectrum
+5. synthesize one real FIR from that spectrum
+6. analyze the realized taps and use the realized result for all predicted outputs
+
+Conceptually:
+
+`H(f) = |H(f)| * exp(j * (phi_min(f) + phi_excess_lf_corr(f) + phi_delay(f)))`
+
+Where:
+
+- `|H(f)|` is the existing magnitude correction
+- `phi_min(f)` is the minimum-phase angle for that magnitude
+- `phi_excess_lf_corr(f)` is the new LF excess-phase correction
+- `phi_delay(f)` is the intentional linear delay needed to make the FIR realizable
+
+### Realization Path
+
+The combined path should:
+
+1. build the positive-frequency complex target
+2. enforce Hermitian symmetry
+3. IFFT to time domain
+4. window/truncate to `tapCount`
+5. FFT the realized taps back to frequency domain
+6. populate predictions from the realized taps, not the ideal target spectrum
+
+That last point is mandatory. If the realized taps differ from the ideal target, the predicted curves must report the realized behavior.
+
+### Delay Strategy
+
+This is the hard part of Step 4.
+
+Pure excess-phase correction wants look-ahead. A realizable FIR needs explicit delay budgeting.
+
+So the combined mode needs an intentional policy:
+
+- add enough linear delay to keep the FIR causal and stable
+- keep that delay bounded so the impulse does not become pathological
+- remove that intentional bulk delay when reporting diagnostic excess phase
+- keep it included in the actual realized taps
+
+Practical rule:
+
+- `predictedExcessPhaseDegrees` should ignore intentional bulk delay
+- `predictedGroupDelayMs` should include the actual realized filter delay
+
+### Why Not IIR All-Pass First
+
+Do not start with a cascaded all-pass IIR path.
+
+That would force new architecture and validation work for:
+
+- runtime representation
+- export format
+- persistence
+- stability guarantees
+- UI semantics for FIR versus IIR behavior
+
+That is a larger architectural change than this feature currently needs.
+
+### Suggested Code Structure
+
+Inside `src/measurement/filter_designer.cpp`, add focused helpers along these lines:
+
+- `buildCombinedCorrectionSpectrum(...)`
+- `buildRealFirFromComplexSpectrum(...)`
+- `analyzeRealizedFilter(...)`
+
+The current `buildExcessPhaseCorrectionDegrees(...)` helper should remain the source of the LF phase correction shape, but not the final exported artifact.
+
+### Acceptance Criteria For Step 4
+
+Before trusting `"mixed"`, add tests that verify:
+
+- realized LF excess-phase reduction in `20..200 Hz`
+- out-of-band containment in `500..5000 Hz`
+- magnitude preservation versus the current `"minimum"` path
+- clean-channel independence
+- sane impulse placement / bounded pre-ringing
+- realized-taps FFT matches the predicted combined response
+
+The key rule for Step 4:
+
+- implement one combined FIR synthesis problem
+- do not bolt excess-phase math onto the side of the current minimum-phase FIR without validating the realized taps
+
 ### Step 5: Predict Combined Diagnostics
 
 Update:
