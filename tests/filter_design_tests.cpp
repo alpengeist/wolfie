@@ -169,6 +169,21 @@ double bandMeanAbsDelta(const std::vector<double>& frequencyAxisHz,
     return sum / static_cast<double>(used);
 }
 
+double maxAdjacentAbsDelta(const std::vector<double>& values) {
+    if (values.size() < 2) {
+        return 0.0;
+    }
+
+    double maxDelta = 0.0;
+    for (size_t index = 1; index < values.size(); ++index) {
+        if (!std::isfinite(values[index - 1]) || !std::isfinite(values[index])) {
+            continue;
+        }
+        maxDelta = std::max(maxDelta, std::abs(values[index] - values[index - 1]));
+    }
+    return maxDelta;
+}
+
 bool expectDesignedFilterLooksSane() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -1153,6 +1168,51 @@ bool expectMixedModePhaseCapControlsLowFrequencyReduction() {
     return true;
 }
 
+bool expectMixedModeStereoImpulsePeaksShareOneLatency() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.phaseMode = "mixed";
+    filterSettings.mixedPhaseMaxCorrectionDegrees = 720.0;
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 3.0, -2.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "mixed stereo-latency alignment case did not produce a valid filter result\n";
+        return false;
+    }
+
+    const int expectedPeakIndex = filterSettings.tapCount / 2;
+    const int stereoPeakDelta = std::abs(result.left.impulsePeakIndex - result.right.impulsePeakIndex);
+    if (stereoPeakDelta > 1) {
+        std::cerr << "mixed stereo filter peaks diverged in latency (left="
+                  << result.left.impulsePeakIndex << ", right=" << result.right.impulsePeakIndex << ")\n";
+        return false;
+    }
+    if (std::abs(result.left.impulsePeakIndex - expectedPeakIndex) > 2 ||
+        std::abs(result.right.impulsePeakIndex - expectedPeakIndex) > 2) {
+        std::cerr << "mixed stereo filter peaks were not centered to a shared latency (left="
+                  << result.left.impulsePeakIndex << ", right=" << result.right.impulsePeakIndex << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectInputGroupDelayIsPublishedFromMeasuredPhase() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -1198,6 +1258,45 @@ bool expectInputGroupDelayIsPublishedFromMeasuredPhase() {
     if (leftInputDelay < 0.02 || rightInputDelay > 0.01) {
         std::cerr << "measured input group delay was not preserved in the filter result (left="
                   << leftInputDelay << ", right=" << rightInputDelay << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.phaseMode = "mixed";
+    filterSettings.mixedPhaseMaxCorrectionDegrees = 360.0;
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 3.0, 0.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "continuous excess-phase publication case did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double inputContinuousJump = maxAdjacentAbsDelta(result.left.inputExcessPhaseContinuousDegrees);
+    const double predictedContinuousJump = maxAdjacentAbsDelta(result.left.predictedExcessPhaseContinuousDegrees);
+    if (inputContinuousJump > 120.0 || predictedContinuousJump > 120.0) {
+        std::cerr << "continuous excess-phase series contains implausible wrap jumps (input="
+                  << inputContinuousJump << ", predicted=" << predictedContinuousJump << ")\n";
         return false;
     }
 
@@ -1326,6 +1425,8 @@ bool runFilterDesignTests() {
            expectMixedModeStrengthZeroMatchesMinimum() &&
            expectMixedModePhaseLimitControlsCorrectionExtent() &&
            expectMixedModePhaseCapControlsLowFrequencyReduction() &&
+           expectMixedModeStereoImpulsePeaksShareOneLatency() &&
            expectInputGroupDelayIsPublishedFromMeasuredPhase() &&
+           expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps() &&
            expectRoonExportSupportsCommonSampleRates();
 }

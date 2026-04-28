@@ -225,6 +225,69 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "targetCurveGraphVisibleMaxDb")) {
         ui.targetCurveGraphVisibleMaxDb = *value;
     }
+    if (const auto value = findJsonBool(content, "filterShowInputRight")) {
+        ui.filterShowInputRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowInputLeft")) {
+        ui.filterShowInputLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowInversionRight")) {
+        ui.filterShowInversionRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowInversionLeft")) {
+        ui.filterShowInversionLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowCorrectedInputLeft")) {
+        ui.filterShowCorrectedInputLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowCorrectedInputRight")) {
+        ui.filterShowCorrectedInputRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowCorrectedLeft")) {
+        ui.filterShowCorrectedLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowCorrectedRight")) {
+        ui.filterShowCorrectedRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowExcessPhaseInputRight")) {
+        ui.filterShowExcessPhaseInputRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowExcessPhaseInputLeft")) {
+        ui.filterShowExcessPhaseInputLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowExcessPhasePredictedRight")) {
+        ui.filterShowExcessPhasePredictedRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowExcessPhasePredictedLeft")) {
+        ui.filterShowExcessPhasePredictedLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterUnwrapExcessPhase")) {
+        ui.filterUnwrapExcessPhase = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowInputGroupDelayLeft")) {
+        ui.filterShowInputGroupDelayLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowInputGroupDelayRight")) {
+        ui.filterShowInputGroupDelayRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowPredictedGroupDelayRight")) {
+        ui.filterShowPredictedGroupDelayRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowPredictedGroupDelayLeft")) {
+        ui.filterShowPredictedGroupDelayLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowFilterGroupDelayLeft")) {
+        ui.filterShowFilterGroupDelayLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowFilterGroupDelayRight")) {
+        ui.filterShowFilterGroupDelayRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterAlignGroupDelayLatency")) {
+        ui.filterAlignGroupDelayLatency = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterSyncHoverFrequency")) {
+        ui.filterSyncHoverFrequency = *value;
+    }
     if (const auto value = findJsonIntArray(content, "exportSampleRatesHz")) {
         ui.exportSampleRatesHz = *value;
         ui.exportSampleRatesCustomized = true;
@@ -1243,6 +1306,41 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
                   << "    \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
                   << "    \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << ",\n"
+                  << "    \"filterShowInputRight\": " << (workspace.ui.filterShowInputRight ? "true" : "false") << ",\n"
+                  << "    \"filterShowInputLeft\": " << (workspace.ui.filterShowInputLeft ? "true" : "false") << ",\n"
+                  << "    \"filterShowInversionRight\": " << (workspace.ui.filterShowInversionRight ? "true" : "false") << ",\n"
+                  << "    \"filterShowInversionLeft\": " << (workspace.ui.filterShowInversionLeft ? "true" : "false") << ",\n"
+                  << "    \"filterShowCorrectedInputLeft\": "
+                  << (workspace.ui.filterShowCorrectedInputLeft ? "true" : "false") << ",\n"
+                  << "    \"filterShowCorrectedInputRight\": "
+                  << (workspace.ui.filterShowCorrectedInputRight ? "true" : "false") << ",\n"
+                  << "    \"filterShowCorrectedLeft\": " << (workspace.ui.filterShowCorrectedLeft ? "true" : "false") << ",\n"
+                  << "    \"filterShowCorrectedRight\": " << (workspace.ui.filterShowCorrectedRight ? "true" : "false") << ",\n"
+                  << "    \"filterShowExcessPhaseInputRight\": "
+                  << (workspace.ui.filterShowExcessPhaseInputRight ? "true" : "false") << ",\n"
+                  << "    \"filterShowExcessPhaseInputLeft\": "
+                  << (workspace.ui.filterShowExcessPhaseInputLeft ? "true" : "false") << ",\n"
+                  << "    \"filterShowExcessPhasePredictedRight\": "
+                  << (workspace.ui.filterShowExcessPhasePredictedRight ? "true" : "false") << ",\n"
+                  << "    \"filterShowExcessPhasePredictedLeft\": "
+                  << (workspace.ui.filterShowExcessPhasePredictedLeft ? "true" : "false") << ",\n"
+                  << "    \"filterUnwrapExcessPhase\": " << (workspace.ui.filterUnwrapExcessPhase ? "true" : "false") << ",\n"
+                  << "    \"filterShowInputGroupDelayLeft\": "
+                  << (workspace.ui.filterShowInputGroupDelayLeft ? "true" : "false") << ",\n"
+                  << "    \"filterShowInputGroupDelayRight\": "
+                  << (workspace.ui.filterShowInputGroupDelayRight ? "true" : "false") << ",\n"
+                  << "    \"filterShowPredictedGroupDelayRight\": "
+                  << (workspace.ui.filterShowPredictedGroupDelayRight ? "true" : "false") << ",\n"
+                  << "    \"filterShowPredictedGroupDelayLeft\": "
+                  << (workspace.ui.filterShowPredictedGroupDelayLeft ? "true" : "false") << ",\n"
+                  << "    \"filterShowFilterGroupDelayLeft\": "
+                  << (workspace.ui.filterShowFilterGroupDelayLeft ? "true" : "false") << ",\n"
+                  << "    \"filterShowFilterGroupDelayRight\": "
+                  << (workspace.ui.filterShowFilterGroupDelayRight ? "true" : "false") << ",\n"
+                  << "    \"filterAlignGroupDelayLatency\": "
+                  << (workspace.ui.filterAlignGroupDelayLatency ? "true" : "false") << ",\n"
+                  << "    \"filterSyncHoverFrequency\": "
+                  << (workspace.ui.filterSyncHoverFrequency ? "true" : "false") << ",\n"
                   << "    \"exportSampleRatesHz\": ";
     writeJsonIntArray(workspaceJson, workspace.ui.exportSampleRatesHz);
     workspaceJson << "\n"
@@ -1278,6 +1376,39 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
            << "  \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
            << "  \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << ",\n"
+           << "  \"filterShowInputRight\": " << (workspace.ui.filterShowInputRight ? "true" : "false") << ",\n"
+           << "  \"filterShowInputLeft\": " << (workspace.ui.filterShowInputLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowInversionRight\": " << (workspace.ui.filterShowInversionRight ? "true" : "false") << ",\n"
+           << "  \"filterShowInversionLeft\": " << (workspace.ui.filterShowInversionLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowCorrectedInputLeft\": " << (workspace.ui.filterShowCorrectedInputLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowCorrectedInputRight\": "
+           << (workspace.ui.filterShowCorrectedInputRight ? "true" : "false") << ",\n"
+           << "  \"filterShowCorrectedLeft\": " << (workspace.ui.filterShowCorrectedLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowCorrectedRight\": " << (workspace.ui.filterShowCorrectedRight ? "true" : "false") << ",\n"
+           << "  \"filterShowExcessPhaseInputRight\": "
+           << (workspace.ui.filterShowExcessPhaseInputRight ? "true" : "false") << ",\n"
+           << "  \"filterShowExcessPhaseInputLeft\": "
+           << (workspace.ui.filterShowExcessPhaseInputLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowExcessPhasePredictedRight\": "
+           << (workspace.ui.filterShowExcessPhasePredictedRight ? "true" : "false") << ",\n"
+           << "  \"filterShowExcessPhasePredictedLeft\": "
+           << (workspace.ui.filterShowExcessPhasePredictedLeft ? "true" : "false") << ",\n"
+           << "  \"filterUnwrapExcessPhase\": " << (workspace.ui.filterUnwrapExcessPhase ? "true" : "false") << ",\n"
+           << "  \"filterShowInputGroupDelayLeft\": "
+           << (workspace.ui.filterShowInputGroupDelayLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowInputGroupDelayRight\": "
+           << (workspace.ui.filterShowInputGroupDelayRight ? "true" : "false") << ",\n"
+           << "  \"filterShowPredictedGroupDelayRight\": "
+           << (workspace.ui.filterShowPredictedGroupDelayRight ? "true" : "false") << ",\n"
+           << "  \"filterShowPredictedGroupDelayLeft\": "
+           << (workspace.ui.filterShowPredictedGroupDelayLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowFilterGroupDelayLeft\": "
+           << (workspace.ui.filterShowFilterGroupDelayLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowFilterGroupDelayRight\": "
+           << (workspace.ui.filterShowFilterGroupDelayRight ? "true" : "false") << ",\n"
+           << "  \"filterAlignGroupDelayLatency\": "
+           << (workspace.ui.filterAlignGroupDelayLatency ? "true" : "false") << ",\n"
+           << "  \"filterSyncHoverFrequency\": " << (workspace.ui.filterSyncHoverFrequency ? "true" : "false") << ",\n"
            << "  \"exportSampleRatesHz\": ";
     writeJsonIntArray(uiJson, workspace.ui.exportSampleRatesHz);
     uiJson << "\n"

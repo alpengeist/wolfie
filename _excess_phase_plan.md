@@ -391,6 +391,38 @@ Current status:
   - evaluate whether raising the now-configurable LF phase-correction cap materially helps below `70 Hz`
   - decouple phase regularization from the existing magnitude `smoothness` control
 
+### Note: PRC-Like Direction
+
+Acourate's published PRC material is a useful design hint, but not a drop-in algorithm specification.
+
+The credible takeaway is:
+
+- pre-ringing is treated as a consequence of excess-phase correction that is too strong or too localized
+- the diagnostic domain is group delay / excess-phase behavior, not only the impulse chart
+- the useful control is likely not a single global scalar on the whole FIR, but a targeted suppression or softening of specific low-frequency delay / excess-phase peaks
+
+For this codebase that suggests a better future direction than a generic "pre-ringing amount" knob:
+
+- detect dominant low-frequency excess-phase / group-delay peaks
+- locally reduce or broaden the corresponding phase correction
+- trade some phase linearization for less acausal energy before the main peak
+- keep this peak-aware damping separate from the existing global controls:
+  - `mixedPhaseMaxFrequencyHz`
+  - `mixedPhaseStrength`
+  - `mixedPhaseMaxCorrectionDegrees`
+
+Practical implication:
+
+- if a PRC-like feature is added later, model it as a peak-aware excess-phase compensation stage inside `src/measurement/filter_designer.cpp`
+- do not frame it as a UI-only post-process on the already realized taps
+- do not assume a vendor-style scalar range such as `-1..5` has portable meaning here; define our own semantics around measurable group-delay / impulse-domain effects
+
+Observed tuning note:
+
+- manual tuning showed that lowering `mixedPhaseStrength` reduces the visible pre-ringing
+- that supports the working hypothesis that ringing is being driven by a small number of strongly corrected local excess-phase / group-delay features, not by an unrelated plotting artifact
+- treat this as evidence in favor of a future peak-aware local optimization stage rather than only adding more global scalar controls
+
 ### Step 5: Predict Combined Diagnostics And Expose Mixed Mode
 
 Update:
@@ -416,6 +448,14 @@ Status:
   - filter group delay
   - predicted corrected group delay
 - the filter trace labels were renamed to make the comparison explicit and avoid confusing filter delay with measured delay
+- the Excess Phase graph now has an `Unwrap phase` display toggle
+- important correction: the unwrap view must use continuous excess-phase series produced by `filter_designer`, not a UI-side unwrap of already wrapped `[-180, 180]` differences
+- the current code now publishes continuous input/predicted excess-phase series for that purpose, and the UI unwrap view uses those directly
+- current practical status:
+  - the interesting low-frequency region used for excess-phase correction is working well enough for tuning and validation
+  - the unwrapped Excess Phase view looks somewhat better than before, but it can still drift into implausible thousands of degrees at higher frequencies
+  - that means the continuous excess-phase diagnostic is still not fully trustworthy outside the LF region of interest
+  - leave this as a known limitation for now; do not use the high-frequency unwrapped excess-phase trace as a decision-grade diagnostic
 - `excess-lf` stays internal for testing and algorithm iteration only
 
 ## Important Constraints

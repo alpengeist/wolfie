@@ -27,7 +27,8 @@ public:
                        WORD notificationCode,
                        WorkspaceState& workspace,
                        bool& settingsChanged,
-                       bool& recalculateRequested);
+                       bool& recalculateRequested,
+                       bool& viewSettingsChanged);
 
     [[nodiscard]] HWND window() const { return window_; }
 
@@ -94,6 +95,7 @@ private:
         HWND lineCorrectedRight = nullptr;
         HWND labelCorrectedRight = nullptr;
         HWND excessPhaseTitle = nullptr;
+        HWND checkboxUnwrapExcessPhase = nullptr;
         HWND excessPhaseLegendFrame = nullptr;
         HWND checkboxShowExcessPhaseInputRight = nullptr;
         HWND lineExcessPhaseInputRight = nullptr;
@@ -182,6 +184,7 @@ private:
     static constexpr int kCheckboxShowInputGroupDelayRight = 3444;
     static constexpr int kCheckboxAlignGroupDelayLatency = 3445;
     static constexpr int kEditMixedPhaseCap = 3446;
+    static constexpr int kCheckboxUnwrapExcessPhase = 3447;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
@@ -202,6 +205,10 @@ private:
     void refreshSmoothnessValue() const;
     void refreshPhaseModeControls() const;
     [[nodiscard]] FilterDesignSettings currentSettings() const;
+    void loadViewSettings(const UiSettings& ui);
+    void syncViewSettingsToControls() const;
+    void syncViewSettingsFromControls();
+    void saveViewSettings(UiSettings& ui) const;
     void refreshRecalculateButton();
     bool drawRecalculateButton(const DRAWITEMSTRUCT& draw) const;
     void updateScrollBar();
@@ -236,6 +243,7 @@ private:
     bool showExcessPhaseInputLeft_ = true;
     bool showExcessPhasePredictedRight_ = true;
     bool showExcessPhasePredictedLeft_ = true;
+    bool unwrapExcessPhase_ = false;
     bool showInputGroupDelayLeft_ = true;
     bool showInputGroupDelayRight_ = true;
     bool showPredictedGroupDelayRight_ = true;

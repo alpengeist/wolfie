@@ -121,6 +121,46 @@ std::vector<double> resampleLogFrequency(const std::vector<double>& sourceAxisHz
     return resampled;
 }
 
+std::vector<double> buildSharedImpulseTimeAxisMs(const FilterDesignResult& filterResult) {
+    const size_t tapCount = std::min(filterResult.left.filterTaps.size(), filterResult.right.filterTaps.size());
+    if (tapCount == 0) {
+        return {};
+    }
+
+    const bool hasLeftAxis = filterResult.left.impulseTimeMs.size() >= tapCount;
+    const bool hasRightAxis = filterResult.right.impulseTimeMs.size() >= tapCount;
+    std::vector<double> xValues;
+    xValues.reserve(tapCount);
+    if (hasLeftAxis && hasRightAxis) {
+        for (size_t index = 0; index < tapCount; ++index) {
+            xValues.push_back((filterResult.left.impulseTimeMs[index] + filterResult.right.impulseTimeMs[index]) * 0.5);
+        }
+        return xValues;
+    }
+
+    if (hasLeftAxis) {
+        xValues.insert(xValues.end(),
+                       filterResult.left.impulseTimeMs.begin(),
+                       filterResult.left.impulseTimeMs.begin() + static_cast<std::ptrdiff_t>(tapCount));
+        return xValues;
+    }
+
+    if (hasRightAxis) {
+        xValues.insert(xValues.end(),
+                       filterResult.right.impulseTimeMs.begin(),
+                       filterResult.right.impulseTimeMs.begin() + static_cast<std::ptrdiff_t>(tapCount));
+        return xValues;
+    }
+
+    const double sampleRate = static_cast<double>(std::max(filterResult.sampleRate, 1));
+    const double centerIndex = (static_cast<double>(std::max(filterResult.left.impulsePeakIndex, 0)) +
+                                static_cast<double>(std::max(filterResult.right.impulsePeakIndex, 0))) * 0.5;
+    for (size_t index = 0; index < tapCount; ++index) {
+        xValues.push_back((static_cast<double>(index) - centerIndex) * 1000.0 / sampleRate);
+    }
+    return xValues;
+}
+
 std::vector<double> breakWrappedPhaseDiscontinuities(const std::vector<double>& valuesDegrees) {
     std::vector<double> values = valuesDegrees;
     for (size_t index = 1; index < values.size(); ++index) {
@@ -389,6 +429,17 @@ void FiltersPage::createControls() {
     controls_.labelCorrectedRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.excessPhaseTitle = CreateWindowW(L"STATIC", L"Excess Phase", WS_CHILD | WS_VISIBLE,
                                                0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxUnwrapExcessPhase = CreateWindowW(L"BUTTON",
+                                                        L"Unwrap phase",
+                                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                        0,
+                                                        0,
+                                                        0,
+                                                        0,
+                                                        window_,
+                                                        reinterpret_cast<HMENU>(kCheckboxUnwrapExcessPhase),
+                                                        instance_,
+                                                        nullptr);
     controls_.excessPhaseLegendFrame = CreateWindowW(L"STATIC",
                                                      L"",
                                                      WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
@@ -579,26 +630,7 @@ void FiltersPage::createControls() {
     SendMessageW(controls_.sliderSmoothness, TBM_SETLINESIZE, 0, 1);
     SendMessageW(controls_.sliderSmoothness, TBM_SETPAGESIZE, 0, 1);
     setSelectedSmoothness(1.0);
-    SendMessageW(controls_.checkboxShowInputRight, BM_SETCHECK, showInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowInversionRight, BM_SETCHECK, showInversionRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowCorrectedInputLeft, BM_SETCHECK, showCorrectedInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_SETCHECK, showCorrectedInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_SETCHECK, showExcessPhaseInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowExcessPhaseInputLeft, BM_SETCHECK, showExcessPhaseInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_SETCHECK, showExcessPhasePredictedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_SETCHECK, showExcessPhasePredictedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_SETCHECK, showInputGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowInputGroupDelayRight, BM_SETCHECK, showInputGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowPredictedGroupDelayRight, BM_SETCHECK, showPredictedGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_SETCHECK, showPredictedGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_SETCHECK, showFilterGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_SETCHECK, showFilterGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_SETCHECK, alignGroupDelayLatency_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxSyncHoverFrequency, BM_SETCHECK, syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    syncViewSettingsToControls();
     correctionGraph_.create(window_, instance_, kCorrectionGraph);
     correctedGraph_.create(window_, instance_, kCorrectedGraph);
     excessPhaseGraph_.create(window_, instance_, kExcessPhaseGraph);
@@ -707,6 +739,7 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.excessPhaseTitle, contentLeft, y, contentWidth, 18, TRUE);
+    MoveWindow(controls_.checkboxUnwrapExcessPhase, graphRight - 124, y - 2, 124, 20, TRUE);
     MoveWindow(controls_.excessPhaseLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     excessPhaseGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int excessPhaseFirstRowTop = y + 24 + 18;
@@ -795,26 +828,8 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.editMixedPhaseStrength, formatWideDouble(settings.mixedPhaseStrength, 2));
     setWindowTextValue(controls_.editMixedPhaseCap, formatWideDouble(settings.mixedPhaseMaxCorrectionDegrees, 0));
     refreshPhaseModeControls();
-    SendMessageW(controls_.checkboxShowInputRight, BM_SETCHECK, showInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowInversionRight, BM_SETCHECK, showInversionRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowCorrectedInputLeft, BM_SETCHECK, showCorrectedInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_SETCHECK, showCorrectedInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_SETCHECK, showExcessPhaseInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowExcessPhaseInputLeft, BM_SETCHECK, showExcessPhaseInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_SETCHECK, showExcessPhasePredictedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_SETCHECK, showExcessPhasePredictedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_SETCHECK, showInputGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowInputGroupDelayRight, BM_SETCHECK, showInputGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowPredictedGroupDelayRight, BM_SETCHECK, showPredictedGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_SETCHECK, showPredictedGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_SETCHECK, showFilterGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_SETCHECK, showFilterGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_SETCHECK, alignGroupDelayLatency_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.checkboxSyncHoverFrequency, BM_SETCHECK, syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    loadViewSettings(workspace.ui);
+    syncViewSettingsToControls();
     appliedSettings_ = settings;
     filterDesignValid_ = workspace.filterResult.valid;
     refreshRecalculateButton();
@@ -855,6 +870,7 @@ void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
         workspace.filters.mixedPhaseMaxCorrectionDegrees = value;
     }
     measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
+    saveViewSettings(workspace.ui);
 }
 
 double FiltersPage::selectedSmoothness() const {
@@ -887,6 +903,167 @@ void FiltersPage::refreshPhaseModeControls() const {
     EnableWindow(controls_.labelMixedPhaseCap, mixedEnabled);
     EnableWindow(controls_.editMixedPhaseCap, mixedEnabled);
     EnableWindow(controls_.unitMixedPhaseCap, mixedEnabled);
+}
+
+void FiltersPage::loadViewSettings(const UiSettings& ui) {
+    showInputRight_ = ui.filterShowInputRight;
+    showInputLeft_ = ui.filterShowInputLeft;
+    showInversionRight_ = ui.filterShowInversionRight;
+    showInversionLeft_ = ui.filterShowInversionLeft;
+    showCorrectedInputLeft_ = ui.filterShowCorrectedInputLeft;
+    showCorrectedInputRight_ = ui.filterShowCorrectedInputRight;
+    showCorrectedLeft_ = ui.filterShowCorrectedLeft;
+    showCorrectedRight_ = ui.filterShowCorrectedRight;
+    showExcessPhaseInputRight_ = ui.filterShowExcessPhaseInputRight;
+    showExcessPhaseInputLeft_ = ui.filterShowExcessPhaseInputLeft;
+    showExcessPhasePredictedRight_ = ui.filterShowExcessPhasePredictedRight;
+    showExcessPhasePredictedLeft_ = ui.filterShowExcessPhasePredictedLeft;
+    unwrapExcessPhase_ = ui.filterUnwrapExcessPhase;
+    showInputGroupDelayLeft_ = ui.filterShowInputGroupDelayLeft;
+    showInputGroupDelayRight_ = ui.filterShowInputGroupDelayRight;
+    showPredictedGroupDelayRight_ = ui.filterShowPredictedGroupDelayRight;
+    showPredictedGroupDelayLeft_ = ui.filterShowPredictedGroupDelayLeft;
+    showFilterGroupDelayLeft_ = ui.filterShowFilterGroupDelayLeft;
+    showFilterGroupDelayRight_ = ui.filterShowFilterGroupDelayRight;
+    alignGroupDelayLatency_ = ui.filterAlignGroupDelayLatency;
+    syncHoverFrequencyEnabled_ = ui.filterSyncHoverFrequency;
+    if (!syncHoverFrequencyEnabled_) {
+        sharedFrequencyHoverActive_ = false;
+    }
+}
+
+void FiltersPage::syncViewSettingsToControls() const {
+    SendMessageW(controls_.checkboxShowInputRight, BM_SETCHECK, showInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInputLeft, BM_SETCHECK, showInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInversionRight, BM_SETCHECK, showInversionRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInversionLeft, BM_SETCHECK, showInversionLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedInputLeft, BM_SETCHECK, showCorrectedInputLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_SETCHECK, showCorrectedInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowExcessPhaseInputRight,
+                 BM_SETCHECK,
+                 showExcessPhaseInputRight_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowExcessPhaseInputLeft,
+                 BM_SETCHECK,
+                 showExcessPhaseInputLeft_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowExcessPhasePredictedRight,
+                 BM_SETCHECK,
+                 showExcessPhasePredictedRight_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft,
+                 BM_SETCHECK,
+                 showExcessPhasePredictedLeft_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxUnwrapExcessPhase, BM_SETCHECK, unwrapExcessPhase_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowInputGroupDelayLeft,
+                 BM_SETCHECK,
+                 showInputGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowInputGroupDelayRight,
+                 BM_SETCHECK,
+                 showInputGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowPredictedGroupDelayRight,
+                 BM_SETCHECK,
+                 showPredictedGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft,
+                 BM_SETCHECK,
+                 showPredictedGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowFilterGroupDelayLeft,
+                 BM_SETCHECK,
+                 showFilterGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowFilterGroupDelayRight,
+                 BM_SETCHECK,
+                 showFilterGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxAlignGroupDelayLatency,
+                 BM_SETCHECK,
+                 alignGroupDelayLatency_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxSyncHoverFrequency,
+                 BM_SETCHECK,
+                 syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+}
+
+void FiltersPage::syncViewSettingsFromControls() {
+    showInputRight_ = SendMessageW(controls_.checkboxShowInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showInputLeft_ = SendMessageW(controls_.checkboxShowInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showInversionRight_ = SendMessageW(controls_.checkboxShowInversionRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showInversionLeft_ = SendMessageW(controls_.checkboxShowInversionLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showCorrectedInputLeft_ = SendMessageW(controls_.checkboxShowCorrectedInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showCorrectedInputRight_ = SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showCorrectedLeft_ = SendMessageW(controls_.checkboxShowCorrectedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showCorrectedRight_ = SendMessageW(controls_.checkboxShowCorrectedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showExcessPhaseInputRight_ =
+        SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showExcessPhaseInputLeft_ =
+        SendMessageW(controls_.checkboxShowExcessPhaseInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showExcessPhasePredictedRight_ =
+        SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showExcessPhasePredictedLeft_ =
+        SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    unwrapExcessPhase_ = SendMessageW(controls_.checkboxUnwrapExcessPhase, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showInputGroupDelayLeft_ =
+        SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showInputGroupDelayRight_ =
+        SendMessageW(controls_.checkboxShowInputGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showPredictedGroupDelayRight_ =
+        SendMessageW(controls_.checkboxShowPredictedGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showPredictedGroupDelayLeft_ =
+        SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showFilterGroupDelayLeft_ =
+        SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showFilterGroupDelayRight_ =
+        SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    alignGroupDelayLatency_ = SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    syncHoverFrequencyEnabled_ = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    if (!syncHoverFrequencyEnabled_) {
+        sharedFrequencyHoverActive_ = false;
+    }
+}
+
+void FiltersPage::saveViewSettings(UiSettings& ui) const {
+    ui.filterShowInputRight = SendMessageW(controls_.checkboxShowInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowInputLeft = SendMessageW(controls_.checkboxShowInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowInversionRight = SendMessageW(controls_.checkboxShowInversionRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowInversionLeft = SendMessageW(controls_.checkboxShowInversionLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowCorrectedInputLeft =
+        SendMessageW(controls_.checkboxShowCorrectedInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowCorrectedInputRight =
+        SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowCorrectedLeft = SendMessageW(controls_.checkboxShowCorrectedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowCorrectedRight = SendMessageW(controls_.checkboxShowCorrectedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowExcessPhaseInputRight =
+        SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowExcessPhaseInputLeft =
+        SendMessageW(controls_.checkboxShowExcessPhaseInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowExcessPhasePredictedRight =
+        SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowExcessPhasePredictedLeft =
+        SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterUnwrapExcessPhase = SendMessageW(controls_.checkboxUnwrapExcessPhase, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowInputGroupDelayLeft =
+        SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowInputGroupDelayRight =
+        SendMessageW(controls_.checkboxShowInputGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowPredictedGroupDelayRight =
+        SendMessageW(controls_.checkboxShowPredictedGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowPredictedGroupDelayLeft =
+        SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowFilterGroupDelayLeft =
+        SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowFilterGroupDelayRight =
+        SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterAlignGroupDelayLatency =
+        SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterSyncHoverFrequency = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
 }
 
 FilterDesignSettings FiltersPage::currentSettings() const {
@@ -997,7 +1174,8 @@ bool FiltersPage::handleCommand(WORD commandId,
                                 WORD notificationCode,
                                 WorkspaceState& workspace,
                                 bool& settingsChanged,
-                                bool& recalculateRequested) {
+                                bool& recalculateRequested,
+                                bool& viewSettingsChanged) {
     if ((commandId == kCorrectionGraph ||
          commandId == kCorrectedGraph ||
          commandId == kExcessPhaseGraph ||
@@ -1064,6 +1242,7 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowExcessPhaseInputLeft ||
          commandId == kCheckboxShowExcessPhasePredictedRight ||
          commandId == kCheckboxShowExcessPhasePredictedLeft ||
+         commandId == kCheckboxUnwrapExcessPhase ||
          commandId == kCheckboxShowInputGroupDelayLeft ||
          commandId == kCheckboxShowInputGroupDelayRight ||
          commandId == kCheckboxShowPredictedGroupDelayRight ||
@@ -1073,29 +1252,9 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxAlignGroupDelayLatency ||
          commandId == kCheckboxSyncHoverFrequency) &&
         notificationCode == BN_CLICKED) {
-        showInputRight_ = SendMessageW(controls_.checkboxShowInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showInputLeft_ = SendMessageW(controls_.checkboxShowInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showInversionRight_ = SendMessageW(controls_.checkboxShowInversionRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showInversionLeft_ = SendMessageW(controls_.checkboxShowInversionLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showCorrectedInputLeft_ = SendMessageW(controls_.checkboxShowCorrectedInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showCorrectedInputRight_ = SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showCorrectedLeft_ = SendMessageW(controls_.checkboxShowCorrectedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showCorrectedRight_ = SendMessageW(controls_.checkboxShowCorrectedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showExcessPhaseInputRight_ = SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showExcessPhaseInputLeft_ = SendMessageW(controls_.checkboxShowExcessPhaseInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showExcessPhasePredictedRight_ = SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showExcessPhasePredictedLeft_ = SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showInputGroupDelayLeft_ = SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showInputGroupDelayRight_ = SendMessageW(controls_.checkboxShowInputGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showPredictedGroupDelayRight_ = SendMessageW(controls_.checkboxShowPredictedGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showPredictedGroupDelayLeft_ = SendMessageW(controls_.checkboxShowPredictedGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showFilterGroupDelayLeft_ = SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        showFilterGroupDelayRight_ = SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        alignGroupDelayLatency_ = SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        syncHoverFrequencyEnabled_ = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        if (!syncHoverFrequencyEnabled_) {
-            sharedFrequencyHoverActive_ = false;
-        }
+        syncViewSettingsFromControls();
+        saveViewSettings(workspace.ui);
+        viewSettingsChanged = true;
         correctionGraph_.setData(buildCorrectionGraphData(workspace));
         correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
         excessPhaseGraph_.setData(buildExcessPhaseGraphData(workspace));
@@ -1502,21 +1661,21 @@ void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace)
         return;
     }
 
-    const size_t tapCount = std::min(workspace.filterResult.left.filterTaps.size(),
-                                     workspace.filterResult.right.filterTaps.size());
-    const double sampleRate = static_cast<double>(std::max(workspace.filterResult.sampleRate, 1));
-    const size_t leftPeak = std::min(static_cast<size_t>(std::max(workspace.filterResult.left.impulsePeakIndex, 0)),
-                                     tapCount - 1);
-    const size_t rightPeak = std::min(static_cast<size_t>(std::max(workspace.filterResult.right.impulsePeakIndex, 0)),
-                                      tapCount - 1);
-    const double centerIndex = (static_cast<double>(leftPeak) + static_cast<double>(rightPeak)) * 0.5;
-    const double centerMs = centerIndex * 1000.0 / sampleRate;
-    const double fullMaxMs = static_cast<double>(tapCount - 1) * 1000.0 / sampleRate;
+    const std::vector<double> impulseTimeMs = buildSharedImpulseTimeAxisMs(workspace.filterResult);
+    if (impulseTimeMs.empty()) {
+        impulseGraph_.setDefaultXRange(false, 0.0, 1.0);
+        impulseGraph_.setDefaultYRange(false, -1.0, 1.0);
+        impulseGraph_.resetView();
+        return;
+    }
+
+    const double fullMinMs = impulseTimeMs.front();
+    const double fullMaxMs = impulseTimeMs.back();
 
     impulseGraph_.setDefaultXRange(true,
-                                   clampValue(centerMs - kImpulseGraphNegativeWindowMs, 0.0, fullMaxMs),
-                                   clampValue(centerMs + kImpulseGraphPositiveWindowMs, 0.0, fullMaxMs));
-    impulseGraph_.setDefaultYRange(true, -1.0, 1.0);
+                                   clampValue(-kImpulseGraphNegativeWindowMs, fullMinMs, fullMaxMs),
+                                   clampValue(kImpulseGraphPositiveWindowMs, fullMinMs, fullMaxMs));
+    impulseGraph_.setDefaultYRange(false, -1.0, 1.0);
     impulseGraph_.resetView();
 }
 
@@ -1657,32 +1816,67 @@ PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& works
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"deg";
-    data.fixedYRange = true;
+    data.fixedYRange = !unwrapExcessPhase_;
     data.minY = -180.0;
     data.maxY = 180.0;
     if (!workspace.filterResult.valid) {
         return data;
     }
 
+    const auto displayPhaseSeries = [this](const std::vector<double>& wrappedValuesDegrees,
+                                           const std::vector<double>& continuousValuesDegrees) {
+        return unwrapExcessPhase_ ? continuousValuesDegrees
+                                  : breakWrappedPhaseDiscontinuities(wrappedValuesDegrees);
+    };
+    double minY = std::numeric_limits<double>::max();
+    double maxY = std::numeric_limits<double>::lowest();
+    const auto accumulateRange = [&minY, &maxY](const std::vector<double>& values) {
+        for (const double value : values) {
+            if (!std::isfinite(value)) {
+                continue;
+            }
+            minY = std::min(minY, value);
+            maxY = std::max(maxY, value);
+        }
+    };
+
     if (showExcessPhaseInputRight_) {
-        data.series.push_back({L"Right before",
-                               ui_theme::kRed,
-                               breakWrappedPhaseDiscontinuities(workspace.filterResult.right.inputExcessPhaseDegrees)});
+        std::vector<double> values =
+            displayPhaseSeries(workspace.filterResult.right.inputExcessPhaseDegrees,
+                               workspace.filterResult.right.inputExcessPhaseContinuousDegrees);
+        accumulateRange(values);
+        data.series.push_back({L"Right before", ui_theme::kRed, std::move(values)});
     }
     if (showExcessPhaseInputLeft_) {
-        data.series.push_back({L"Left before",
-                               ui_theme::kGreen,
-                               breakWrappedPhaseDiscontinuities(workspace.filterResult.left.inputExcessPhaseDegrees)});
+        std::vector<double> values =
+            displayPhaseSeries(workspace.filterResult.left.inputExcessPhaseDegrees,
+                               workspace.filterResult.left.inputExcessPhaseContinuousDegrees);
+        accumulateRange(values);
+        data.series.push_back({L"Left before", ui_theme::kGreen, std::move(values)});
     }
     if (showExcessPhasePredictedRight_) {
-        data.series.push_back({L"Right after",
-                               ui_theme::kMagenta,
-                               breakWrappedPhaseDiscontinuities(workspace.filterResult.right.predictedExcessPhaseDegrees)});
+        std::vector<double> values =
+            displayPhaseSeries(workspace.filterResult.right.predictedExcessPhaseDegrees,
+                               workspace.filterResult.right.predictedExcessPhaseContinuousDegrees);
+        accumulateRange(values);
+        data.series.push_back({L"Right after", ui_theme::kMagenta, std::move(values)});
     }
     if (showExcessPhasePredictedLeft_) {
-        data.series.push_back({L"Left after",
-                               ui_theme::kGray,
-                               breakWrappedPhaseDiscontinuities(workspace.filterResult.left.predictedExcessPhaseDegrees)});
+        std::vector<double> values =
+            displayPhaseSeries(workspace.filterResult.left.predictedExcessPhaseDegrees,
+                               workspace.filterResult.left.predictedExcessPhaseContinuousDegrees);
+        accumulateRange(values);
+        data.series.push_back({L"Left after", ui_theme::kGray, std::move(values)});
+    }
+
+    if (unwrapExcessPhase_ && std::isfinite(minY) && std::isfinite(maxY)) {
+        const double paddedMin = std::floor((minY - 30.0) / 60.0) * 60.0;
+        const double paddedMax = std::ceil((maxY + 30.0) / 60.0) * 60.0;
+        const double minimumSpan = 360.0;
+        const double center = (paddedMin + paddedMax) * 0.5;
+        const double halfSpan = std::max((paddedMax - paddedMin) * 0.5, minimumSpan * 0.5);
+        data.minY = center - halfSpan;
+        data.maxY = center + halfSpan;
     }
     return data;
 }
@@ -1748,7 +1942,7 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
     data.xAxisMode = PlotGraphXAxisMode::Linear;
     data.yAxisMode = PlotGraphYAxisMode::SymmetricAroundZero;
     data.xUnit = L"ms";
-    data.yUnit = L"amp";
+    data.yUnit = L"linear";
     if (!workspace.filterResult.valid ||
         workspace.filterResult.left.filterTaps.empty() ||
         workspace.filterResult.right.filterTaps.empty()) {
@@ -1757,7 +1951,10 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
 
     const size_t tapCount = std::min(workspace.filterResult.left.filterTaps.size(),
                                      workspace.filterResult.right.filterTaps.size());
-    const double sampleRate = static_cast<double>(std::max(workspace.filterResult.sampleRate, 1));
+    const std::vector<double> impulseTimeMs = buildSharedImpulseTimeAxisMs(workspace.filterResult);
+    if (impulseTimeMs.size() < tapCount) {
+        return data;
+    }
 
     std::vector<double> xValues;
     std::vector<double> leftValues;
@@ -1766,7 +1963,7 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
     leftValues.reserve(tapCount);
     rightValues.reserve(tapCount);
     for (size_t index = 0; index < tapCount; ++index) {
-        xValues.push_back(static_cast<double>(index) * 1000.0 / sampleRate);
+        xValues.push_back(impulseTimeMs[index]);
         leftValues.push_back(workspace.filterResult.left.filterTaps[index]);
         rightValues.push_back(workspace.filterResult.right.filterTaps[index]);
     }

@@ -888,11 +888,13 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
 
     bool filterSettingsChanged = false;
     bool filtersRecalculateRequested = false;
+    bool filterViewSettingsChanged = false;
     if (filtersPage_.handleCommand(commandId,
                                    notificationCode,
                                    workspace_,
                                    filterSettingsChanged,
-                                   filtersRecalculateRequested)) {
+                                   filtersRecalculateRequested,
+                                   filterViewSettingsChanged)) {
         if (filterSettingsChanged) {
             invalidateFilterDesign();
             filtersPage_.populate(workspace_);
@@ -904,6 +906,9 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             ensureFilterDesignReady();
             filtersPage_.populate(workspace_);
             syncStateFromControls();
+            workspaceRepository_.save(workspace_);
+        }
+        if (filterViewSettingsChanged) {
             workspaceRepository_.save(workspace_);
         }
         return;

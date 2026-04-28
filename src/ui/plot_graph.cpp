@@ -75,15 +75,27 @@ double nextNiceStep(double rawStep) {
 }
 
 std::wstring formatAxisValue(double value) {
-    const double rounded0 = std::round(value);
-    if (std::abs(value - rounded0) < 0.01) {
-        return formatWideDouble(value, 0);
+    if (std::abs(value) < 1.0e-9) {
+        return L"0";
     }
-    const double rounded1 = std::round(value * 10.0) / 10.0;
-    if (std::abs(value - rounded1) < 0.001) {
-        return formatWideDouble(value, 1);
+
+    const double absValue = std::abs(value);
+    int decimals = 2;
+    if (absValue >= 100.0) {
+        decimals = 0;
+    } else if (absValue >= 1.0) {
+        decimals = 2;
+    } else if (absValue >= 0.1) {
+        decimals = 2;
+    } else if (absValue >= 0.01) {
+        decimals = 3;
+    } else if (absValue >= 0.001) {
+        decimals = 4;
+    } else {
+        decimals = 5;
     }
-    return formatWideDouble(value, 2);
+
+    return formatWideDouble(value, decimals);
 }
 
 double rawXTFromValue(PlotGraphXAxisMode mode, double minValue, double maxValue, double value) {
@@ -142,7 +154,7 @@ int unclampedGraphYFromValue(const RECT& graph, double value, double minY, doubl
 }
 
 std::vector<double> buildYTicks(double minY, double maxY) {
-    const double range = std::max(maxY - minY, 1.0);
+    const double range = std::max(maxY - minY, 1.0e-9);
     const double step = nextNiceStep(range / 6.0);
     const double first = std::floor(minY / step) * step;
     const double last = std::ceil(maxY / step) * step;
@@ -890,14 +902,21 @@ bool PlotGraph::zoomY(double factor) {
     double nextMaxY = layout.maxY;
     if (data_.yAxisMode == PlotGraphYAxisMode::SymmetricAroundZero) {
         const double currentHalfSpan = std::max(std::abs(layout.minY), std::abs(layout.maxY));
-        const double defaultHalfSpan = hasDefaultYRange_ ? std::max(std::abs(defaultMinY_), std::abs(defaultMaxY_)) : currentHalfSpan;
-        const double nextHalfSpan = clampValue(currentHalfSpan / factor, 1.0e-3, std::max(defaultHalfSpan, 1.0e-3));
+        double nextHalfSpan = std::max(currentHalfSpan / factor, 1.0e-3);
+        if (hasDefaultYRange_) {
+            const double defaultHalfSpan = std::max(std::abs(defaultMinY_), std::abs(defaultMaxY_));
+            nextHalfSpan = clampValue(nextHalfSpan, 1.0e-3, std::max(defaultHalfSpan, 1.0e-3));
+        }
         nextMinY = -nextHalfSpan;
         nextMaxY = nextHalfSpan;
     } else {
         const double currentSpan = std::max(layout.maxY - layout.minY, 1.0e-6);
         const double centerY = (layout.minY + layout.maxY) * 0.5;
-        const double nextSpan = currentSpan / factor;
+        double nextSpan = std::max(currentSpan / factor, 1.0e-6);
+        if (hasDefaultYRange_) {
+            const double defaultSpan = std::max(defaultMaxY_ - defaultMinY_, 1.0e-6);
+            nextSpan = clampValue(nextSpan, 1.0e-6, defaultSpan);
+        }
         nextMinY = centerY - (nextSpan * 0.5);
         nextMaxY = centerY + (nextSpan * 0.5);
     }
