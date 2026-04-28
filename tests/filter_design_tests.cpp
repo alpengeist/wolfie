@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -44,6 +45,104 @@ wolfie::SmoothedResponse buildFlatResponse(double levelDb) {
     response.leftChannelDb.assign(response.frequencyAxisHz.size(), levelDb);
     response.rightChannelDb.assign(response.frequencyAxisHz.size(), levelDb);
     return response;
+}
+
+double wrapDegrees(double phaseDegrees) {
+    double wrapped = std::remainder(phaseDegrees, 360.0);
+    if (wrapped <= -180.0) {
+        wrapped += 360.0;
+    } else if (wrapped > 180.0) {
+        wrapped -= 360.0;
+    }
+    return wrapped;
+}
+
+wolfie::MeasurementValueSet buildImpulseValueSet(double leadingTimeSeconds) {
+    wolfie::MeasurementValueSet valueSet;
+    valueSet.key = "measurement.raw_impulse_response";
+    valueSet.xQuantity = "time";
+    valueSet.xUnit = "s";
+    valueSet.yQuantity = "amplitude";
+    valueSet.yUnit = "linear";
+    valueSet.xValues = {
+        leadingTimeSeconds,
+        leadingTimeSeconds + 1.0e-4,
+        leadingTimeSeconds + 2.0e-4
+    };
+    valueSet.leftValues = {0.0, 1.0, 0.0};
+    valueSet.rightValues = {0.0, 1.0, 0.0};
+    return valueSet;
+}
+
+wolfie::MeasurementValueSet buildWrappedPhaseSpectrum(const std::vector<double>& frequencyAxisHz,
+                                                      double delaySeconds,
+                                                      double leftExcessScale,
+                                                      double rightExcessScale) {
+    wolfie::MeasurementValueSet valueSet;
+    valueSet.key = "measurement.raw_phase_spectrum";
+    valueSet.xQuantity = "frequency";
+    valueSet.xUnit = "Hz";
+    valueSet.yQuantity = "phase";
+    valueSet.yUnit = "deg";
+    valueSet.xValues = frequencyAxisHz;
+    valueSet.leftValues.reserve(frequencyAxisHz.size());
+    valueSet.rightValues.reserve(frequencyAxisHz.size());
+    for (const double frequencyHz : frequencyAxisHz) {
+        const double linearDelayDegrees = -360.0 * frequencyHz * delaySeconds;
+        const double safeFrequencyHz = std::max(frequencyHz, 1.0);
+        const double excessShape = std::exp(-std::pow((std::log10(safeFrequencyHz) - std::log10(70.0)) / 0.22, 2.0)) *
+                                   (1.0 - std::exp(-safeFrequencyHz / 22.0));
+        valueSet.leftValues.push_back(wrapDegrees(linearDelayDegrees + (leftExcessScale * 75.0 * excessShape)));
+        valueSet.rightValues.push_back(wrapDegrees(linearDelayDegrees + (rightExcessScale * 75.0 * excessShape)));
+    }
+    return valueSet;
+}
+
+std::vector<double> buildLinearAxis(double maxFrequencyHz, int pointCount) {
+    std::vector<double> axis;
+    axis.reserve(static_cast<size_t>(pointCount));
+    for (int index = 0; index < pointCount; ++index) {
+        const double t = pointCount <= 1 ? 0.0 : static_cast<double>(index) / static_cast<double>(pointCount - 1);
+        axis.push_back(maxFrequencyHz * t);
+    }
+    return axis;
+}
+
+wolfie::MeasurementResult buildPhaseMeasurement(int sampleRate,
+                                                double delaySeconds,
+                                                double leftExcessScale = 0.0,
+                                                double rightExcessScale = 0.0) {
+    wolfie::MeasurementResult result;
+    const std::vector<double> phaseAxisHz = buildLinearAxis(static_cast<double>(sampleRate) * 0.5, 4097);
+    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+    result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
+                                                        delaySeconds,
+                                                        leftExcessScale,
+                                                        rightExcessScale));
+    return result;
+}
+
+double bandMeanAbs(const std::vector<double>& frequencyAxisHz,
+                   const std::vector<double>& values,
+                   double minFrequencyHz,
+                   double maxFrequencyHz) {
+    const size_t count = std::min(frequencyAxisHz.size(), values.size());
+    double sum = 0.0;
+    size_t used = 0;
+    for (size_t index = 0; index < count; ++index) {
+        if (!std::isfinite(values[index])) {
+            continue;
+        }
+        if (frequencyAxisHz[index] < minFrequencyHz || frequencyAxisHz[index] > maxFrequencyHz) {
+            continue;
+        }
+        sum += std::abs(values[index]);
+        ++used;
+    }
+    if (used == 0) {
+        return std::numeric_limits<double>::infinity();
+    }
+    return sum / static_cast<double>(used);
 }
 
 bool expectDesignedFilterLooksSane() {
@@ -217,6 +316,129 @@ bool expectTargetCurveAnchorsToMeasuredLevel() {
     return true;
 }
 
+bool expectMinimumPhaseInputNeedsNoExcessCorrection() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.maxBoostDb = 6.0;
+    filterSettings.maxCutDb = 12.0;
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "minimum-phase baseline did not produce a valid filter result\n";
+        return false;
+    }
+    if (result.left.inputExcessPhaseDegrees.size() != result.frequencyAxisHz.size() ||
+        result.right.inputExcessPhaseDegrees.size() != result.frequencyAxisHz.size()) {
+        std::cerr << "minimum-phase baseline did not populate excess-phase diagnostics\n";
+        return false;
+    }
+
+    const double leftBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                            result.left.inputExcessPhaseDegrees,
+                                            20.0,
+                                            300.0);
+    const double rightBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                             result.right.inputExcessPhaseDegrees,
+                                             20.0,
+                                             300.0);
+    if (leftBandMean > 2.0 || rightBandMean > 2.0) {
+        std::cerr << "minimum-phase baseline reported unexpected excess phase (left="
+                  << leftBandMean << ", right=" << rightBandMean << ")\n";
+        return false;
+    }
+
+    const double predictedLeftBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                     result.left.predictedExcessPhaseDegrees,
+                                                     20.0,
+                                                     300.0);
+    const double predictedRightBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                      result.right.predictedExcessPhaseDegrees,
+                                                      20.0,
+                                                      300.0);
+    if (predictedLeftBandMean > 2.0 || predictedRightBandMean > 2.0) {
+        std::cerr << "minimum-phase baseline predicted unexpected excess phase (left="
+                  << predictedLeftBandMean << ", right=" << predictedRightBandMean << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectBulkDelayIsNotTreatedAsExcessPhase() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.maxBoostDb = 6.0;
+    filterSettings.maxCutDb = 12.0;
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0065);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "bulk-delay baseline did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double leftBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                            result.left.inputExcessPhaseDegrees,
+                                            20.0,
+                                            300.0);
+    const double rightBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                             result.right.inputExcessPhaseDegrees,
+                                             20.0,
+                                             300.0);
+    if (leftBandMean > 3.0 || rightBandMean > 3.0) {
+        std::cerr << "bulk delay was misclassified as excess phase (left="
+                  << leftBandMean << ", right=" << rightBandMean << ")\n";
+        return false;
+    }
+
+    const double predictedLeftBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                     result.left.predictedExcessPhaseDegrees,
+                                                     20.0,
+                                                     300.0);
+    const double predictedRightBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                                      result.right.predictedExcessPhaseDegrees,
+                                                      20.0,
+                                                      300.0);
+    if (predictedLeftBandMean > 3.0 || predictedRightBandMean > 3.0) {
+        std::cerr << "bulk-delay baseline predicted excess phase after delay removal (left="
+                  << predictedLeftBandMean << ", right=" << predictedRightBandMean << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectRoonExportSupportsCommonSampleRates() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -325,5 +547,7 @@ bool runFilterDesignTests() {
     return expectDesignedFilterLooksSane() &&
            expectExactTargetCurveEvaluationCapturesBellPeak() &&
            expectTargetCurveAnchorsToMeasuredLevel() &&
+           expectMinimumPhaseInputNeedsNoExcessCorrection() &&
+           expectBulkDelayIsNotTreatedAsExcessPhase() &&
            expectRoonExportSupportsCommonSampleRates();
 }

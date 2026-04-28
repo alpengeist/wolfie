@@ -20,12 +20,12 @@ Read `_architecture.md` before making structural changes.
 Preferred local configure/build flow on this machine:
 
 ```powershell
-cmake -S . -B build-refactor -G Ninja `
+cmake -S . -B build-agent -G Ninja `
   -DCMAKE_MAKE_PROGRAM=E:/Programs/CLion/bin/ninja/win/x64/ninja.exe `
   -DCMAKE_CXX_COMPILER=E:/Programs/CLion/bin/mingw/bin/g++.exe `
   -DCMAKE_RC_COMPILER=E:/Programs/CLion/bin/mingw/bin/windres.exe
 
-& 'E:/Programs/CLion/bin/ninja/win/x64/ninja.exe' -C build-refactor
+& 'E:/Programs/CLion/bin/ninja/win/x64/ninja.exe' -C build-agent
 ```
 
 Notes:
