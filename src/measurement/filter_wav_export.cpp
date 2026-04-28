@@ -275,6 +275,7 @@ bool exportRoonFilterWavSet(const std::filesystem::path& directory,
                             const MeasurementSettings& measurement,
                             const TargetCurveSettings& targetCurve,
                             const FilterDesignSettings& filterSettings,
+                            const MeasurementResult* sourceMeasurement,
                             const std::vector<int>& sampleRates,
                             std::vector<std::filesystem::path>& generatedFiles,
                             std::wstring& errorMessage,
@@ -308,7 +309,12 @@ bool exportRoonFilterWavSet(const std::filesystem::path& directory,
         }
 
         const FilterDesignResult filterResult =
-            designFiltersForSampleRate(response, measurement, targetCurve, filterSettings, sampleRate);
+            designFiltersForSampleRate(response,
+                                       measurement,
+                                       targetCurve,
+                                       filterSettings,
+                                       sampleRate,
+                                       sourceMeasurement);
         if (!filterResult.valid ||
             filterResult.left.filterTaps.empty() ||
             filterResult.right.filterTaps.empty() ||

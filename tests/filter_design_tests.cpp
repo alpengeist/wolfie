@@ -122,6 +122,27 @@ wolfie::MeasurementResult buildPhaseMeasurement(int sampleRate,
     return result;
 }
 
+std::vector<char> readFileBytes(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return {};
+    }
+
+    in.seekg(0, std::ios::end);
+    const std::streamoff size = in.tellg();
+    if (size <= 0) {
+        return {};
+    }
+
+    in.seekg(0, std::ios::beg);
+    std::vector<char> bytes(static_cast<size_t>(size));
+    in.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!in) {
+        return {};
+    }
+    return bytes;
+}
+
 double bandMeanAbs(const std::vector<double>& frequencyAxisHz,
                    const std::vector<double>& values,
                    double minFrequencyHz,
@@ -1330,6 +1351,7 @@ bool expectRoonExportSupportsCommonSampleRates() {
                                                                       measurement,
                                                                       targetCurve,
                                                                       filterSettings,
+                                                                      nullptr,
                                                                       wolfie::measurement::roonCommonSampleRates(),
                                                                       generatedFiles,
                                                                       errorMessage);
@@ -1405,6 +1427,84 @@ bool expectRoonExportSupportsCommonSampleRates() {
     return true;
 }
 
+bool expectRoonMixedExportDiffersFromMinimum() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings minimumSettings;
+    minimumSettings.tapCount = 16384;
+    minimumSettings.maxBoostDb = 6.0;
+    minimumSettings.maxCutDb = 12.0;
+
+    wolfie::FilterDesignSettings mixedSettings = minimumSettings;
+    mixedSettings.phaseMode = "mixed";
+
+    const wolfie::SmoothedResponse response = buildSyntheticResponse();
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0, 3.0, 2.0);
+    const std::vector<int> sampleRates = {48000};
+    const std::filesystem::path rootDirectory =
+        std::filesystem::temp_directory_path() / "wolfie-roon-export-mixed-phase-test";
+    const std::filesystem::path minimumDirectory = rootDirectory / "minimum";
+    const std::filesystem::path mixedDirectory = rootDirectory / "mixed";
+    std::error_code cleanupError;
+    std::filesystem::remove_all(rootDirectory, cleanupError);
+
+    std::vector<std::filesystem::path> generatedFiles;
+    std::wstring errorMessage;
+    const bool minimumExported = wolfie::measurement::exportRoonFilterWavSet(minimumDirectory,
+                                                                             response,
+                                                                             measurement,
+                                                                             targetCurve,
+                                                                             minimumSettings,
+                                                                             &phaseMeasurement,
+                                                                             sampleRates,
+                                                                             generatedFiles,
+                                                                             errorMessage);
+    if (!minimumExported) {
+        std::wcerr << L"Minimum-phase Roon export failed: " << errorMessage << L"\n";
+        return false;
+    }
+
+    generatedFiles.clear();
+    errorMessage.clear();
+    const bool mixedExported = wolfie::measurement::exportRoonFilterWavSet(mixedDirectory,
+                                                                           response,
+                                                                           measurement,
+                                                                           targetCurve,
+                                                                           mixedSettings,
+                                                                           &phaseMeasurement,
+                                                                           sampleRates,
+                                                                           generatedFiles,
+                                                                           errorMessage);
+    if (!mixedExported) {
+        std::wcerr << L"Mixed-phase Roon export failed: " << errorMessage << L"\n";
+        return false;
+    }
+
+    const std::vector<char> minimumBytes =
+        readFileBytes(wolfie::measurement::roonFilterWavPath(minimumDirectory, sampleRates.front()));
+    const std::vector<char> mixedBytes =
+        readFileBytes(wolfie::measurement::roonFilterWavPath(mixedDirectory, sampleRates.front()));
+    if (minimumBytes.empty() || mixedBytes.empty()) {
+        std::cerr << "Mixed-phase export regression test could not read exported WAV files\n";
+        return false;
+    }
+    if (minimumBytes == mixedBytes) {
+        std::cerr << "Mixed-phase export produced the same WAV as minimum phase\n";
+        return false;
+    }
+
+    cleanupError.clear();
+    std::filesystem::remove_all(rootDirectory, cleanupError);
+    return true;
+}
+
 }  // namespace
 
 bool runFilterDesignTests() {
@@ -1428,5 +1528,6 @@ bool runFilterDesignTests() {
            expectMixedModeStereoImpulsePeaksShareOneLatency() &&
            expectInputGroupDelayIsPublishedFromMeasuredPhase() &&
            expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps() &&
-           expectRoonExportSupportsCommonSampleRates();
+           expectRoonExportSupportsCommonSampleRates() &&
+           expectRoonMixedExportDiffersFromMinimum();
 }

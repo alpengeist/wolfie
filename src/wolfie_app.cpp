@@ -773,6 +773,7 @@ void WolfieApp::exportRoonFilters() {
                                              workspace_.measurement,
                                              workspace_.targetCurve,
                                              workspace_.filters,
+                                             &workspace_.result,
                                              selectedSampleRates,
                                              generatedFiles,
                                              errorMessage,
