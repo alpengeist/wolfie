@@ -1538,4 +1538,79 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
     saveTargetCurveProfiles(workspace);
 }
 
+void WorkspaceRepository::saveUiSettings(const WorkspaceState& workspace) const {
+    if (workspace.rootPath.empty()) {
+        return;
+    }
+
+    std::ostringstream uiJson;
+    uiJson << "{\n"
+           << "  \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
+           << "  \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
+           << "  \"processLogHeight\": " << workspace.ui.processLogHeight << ",\n"
+           << "  \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
+           << "  \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
+           << "  \"measurementGraphHasCustomFrequencyRange\": "
+           << (workspace.ui.measurementGraphHasCustomFrequencyRange ? "true" : "false") << ",\n"
+           << "  \"measurementGraphVisibleMinFrequencyHz\": " << workspace.ui.measurementGraphVisibleMinFrequencyHz << ",\n"
+           << "  \"measurementGraphVisibleMaxFrequencyHz\": " << workspace.ui.measurementGraphVisibleMaxFrequencyHz << ",\n"
+           << "  \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
+           << "  \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
+           << "\",\n"
+           << "  \"measurementShowRoomLeft\": " << (workspace.ui.measurementShowRoomLeft ? "true" : "false") << ",\n"
+           << "  \"measurementShowRoomRight\": " << (workspace.ui.measurementShowRoomRight ? "true" : "false") << ",\n"
+           << "  \"measurementShowReference\": " << (workspace.ui.measurementShowReference ? "true" : "false") << ",\n"
+           << "  \"measurementMetadataCollapsed\": "
+           << (workspace.ui.measurementMetadataCollapsed ? "true" : "false") << ",\n"
+           << "  \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
+           << "  \"smoothingGraphVerticalOffsetDb\": " << workspace.ui.smoothingGraphVerticalOffsetDb << ",\n"
+           << "  \"smoothingGraphHasCustomFrequencyRange\": "
+           << (workspace.ui.smoothingGraphHasCustomFrequencyRange ? "true" : "false") << ",\n"
+           << "  \"smoothingGraphVisibleMinFrequencyHz\": " << workspace.ui.smoothingGraphVisibleMinFrequencyHz << ",\n"
+           << "  \"smoothingGraphVisibleMaxFrequencyHz\": " << workspace.ui.smoothingGraphVisibleMaxFrequencyHz << ",\n"
+           << "  \"targetCurveGraphExtraRangeDb\": " << workspace.ui.targetCurveGraphExtraRangeDb << ",\n"
+           << "  \"targetCurveGraphVerticalOffsetDb\": " << workspace.ui.targetCurveGraphVerticalOffsetDb << ",\n"
+           << "  \"targetCurveGraphHasCustomVisibleDbRange\": "
+           << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
+           << "  \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
+           << "  \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << ",\n"
+           << "  \"filterShowInputRight\": " << (workspace.ui.filterShowInputRight ? "true" : "false") << ",\n"
+           << "  \"filterShowInputLeft\": " << (workspace.ui.filterShowInputLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowInversionRight\": " << (workspace.ui.filterShowInversionRight ? "true" : "false") << ",\n"
+           << "  \"filterShowInversionLeft\": " << (workspace.ui.filterShowInversionLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowCorrectedInputLeft\": " << (workspace.ui.filterShowCorrectedInputLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowCorrectedInputRight\": "
+           << (workspace.ui.filterShowCorrectedInputRight ? "true" : "false") << ",\n"
+           << "  \"filterShowCorrectedLeft\": " << (workspace.ui.filterShowCorrectedLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowCorrectedRight\": " << (workspace.ui.filterShowCorrectedRight ? "true" : "false") << ",\n"
+           << "  \"filterShowExcessPhaseInputRight\": "
+           << (workspace.ui.filterShowExcessPhaseInputRight ? "true" : "false") << ",\n"
+           << "  \"filterShowExcessPhaseInputLeft\": "
+           << (workspace.ui.filterShowExcessPhaseInputLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowExcessPhasePredictedRight\": "
+           << (workspace.ui.filterShowExcessPhasePredictedRight ? "true" : "false") << ",\n"
+           << "  \"filterShowExcessPhasePredictedLeft\": "
+           << (workspace.ui.filterShowExcessPhasePredictedLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowInputGroupDelayLeft\": "
+           << (workspace.ui.filterShowInputGroupDelayLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowInputGroupDelayRight\": "
+           << (workspace.ui.filterShowInputGroupDelayRight ? "true" : "false") << ",\n"
+           << "  \"filterShowPredictedGroupDelayRight\": "
+           << (workspace.ui.filterShowPredictedGroupDelayRight ? "true" : "false") << ",\n"
+           << "  \"filterShowPredictedGroupDelayLeft\": "
+           << (workspace.ui.filterShowPredictedGroupDelayLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowFilterGroupDelayLeft\": "
+           << (workspace.ui.filterShowFilterGroupDelayLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowFilterGroupDelayRight\": "
+           << (workspace.ui.filterShowFilterGroupDelayRight ? "true" : "false") << ",\n"
+           << "  \"filterAlignGroupDelayLatency\": "
+           << (workspace.ui.filterAlignGroupDelayLatency ? "true" : "false") << ",\n"
+           << "  \"filterSyncHoverFrequency\": " << (workspace.ui.filterSyncHoverFrequency ? "true" : "false") << ",\n"
+           << "  \"exportSampleRatesHz\": ";
+    writeJsonIntArray(uiJson, workspace.ui.exportSampleRatesHz);
+    uiJson << "\n"
+           << "}\n";
+    writeTextFile(workspace.rootPath / "ui.json", uiJson.str());
+}
+
 }  // namespace wolfie::persistence

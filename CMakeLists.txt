@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(wolfie WIN32
     src/main.cpp
+    src/wolfie.rc
+    src/wolfie_resources.h
     src/core/models.h
     src/core/text_utils.cpp
     src/core/text_utils.h

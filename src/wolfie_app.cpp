@@ -20,6 +20,7 @@
 #include "measurement/target_curve_designer.h"
 #include "persistence/microphone_calibration_repository.h"
 #include "persistence/wave_file_repository.h"
+#include "wolfie_resources.h"
 #include "ui/plot_graph.h"
 #include "ui/response_graph.h"
 #include "ui/settings_dialog.h"
@@ -266,13 +267,31 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
 }
 
 void WolfieApp::createMainWindow() {
-    WNDCLASSW mainClass{};
+    const HICON largeIcon = reinterpret_cast<HICON>(
+        LoadImageW(instance_,
+                   MAKEINTRESOURCEW(IDI_WOLFIE_APP),
+                   IMAGE_ICON,
+                   GetSystemMetrics(SM_CXICON),
+                   GetSystemMetrics(SM_CYICON),
+                   LR_DEFAULTCOLOR));
+    const HICON smallIcon = reinterpret_cast<HICON>(
+        LoadImageW(instance_,
+                   MAKEINTRESOURCEW(IDI_WOLFIE_APP),
+                   IMAGE_ICON,
+                   GetSystemMetrics(SM_CXSMICON),
+                   GetSystemMetrics(SM_CYSMICON),
+                   LR_DEFAULTCOLOR));
+
+    WNDCLASSEXW mainClass{};
+    mainClass.cbSize = sizeof(mainClass);
     mainClass.lpfnWndProc = MainWindowProc;
     mainClass.hInstance = instance_;
     mainClass.lpszClassName = kMainClassName;
     mainClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
     mainClass.hbrBackground = CreateSolidBrush(ui_theme::kBackground);
-    RegisterClassW(&mainClass);
+    mainClass.hIcon = largeIcon;
+    mainClass.hIconSm = smallIcon;
+    RegisterClassExW(&mainClass);
 
     ui::ResponseGraph::registerWindowClass(instance_);
     ui::WaterfallGraph::registerWindowClass(instance_);
@@ -1160,7 +1179,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             workspaceRepository_.save(workspace_);
         }
         if (filterViewSettingsChanged) {
-            workspaceRepository_.save(workspace_);
+            workspaceRepository_.saveUiSettings(workspace_);
         }
         return;
     }

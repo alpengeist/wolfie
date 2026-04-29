@@ -1,0 +1,3 @@
+#include "wolfie_resources.h"
+
+IDI_WOLFIE_APP ICON "ui/logo.ico"
