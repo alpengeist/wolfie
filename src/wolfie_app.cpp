@@ -904,8 +904,10 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         }
         if (filtersRecalculateRequested) {
             invalidateFilterDesign();
+            filtersPage_.setRecalculateInProgress(true);
             ensureFilterDesignReady();
             filtersPage_.populate(workspace_);
+            filtersPage_.setRecalculateInProgress(false);
             syncStateFromControls();
             workspaceRepository_.save(workspace_);
         }

@@ -50,6 +50,7 @@ struct PlotGraphData {
 class PlotGraph {
 public:
     static constexpr WORD kHoverChangedNotification = 0x7F11;
+    static constexpr WORD kXRangeChangedNotification = 0x7F12;
 
     static void registerWindowClass(HINSTANCE instance);
 
@@ -58,6 +59,7 @@ public:
     void setSharedHoverMarker(bool enabled, bool active, double xValue);
     void setDefaultXRange(bool enabled, double minX, double maxX);
     void setDefaultYRange(bool enabled, double minY, double maxY);
+    void setVisibleXRange(double minX, double maxX);
     void resetXRange();
     void resetYRange();
     void resetView();
@@ -70,6 +72,9 @@ public:
     [[nodiscard]] HWND window() const { return window_; }
     [[nodiscard]] bool hasHoveredXValue() const { return hover_.active; }
     [[nodiscard]] double hoveredXValue() const { return hover_.xValue; }
+    [[nodiscard]] bool hasCustomXRange() const { return hasCustomXRange_; }
+    [[nodiscard]] double visibleMinX() const { return visibleMinX_; }
+    [[nodiscard]] double visibleMaxX() const { return visibleMaxX_; }
 
 private:
     struct HoverState {
@@ -99,6 +104,7 @@ private:
     void releaseBackgroundCache() const;
     void drawStaticLayer(HDC hdc, const RECT& rect) const;
     void notifyHoverChanged() const;
+    void notifyXRangeChanged() const;
     void onLButtonDown(LPARAM lParam);
     void onLButtonUp(LPARAM lParam);
     void onMouseMove(LPARAM lParam);

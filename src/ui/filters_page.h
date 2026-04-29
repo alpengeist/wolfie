@@ -23,6 +23,7 @@ public:
     void setVisible(bool visible) const;
     void populate(const WorkspaceState& workspace);
     void syncToWorkspace(WorkspaceState& workspace) const;
+    void setRecalculateInProgress(bool running);
     bool handleCommand(WORD commandId,
                        WORD notificationCode,
                        WorkspaceState& workspace,
@@ -216,6 +217,9 @@ private:
     bool handleMouseWheel(WPARAM wParam);
     void handleVScroll(WORD code, WORD thumbPosition);
     void applySharedFrequencyHoverMarker();
+    PlotGraph* frequencyGraphForCommandId(WORD commandId);
+    void applySharedFrequencyXRange(const PlotGraph& sourceGraph);
+    void resetSharedFrequencyXRange();
     void configureImpulseGraphViewport(const WorkspaceState& workspace);
     PlotGraphData buildCorrectionGraphData(const WorkspaceState& workspace) const;
     PlotGraphData buildCorrectedResponseGraphData(const WorkspaceState& workspace) const;
@@ -257,6 +261,7 @@ private:
     FilterDesignSettings appliedSettings_{};
     bool filterDesignValid_ = false;
     bool recalculatePending_ = true;
+    bool recalculateInProgress_ = false;
     int sampleRate_ = 48000;
     int scrollOffset_ = 0;
     int contentHeight_ = 0;

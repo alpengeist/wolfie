@@ -777,6 +777,29 @@ void PlotGraph::setDefaultYRange(bool enabled, double minY, double maxY) {
     }
 }
 
+void PlotGraph::setVisibleXRange(double minX, double maxX) {
+    if (data_.xValues.empty()) {
+        resetXRange();
+        return;
+    }
+
+    const double fullMinX = data_.xValues.front();
+    const double fullMaxX = data_.xValues.back();
+    const double nextMinX = clampValue(std::min(minX, maxX), fullMinX, fullMaxX);
+    const double nextMaxX = clampValue(std::max(minX, maxX), fullMinX, fullMaxX);
+    if ((nextMaxX - nextMinX) <= kMinimumVisibleXSpan) {
+        resetXRange();
+        return;
+    }
+
+    hasCustomXRange_ = true;
+    visibleMinX_ = nextMinX;
+    visibleMaxX_ = nextMaxX;
+    brush_ = {};
+    invalidateBackgroundCache();
+    invalidate();
+}
+
 void PlotGraph::resetXRange() {
     hasCustomXRange_ = false;
     visibleMinX_ = 0.0;
@@ -1109,6 +1132,22 @@ void PlotGraph::notifyHoverChanged() const {
                  reinterpret_cast<LPARAM>(window_));
 }
 
+void PlotGraph::notifyXRangeChanged() const {
+    if (window_ == nullptr) {
+        return;
+    }
+
+    HWND parent = GetParent(window_);
+    if (parent == nullptr) {
+        return;
+    }
+
+    SendMessageW(parent,
+                 WM_COMMAND,
+                 MAKEWPARAM(GetDlgCtrlID(window_), kXRangeChangedNotification),
+                 reinterpret_cast<LPARAM>(window_));
+}
+
 void PlotGraph::onLButtonDown(LPARAM lParam) {
     if (window_ == nullptr) {
         return;
@@ -1140,6 +1179,7 @@ void PlotGraph::onLButtonDown(LPARAM lParam) {
     const POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
     if ((hasCustomXRange_ || hasCustomYRange_) && PtInRect(&layout.resetButton, position) != FALSE) {
         resetView();
+        notifyXRangeChanged();
         return;
     }
     if (PtInRect(&layout.graph, position) == FALSE) {
@@ -1295,6 +1335,7 @@ void PlotGraph::onCaptureChanged() {
             visibleMinX_ = nextMinX;
             visibleMaxX_ = nextMaxX;
             invalidateBackgroundCache();
+            notifyXRangeChanged();
         }
     }
 

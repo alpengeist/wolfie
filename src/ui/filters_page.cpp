@@ -874,6 +874,14 @@ void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     saveViewSettings(workspace.ui);
 }
 
+void FiltersPage::setRecalculateInProgress(bool running) {
+    recalculateInProgress_ = running;
+    if (controls_.buttonRecalculate != nullptr) {
+        EnableWindow(controls_.buttonRecalculate, (!running && recalculatePending_) ? TRUE : FALSE);
+        RedrawWindow(controls_.buttonRecalculate, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+    }
+}
+
 double FiltersPage::selectedSmoothness() const {
     return smoothnessValueFromSliderPosition(SendMessageW(controls_.sliderSmoothness, TBM_GETPOS, 0, 0));
 }
@@ -1116,6 +1124,7 @@ bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const Filte
 void FiltersPage::refreshRecalculateButton() {
     recalculatePending_ = !filterDesignValid_ || !areSettingsEqual(currentSettings(), appliedSettings_);
     if (controls_.buttonRecalculate != nullptr) {
+        EnableWindow(controls_.buttonRecalculate, (!recalculateInProgress_ && recalculatePending_) ? TRUE : FALSE);
         InvalidateRect(controls_.buttonRecalculate, nullptr, TRUE);
     }
 }
@@ -1126,17 +1135,21 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
     const bool pressed = (draw.itemState & ODS_SELECTED) != 0;
     const bool focused = (draw.itemState & ODS_FOCUS) != 0;
     const bool hot = (draw.itemState & ODS_HOTLIGHT) != 0;
+    const bool disabled = (draw.itemState & ODS_DISABLED) != 0;
 
-    const COLORREF baseFill = recalculatePending_ ? ui_theme::kGreen : ui_theme::kGray;
+    const COLORREF baseFill = recalculateInProgress_ ? ui_theme::kAccent : (recalculatePending_ ? ui_theme::kGreen : ui_theme::kGray);
     const COLORREF hoverFill = blendColor(baseFill, RGB(255, 255, 255), 0.12);
     const COLORREF pressedFill = blendColor(baseFill, RGB(0, 0, 0), 0.18);
     const COLORREF border = blendColor(baseFill, RGB(0, 0, 0), 0.28);
+    const COLORREF disabledFill = blendColor(baseFill, ui_theme::kBackground, 0.35);
+    const COLORREF disabledBorder = blendColor(border, ui_theme::kBackground, 0.3);
 
-    HBRUSH brush = CreateSolidBrush(pressed ? pressedFill : (hot ? hoverFill : baseFill));
+    const COLORREF fill = disabled ? disabledFill : (pressed ? pressedFill : (hot ? hoverFill : baseFill));
+    HBRUSH brush = CreateSolidBrush(fill);
     FillRect(hdc, &rect, brush);
     DeleteObject(brush);
 
-    HPEN pen = CreatePen(PS_SOLID, 1, border);
+    HPEN pen = CreatePen(PS_SOLID, 1, disabled ? disabledBorder : border);
     HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
     HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
     Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
@@ -1153,14 +1166,17 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
     HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, buttonFont));
 
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, RGB(255, 255, 255));
+    SetTextColor(hdc, disabled ? blendColor(RGB(255, 255, 255), ui_theme::kBackground, 0.2) : RGB(255, 255, 255));
     RECT textRect = rect;
     if (pressed) {
         OffsetRect(&textRect, 0, 1);
     }
-    DrawTextW(hdc, L"Recalculate", -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    const wchar_t* label = recalculateInProgress_
+                               ? L"Calculating..."
+                               : (recalculatePending_ ? L"Recalculate" : L"Up To Date");
+    DrawTextW(hdc, label, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    if (focused) {
+    if (focused && !disabled) {
         RECT focusRect = rect;
         InflateRect(&focusRect, -4, -4);
         DrawFocusRect(hdc, &focusRect);
@@ -1177,24 +1193,22 @@ bool FiltersPage::handleCommand(WORD commandId,
                                 bool& settingsChanged,
                                 bool& recalculateRequested,
                                 bool& viewSettingsChanged) {
-    if ((commandId == kCorrectionGraph ||
-         commandId == kCorrectedGraph ||
-         commandId == kExcessPhaseGraph ||
-         commandId == kGroupDelayGraph) &&
-        notificationCode == PlotGraph::kHoverChangedNotification) {
+    PlotGraph* frequencyGraph = frequencyGraphForCommandId(commandId);
+    if (frequencyGraph != nullptr && notificationCode == PlotGraph::kHoverChangedNotification) {
         if (!syncHoverFrequencyEnabled_) {
             return true;
         }
 
-        const PlotGraph* sourceGraph = commandId == kCorrectionGraph ? &correctionGraph_
-                                     : commandId == kCorrectedGraph ? &correctedGraph_
-                                     : commandId == kExcessPhaseGraph ? &excessPhaseGraph_
-                                                                    : &groupDelayGraph_;
-        sharedFrequencyHoverActive_ = sourceGraph->hasHoveredXValue();
+        sharedFrequencyHoverActive_ = frequencyGraph->hasHoveredXValue();
         if (sharedFrequencyHoverActive_) {
-            sharedFrequencyHoverHz_ = sourceGraph->hoveredXValue();
+            sharedFrequencyHoverHz_ = frequencyGraph->hoveredXValue();
         }
         applySharedFrequencyHoverMarker();
+        return true;
+    }
+
+    if (frequencyGraph != nullptr && notificationCode == PlotGraph::kXRangeChangedNotification) {
+        applySharedFrequencyXRange(*frequencyGraph);
         return true;
     }
 
@@ -1650,6 +1664,42 @@ void FiltersPage::applySharedFrequencyHoverMarker() {
     correctedGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
     excessPhaseGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
     groupDelayGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+}
+
+PlotGraph* FiltersPage::frequencyGraphForCommandId(WORD commandId) {
+    switch (commandId) {
+    case kCorrectionGraph:
+        return &correctionGraph_;
+    case kCorrectedGraph:
+        return &correctedGraph_;
+    case kExcessPhaseGraph:
+        return &excessPhaseGraph_;
+    case kGroupDelayGraph:
+        return &groupDelayGraph_;
+    default:
+        return nullptr;
+    }
+}
+
+void FiltersPage::applySharedFrequencyXRange(const PlotGraph& sourceGraph) {
+    if (!sourceGraph.hasCustomXRange()) {
+        resetSharedFrequencyXRange();
+        return;
+    }
+
+    const double minX = sourceGraph.visibleMinX();
+    const double maxX = sourceGraph.visibleMaxX();
+    correctionGraph_.setVisibleXRange(minX, maxX);
+    correctedGraph_.setVisibleXRange(minX, maxX);
+    excessPhaseGraph_.setVisibleXRange(minX, maxX);
+    groupDelayGraph_.setVisibleXRange(minX, maxX);
+}
+
+void FiltersPage::resetSharedFrequencyXRange() {
+    correctionGraph_.resetXRange();
+    correctedGraph_.resetXRange();
+    excessPhaseGraph_.resetXRange();
+    groupDelayGraph_.resetXRange();
 }
 
 void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace) {
