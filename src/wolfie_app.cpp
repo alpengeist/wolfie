@@ -23,6 +23,7 @@
 #include "ui/plot_graph.h"
 #include "ui/response_graph.h"
 #include "ui/settings_dialog.h"
+#include "ui/splash_screen.h"
 #include "ui/target_curve_graph.h"
 #include "ui/ui_theme.h"
 #include "ui/waterfall_graph.h"
@@ -98,6 +99,18 @@ std::wstring formatSampleRateLabel(int sampleRate) {
     return formatWideDouble(static_cast<double>(sampleRate) / 1000.0, decimals) + L" kHz";
 }
 
+void pumpPendingMessages() {
+    MSG message{};
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+        if (message.message == WM_QUIT) {
+            PostQuitMessage(static_cast<int>(message.wParam));
+            continue;
+        }
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+}
+
 }  // namespace
 
 WolfieApp::WolfieApp(HINSTANCE instance)
@@ -111,9 +124,26 @@ int WolfieApp::run() {
     initCommonControls.dwICC = ICC_STANDARD_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_LISTVIEW_CLASSES;
     InitCommonControlsEx(&initCommonControls);
 
+    ui::SplashScreen::registerWindowClass(instance_);
+    ui::SplashScreen splashScreen;
+    splashScreen.create(instance_);
+    splashScreen.setStatus(L"Loading application state", 1, 3);
+    splashScreen.show();
+    pumpPendingMessages();
+
     appState_ = appStateRepository_.load();
+    splashScreen.setStatus(L"Creating main window", 2, 3);
+    pumpPendingMessages();
+
     createMainWindow();
+
+    splashScreen.setStatus(L"Loading workspace", 3, 3);
+    pumpPendingMessages();
     loadLastWorkspaceIfPossible();
+
+    splashScreen.destroy();
+    ShowWindow(mainWindow_, SW_SHOW);
+    UpdateWindow(mainWindow_);
 
     ACCEL accelerator{};
     accelerator.fVirt = FCONTROL | FVIRTKEY;
@@ -253,7 +283,7 @@ void WolfieApp::createMainWindow() {
     ui::TargetCurvePage::registerPageWindowClass(instance_);
     ui::FiltersPage::registerPageWindowClass(instance_);
 
-    mainWindow_ = CreateWindowExW(0, kMainClassName, L"Wolfie", WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN,
+    mainWindow_ = CreateWindowExW(0, kMainClassName, L"Wolfie", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                                   CW_USEDEFAULT, CW_USEDEFAULT, 1400, 920, nullptr, nullptr, instance_, this);
 
     createMenus();

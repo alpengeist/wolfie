@@ -477,6 +477,8 @@ void MeasurementPage::createControls() {
 
     responseGraph_.create(window_, instance_, kResponseGraph);
     waterfallGraph_.create(window_, instance_);
+    ShowWindow(responseGraph_.window(), SW_HIDE);
+    ShowWindow(waterfallGraph_.window(), SW_HIDE);
 
     const DWORD centeredStaticStyle = SS_CENTER | WS_CHILD | WS_VISIBLE;
     SetWindowLongPtrW(controls_.labelFadeIn, GWL_STYLE, centeredStaticStyle);
@@ -767,7 +769,6 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
     SendMessageW(controls_.checkboxShowRoomRight, BM_SETCHECK, showRoomRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowReference, BM_SETCHECK, showReference_ ? BST_CHECKED : BST_UNCHECKED, 0);
     metadataCollapsed_ = workspace.ui.measurementMetadataCollapsed;
-    updatePlotControlVisibility();
     updateMetadataVisibility();
     setWorkspaceView(workspace);
 }

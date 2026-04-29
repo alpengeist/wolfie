@@ -58,6 +58,8 @@ add_executable(wolfie WIN32
     src/ui/response_graph.h
     src/ui/settings_dialog.cpp
     src/ui/settings_dialog.h
+    src/ui/splash_screen.cpp
+    src/ui/splash_screen.h
     src/ui/smoothing_page.cpp
     src/ui/smoothing_page.h
     src/ui/target_curve_graph.cpp
@@ -73,7 +75,7 @@ add_executable(wolfie WIN32
 
 target_include_directories(wolfie PRIVATE src)
 target_compile_definitions(wolfie PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(wolfie PRIVATE comctl32 comdlg32 msimg32 ole32 shell32 shlwapi uuid winmm)
+target_link_libraries(wolfie PRIVATE comctl32 comdlg32 gdiplus msimg32 ole32 shell32 shlwapi uuid winmm)
 
 option(WOLFIE_BUILD_TESTS "Build Wolfie tests" ON)
 if(WOLFIE_BUILD_TESTS)
