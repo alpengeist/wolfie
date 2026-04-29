@@ -161,7 +161,7 @@ void SettingsDialog::show(HINSTANCE instance,
     auto* dialog = new SettingsDialog(instance, owner, settings, wasapiService, asioService, std::move(onSave));
     dialog->window_ = CreateWindowExW(WS_EX_DLGMODALFRAME, kWindowClassName, L"Measurement Settings",
                                       WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                                      CW_USEDEFAULT, CW_USEDEFAULT, 700, 452,
+                                      CW_USEDEFAULT, CW_USEDEFAULT, 860, 460,
                                       owner, nullptr, instance, dialog);
     if (dialog->window_ == nullptr) {
         delete dialog;
@@ -255,7 +255,7 @@ LRESULT CALLBACK SettingsDialog::WindowProc(HWND window, UINT message, WPARAM wP
         }
         if (commandId == kOpenControlPanelId) {
             const std::wstring driverText = getWindowTextValue(dialog->driver_);
-            if (const auto error = dialog->asioService_.openControlPanel(window, driverText == kNoAsioDrivers ? L"" : driverText)) {
+            if (const auto error = dialog->asioService_.openControlPanelIsolated(driverText == kNoAsioDrivers ? L"" : driverText)) {
                 MessageBoxW(window, error->c_str(), L"ASIO Control Panel", MB_OK | MB_ICONERROR);
             }
             return 0;
@@ -293,34 +293,41 @@ std::wstring SettingsDialog::getWindowTextValue(HWND control) {
 void SettingsDialog::createControls() {
     constexpr int kLabelLeft = 20;
     constexpr int kLabelWidth = 190;
-    constexpr int kControlLeft = 220;
-    constexpr int kComboSmallWidth = 240;
-    constexpr int kComboMediumWidth = 320;
-    constexpr int kComboWideWidth = 420;
-    constexpr int kBrowseLeft = 520;
-    constexpr int kClearLeft = 602;
+    constexpr int kControlLeft = 230;
+    constexpr int kComboSmallWidth = 250;
+    constexpr int kComboMediumWidth = 332;
+    constexpr int kComboWideWidth = 500;
+    constexpr int kAsioButtonLeft = kControlLeft + kComboMediumWidth + 12;
+    constexpr int kAsioButtonWidth = 132;
+    constexpr int kInlineCheckLeft = kControlLeft + kComboSmallWidth + 18;
+    constexpr int kInlineCheckWidth = 84;
+    constexpr int kCalibrationFieldWidth = 404;
+    constexpr int kCalibrationBrowseLeft = kControlLeft + kCalibrationFieldWidth + 18;
+    constexpr int kCalibrationClearLeft = kCalibrationBrowseLeft + 86;
+    constexpr int kRowStep = 36;
+    constexpr int kSpacer = 14;
+    const int backendTop = 20;
+    const int asioTop = backendTop + kRowStep;
+    const int windowsInputTop = asioTop + kRowStep;
+    const int windowsOutputTop = windowsInputTop + kRowStep;
+    const int referenceTop = windowsOutputTop + kRowStep + kSpacer;
+    const int micTop = referenceTop + kRowStep + kSpacer;
+    const int calibrationTop = micTop + kRowStep;
+    const int leftTop = calibrationTop + kRowStep;
+    const int rightTop = leftTop + kRowStep;
+    const int buttonTop = rightTop + kRowStep + 18;
 
-    CreateWindowW(L"STATIC", L"Audio backend", WS_CHILD | WS_VISIBLE, kLabelLeft, 20, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Audio backend", WS_CHILD | WS_VISIBLE, kLabelLeft, backendTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     backend_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                             kControlLeft, 16, kComboSmallWidth, 120, window_, reinterpret_cast<HMENU>(kBackendControlId), nullptr, nullptr);
+                             kControlLeft, backendTop, kComboSmallWidth, 120, window_, reinterpret_cast<HMENU>(kBackendControlId), nullptr, nullptr);
     SendMessageW(backend_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Windows Audio (WASAPI)"));
     SendMessageW(backend_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"ASIO"));
     selectComboBoxString(backend_, settings_.backend == "asio" ? L"ASIO" : L"Windows Audio (WASAPI)");
 
-    CreateWindowW(L"STATIC", L"Windows input device", WS_CHILD | WS_VISIBLE, kLabelLeft, 56, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
-    windowsInput_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                                  kControlLeft, 52, kComboWideWidth, 240, window_, reinterpret_cast<HMENU>(kWindowsInputControlId), nullptr, nullptr);
-    CreateWindowW(L"STATIC", L"Windows output device", WS_CHILD | WS_VISIBLE, kLabelLeft, 92, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
-    windowsOutput_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                                   kControlLeft, 88, kComboWideWidth, 240, window_, reinterpret_cast<HMENU>(kWindowsOutputControlId), nullptr, nullptr);
-    SendMessageW(windowsInput_, CB_SETDROPPEDWIDTH, 520, 0);
-    SendMessageW(windowsOutput_, CB_SETDROPPEDWIDTH, 520, 0);
-    populateWindowsDeviceCombos();
-
     const auto drivers = asioService_.enumerateDrivers();
-    CreateWindowW(L"STATIC", L"ASIO device", WS_CHILD | WS_VISIBLE, kLabelLeft, 136, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"ASIO device", WS_CHILD | WS_VISIBLE, kLabelLeft, asioTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     driver_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                            kControlLeft, 132, kComboMediumWidth, 240, window_, reinterpret_cast<HMENU>(kDriverControlId), nullptr, nullptr);
+                            kControlLeft, asioTop, kComboMediumWidth, 240, window_, reinterpret_cast<HMENU>(kDriverControlId), nullptr, nullptr);
     for (const auto& driverName : drivers) {
         SendMessageW(driver_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(driverName.c_str()));
     }
@@ -329,30 +336,54 @@ void SettingsDialog::createControls() {
     }
     selectComboBoxString(driver_, toWide(settings_.driver));
     SendMessageW(driver_, CB_SETDROPPEDWIDTH, 420, 0);
+    CreateWindowW(L"BUTTON", L"ASIO Control", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                  kAsioButtonLeft, asioTop - 1, kAsioButtonWidth, 28, window_,
+                  reinterpret_cast<HMENU>(kOpenControlPanelId), nullptr, nullptr);
 
-    CreateWindowW(L"STATIC", L"Mic input channel", WS_CHILD | WS_VISIBLE, kLabelLeft, 172, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
-    mic_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                         kControlLeft, 168, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kMicControlId), nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Windows input device", WS_CHILD | WS_VISIBLE, kLabelLeft, windowsInputTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
+    windowsInput_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                  kControlLeft, windowsInputTop, kComboWideWidth, 240, window_, reinterpret_cast<HMENU>(kWindowsInputControlId), nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Windows output device", WS_CHILD | WS_VISIBLE, kLabelLeft, windowsOutputTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
+    windowsOutput_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                   kControlLeft, windowsOutputTop, kComboWideWidth, 240, window_, reinterpret_cast<HMENU>(kWindowsOutputControlId), nullptr, nullptr);
+    SendMessageW(windowsInput_, CB_SETDROPPEDWIDTH, 620, 0);
+    SendMessageW(windowsOutput_, CB_SETDROPPEDWIDTH, 620, 0);
+    populateWindowsDeviceCombos();
+
+    CreateWindowW(L"STATIC", L"Reference input channel", WS_CHILD | WS_VISIBLE, kLabelLeft, referenceTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
+    loopback_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                              kControlLeft, referenceTop, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kLoopbackControlId), nullptr, nullptr);
     loopbackEnabled_ = CreateWindowW(L"BUTTON",
-                                     L"Enable reference loopback",
+                                     L"Enable",
                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                     kLabelLeft,
-                                     204,
-                                     kLabelWidth,
+                                     kInlineCheckLeft,
+                                     referenceTop + 4,
+                                     kInlineCheckWidth,
                                      20,
                                      window_,
                                      reinterpret_cast<HMENU>(kLoopbackEnabledControlId),
                                      nullptr,
                                      nullptr);
-    CreateWindowW(L"STATIC", L"Reference input channel", WS_CHILD | WS_VISIBLE, kLabelLeft, 232, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
-    loopback_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                              kControlLeft, 228, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kLoopbackControlId), nullptr, nullptr);
-    CreateWindowW(L"STATIC", L"Left output channel", WS_CHILD | WS_VISIBLE, kLabelLeft, 268, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
+
+    CreateWindowW(L"STATIC", L"Mic input channel", WS_CHILD | WS_VISIBLE, kLabelLeft, micTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
+    mic_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                         kControlLeft, micTop, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kMicControlId), nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Mic calibration file", WS_CHILD | WS_VISIBLE, kLabelLeft, calibrationTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
+    micCalibrationPath_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                                          WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_READONLY,
+                                          kControlLeft, calibrationTop, kCalibrationFieldWidth, 24, window_, nullptr, nullptr, nullptr);
+    SetWindowTextW(micCalibrationPath_, settings_.microphoneCalibrationPath.wstring().c_str());
+    CreateWindowW(L"BUTTON", L"Browse...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, kCalibrationBrowseLeft, calibrationTop - 2, 74, 28, window_,
+                  reinterpret_cast<HMENU>(kMicCalibrationBrowseId), nullptr, nullptr);
+    CreateWindowW(L"BUTTON", L"Clear", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, kCalibrationClearLeft, calibrationTop - 2, 58, 28, window_,
+                  reinterpret_cast<HMENU>(kMicCalibrationClearId), nullptr, nullptr);
+
+    CreateWindowW(L"STATIC", L"Left output channel", WS_CHILD | WS_VISIBLE, kLabelLeft, leftTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     left_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                          kControlLeft, 264, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kLeftControlId), nullptr, nullptr);
-    CreateWindowW(L"STATIC", L"Right output channel", WS_CHILD | WS_VISIBLE, kLabelLeft, 304, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
+                          kControlLeft, leftTop, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kLeftControlId), nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Right output channel", WS_CHILD | WS_VISIBLE, kLabelLeft, rightTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     right_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                           kControlLeft, 300, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kRightControlId), nullptr, nullptr);
+                           kControlLeft, rightTop, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kRightControlId), nullptr, nullptr);
     SendMessageW(mic_, CB_SETDROPPEDWIDTH, 320, 0);
     SendMessageW(loopback_, CB_SETDROPPEDWIDTH, 320, 0);
     SendMessageW(left_, CB_SETDROPPEDWIDTH, 320, 0);
@@ -360,19 +391,7 @@ void SettingsDialog::createControls() {
     populateChannelCombos();
     SendMessageW(loopbackEnabled_, BM_SETCHECK, settings_.loopbackEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
 
-    CreateWindowW(L"STATIC", L"Mic calibration file", WS_CHILD | WS_VISIBLE, kLabelLeft, 344, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
-    micCalibrationPath_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                                          WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_READONLY,
-                                          kControlLeft, 340, 340, 24, window_, nullptr, nullptr, nullptr);
-    SetWindowTextW(micCalibrationPath_, settings_.microphoneCalibrationPath.wstring().c_str());
-    CreateWindowW(L"BUTTON", L"Browse...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, kBrowseLeft, 338, 74, 28, window_,
-                  reinterpret_cast<HMENU>(kMicCalibrationBrowseId), nullptr, nullptr);
-    CreateWindowW(L"BUTTON", L"Clear", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, kClearLeft, 338, 58, 28, window_,
-                  reinterpret_cast<HMENU>(kMicCalibrationClearId), nullptr, nullptr);
-
-    CreateWindowW(L"BUTTON", L"Open ASIO Control Panel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 390, 180, 28, window_,
-                  reinterpret_cast<HMENU>(kOpenControlPanelId), nullptr, nullptr);
-    CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 580, 390, 80, 28, window_,
+    CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 740, buttonTop, 80, 28, window_,
                   reinterpret_cast<HMENU>(kCloseControlId), nullptr, nullptr);
 
     refreshControlStates();
