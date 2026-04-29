@@ -16,6 +16,10 @@ add_executable(wolfie WIN32
     src/audio/asio_sdk.cpp
     src/audio/asio_sdk.h
     src/audio/audio_backend.h
+    src/audio/wasapi_audio_backend.cpp
+    src/audio/wasapi_audio_backend.h
+    src/audio/wasapi_service.cpp
+    src/audio/wasapi_service.h
     src/audio/winmm_audio_backend.cpp
     src/audio/winmm_audio_backend.h
     src/measurement/measurement_controller.cpp
@@ -67,7 +71,7 @@ add_executable(wolfie WIN32
 
 target_include_directories(wolfie PRIVATE src)
 target_compile_definitions(wolfie PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(wolfie PRIVATE comctl32 comdlg32 msimg32 ole32 shell32 shlwapi winmm)
+target_link_libraries(wolfie PRIVATE comctl32 comdlg32 msimg32 ole32 shell32 shlwapi uuid winmm)
 
 option(WOLFIE_BUILD_TESTS "Build Wolfie tests" ON)
 if(WOLFIE_BUILD_TESTS)

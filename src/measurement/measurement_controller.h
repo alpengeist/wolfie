@@ -27,6 +27,7 @@ private:
     std::unique_ptr<audio::IAudioBackend> backend_;
     std::unique_ptr<audio::IAudioMeasurementSession> session_;
     WorkspaceState snapshot_;
+    MeasurementSettings activeMeasurementSettings_;
     measurement::SweepPlaybackPlan playbackPlan_;
     MeasurementResult result_;
     MeasurementStatus status_;

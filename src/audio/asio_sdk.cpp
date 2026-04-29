@@ -188,6 +188,15 @@ std::optional<std::wstring> openDriver(HWND parentWindow, std::wstring_view driv
 
 bool isSupportedAsioSampleType(ASIOSampleType sampleType) {
     switch (sampleType) {
+    case kAsioSampleInt16Msb:
+    case kAsioSampleInt24Msb:
+    case kAsioSampleInt32Msb:
+    case kAsioSampleFloat32Msb:
+    case kAsioSampleFloat64Msb:
+    case kAsioSampleInt32Msb16:
+    case kAsioSampleInt32Msb18:
+    case kAsioSampleInt32Msb20:
+    case kAsioSampleInt32Msb24:
     case kAsioSampleInt16Lsb:
     case kAsioSampleInt24Lsb:
     case kAsioSampleInt32Lsb:
@@ -205,6 +214,24 @@ bool isSupportedAsioSampleType(ASIOSampleType sampleType) {
 
 std::wstring asioSampleTypeName(ASIOSampleType sampleType) {
     switch (sampleType) {
+    case kAsioSampleInt16Msb:
+        return L"Int16 MSB";
+    case kAsioSampleInt24Msb:
+        return L"Int24 MSB";
+    case kAsioSampleInt32Msb:
+        return L"Int32 MSB";
+    case kAsioSampleFloat32Msb:
+        return L"Float32 MSB";
+    case kAsioSampleFloat64Msb:
+        return L"Float64 MSB";
+    case kAsioSampleInt32Msb16:
+        return L"Int32 MSB 16-bit";
+    case kAsioSampleInt32Msb18:
+        return L"Int32 MSB 18-bit";
+    case kAsioSampleInt32Msb20:
+        return L"Int32 MSB 20-bit";
+    case kAsioSampleInt32Msb24:
+        return L"Int32 MSB 24-bit";
     case kAsioSampleInt16Lsb:
         return L"Int16 LSB";
     case kAsioSampleInt24Lsb:

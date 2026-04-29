@@ -15,7 +15,12 @@ enum class MeasurementChannel {
 };
 
 struct AudioSettings {
+    std::string backend = "windows";
     std::string driver = "ASIO driver";
+    std::string windowsInputDeviceId;
+    std::string windowsInputDeviceName;
+    std::string windowsOutputDeviceId;
+    std::string windowsOutputDeviceName;
     int micInputChannel = 1;
     int leftOutputChannel = 1;
     int rightOutputChannel = 2;

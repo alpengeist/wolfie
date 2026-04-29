@@ -520,7 +520,7 @@ void WolfieApp::endLogResize() {
 }
 
 void WolfieApp::showSettingsWindow() {
-    ui::SettingsDialog::show(instance_, mainWindow_, workspace_.audio, asioService_, [this](const AudioSettings& settings) {
+    ui::SettingsDialog::show(instance_, mainWindow_, workspace_.audio, wasapiService_, asioService_, [this](const AudioSettings& settings) {
         const std::filesystem::path previousCalibrationPath = workspace_.audio.microphoneCalibrationPath;
         workspace_.audio = settings;
         std::wstring calibrationError;

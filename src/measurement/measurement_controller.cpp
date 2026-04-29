@@ -51,6 +51,7 @@ void MeasurementController::resetState() {
     status_ = {};
     startTickMs_ = 0;
     durationMs_ = 0;
+    activeMeasurementSettings_ = {};
     playbackPlan_ = {};
     measurementTimestampUtc_.clear();
 }
@@ -62,25 +63,27 @@ bool MeasurementController::start(const WorkspaceState& workspace) {
     snapshot_ = workspace;
     measurement::syncDerivedMeasurementSettings(snapshot_.measurement);
 
-    const int sampleRate = std::max(8000, snapshot_.measurement.sampleRate);
     measurementTimestampUtc_ = currentUtcTimestamp();
-    playbackPlan_ = measurement::buildSweepPlaybackPlan(snapshot_.measurement,
-                                                        snapshot_.audio.outputVolumeDb);
-
-    const std::filesystem::path measurementDir = snapshot_.rootPath / "measurement";
-    std::filesystem::create_directories(measurementDir);
-    status_.generatedSweepPath = measurementDir / "logsweep.wav";
-    measurement::writeStereoWaveFile(status_.generatedSweepPath, playbackPlan_.playbackPcm, sampleRate);
 
     std::wstring errorMessage;
-    session_ = backend_->startSession(snapshot_.audio, playbackPlan_, sampleRate, errorMessage);
+    session_ = backend_->startSession(snapshot_.audio, snapshot_.measurement, errorMessage);
     if (!session_) {
         status_.lastErrorMessage = errorMessage;
         return false;
     }
 
+    playbackPlan_ = session_->playbackPlan();
+    activeMeasurementSettings_ = snapshot_.measurement;
+    activeMeasurementSettings_.sampleRate = session_->sampleRate();
+    measurement::syncDerivedMeasurementSettings(activeMeasurementSettings_);
+
+    const std::filesystem::path measurementDir = snapshot_.rootPath / "measurement";
+    std::filesystem::create_directories(measurementDir);
+    status_.generatedSweepPath = measurementDir / "logsweep.wav";
+    measurement::writeStereoWaveFile(status_.generatedSweepPath, playbackPlan_.playbackPcm, session_->sampleRate());
+
     durationMs_ = static_cast<uint64_t>(
-        std::ceil((static_cast<double>(playbackPlan_.totalFrames) * 1000.0) / static_cast<double>(sampleRate)));
+        std::ceil((static_cast<double>(playbackPlan_.totalFrames) * 1000.0) / static_cast<double>(session_->sampleRate())));
     startTickMs_ = tickMillis();
     status_.running = true;
     status_.currentChannel = MeasurementChannel::Left;
@@ -132,17 +135,17 @@ void MeasurementController::tick() {
     }
 
     if (elapsedFrames < playbackPlan_.leadInFrames) {
-        status_.currentFrequencyHz = snapshot_.measurement.startFrequencyHz;
+        status_.currentFrequencyHz = activeMeasurementSettings_.startFrequencyHz;
     } else if (elapsedFrames < playbackPlan_.segmentFrames) {
-        status_.currentFrequencyHz = measurement::sweepFrequencyAtSample(snapshot_.measurement,
+        status_.currentFrequencyHz = measurement::sweepFrequencyAtSample(activeMeasurementSettings_,
                                                                          session_->sampleRate(),
                                                                          elapsedFrames - playbackPlan_.leadInFrames,
                                                                          playbackPlan_.sweepFrames);
     } else if (elapsedFrames < rightSegmentStart + playbackPlan_.leadInFrames) {
-        status_.currentFrequencyHz = snapshot_.measurement.startFrequencyHz;
+        status_.currentFrequencyHz = activeMeasurementSettings_.startFrequencyHz;
     } else {
         const size_t rightSweepFrame = std::min(playbackPlan_.sweepFrames, elapsedFrames - rightSegmentStart - playbackPlan_.leadInFrames);
-        status_.currentFrequencyHz = measurement::sweepFrequencyAtSample(snapshot_.measurement,
+        status_.currentFrequencyHz = measurement::sweepFrequencyAtSample(activeMeasurementSettings_,
                                                                          session_->sampleRate(),
                                                                          rightSweepFrame,
                                                                          playbackPlan_.sweepFrames);
@@ -166,7 +169,7 @@ void MeasurementController::tick() {
                                                              playbackPlan_,
                                                              session_->sampleRate(),
                                                              snapshot_.audio,
-                                                             snapshot_.measurement);
+                                                             activeMeasurementSettings_);
     result_.analysis.measurementTimestampUtc = measurementTimestampUtc_;
     result_.analysis.backendName = sessionDetails.backendName;
     result_.analysis.backendInputDevice = toUtf8(sessionDetails.inputDeviceName);
@@ -183,7 +186,7 @@ void MeasurementController::tick() {
     status_.finished = true;
     status_.progress = 1.0;
     status_.currentChannel = MeasurementChannel::None;
-    status_.currentFrequencyHz = snapshot_.measurement.endFrequencyHz;
+    status_.currentFrequencyHz = activeMeasurementSettings_.endFrequencyHz;
 }
 
 }  // namespace wolfie

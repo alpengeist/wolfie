@@ -28,6 +28,7 @@ public:
 
     virtual void poll(AudioLevels& levels) = 0;
     virtual bool playbackDone() const = 0;
+    virtual const measurement::SweepPlaybackPlan& playbackPlan() const = 0;
     virtual const std::vector<int16_t>& capturedSamples() const = 0;
     virtual int sampleRate() const = 0;
     virtual SessionDetails details() const = 0;
@@ -39,8 +40,7 @@ public:
     virtual ~IAudioBackend() = default;
 
     virtual std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings& settings,
-                                                                   const measurement::SweepPlaybackPlan& playbackPlan,
-                                                                   int sampleRate,
+                                                                   const MeasurementSettings& measurementSettings,
                                                                    std::wstring& errorMessage) = 0;
 };
 

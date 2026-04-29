@@ -109,6 +109,10 @@ public:
         return (playbackHeader_.dwFlags & WHDR_DONE) != 0;
     }
 
+    const measurement::SweepPlaybackPlan& playbackPlan() const override {
+        return playbackPlan_;
+    }
+
     const std::vector<int16_t>& capturedSamples() const override {
         return capturedSamples_;
     }
@@ -143,9 +147,13 @@ public:
         closed_ = true;
     }
 
-    bool open(const measurement::SweepPlaybackPlan& playbackPlan, int sampleRate, std::wstring& errorMessage) {
+    bool open(const AudioSettings& settings,
+              const MeasurementSettings& measurementSettings,
+              std::wstring& errorMessage) {
+        playbackPlan_ = measurement::buildSweepPlaybackPlan(measurementSettings, settings.outputVolumeDb);
+        const int sampleRate = std::max(8000, measurementSettings.sampleRate);
         sampleRate_ = sampleRate;
-        playbackPcm_ = playbackPlan.playbackPcm;
+        playbackPcm_ = playbackPlan_.playbackPcm;
 
         WAVEFORMATEX outputFormat{};
         outputFormat.wFormatTag = WAVE_FORMAT_PCM;
@@ -188,7 +196,7 @@ public:
 
         const size_t captureBufferFrames = std::clamp(static_cast<size_t>(sampleRate / 20), size_t{1024}, size_t{8192});
         captureBuffers_.resize(6);
-        capturedSamples_.reserve(playbackPlan.totalFrames + (captureBufferFrames * captureBuffers_.size()));
+        capturedSamples_.reserve(playbackPlan_.totalFrames + (captureBufferFrames * captureBuffers_.size()));
         for (auto& buffer : captureBuffers_) {
             buffer.samples.assign(captureBufferFrames, 0);
             buffer.header.lpData = reinterpret_cast<LPSTR>(buffer.samples.data());
@@ -256,6 +264,7 @@ private:
     HWAVEOUT waveOut_ = nullptr;
     HWAVEIN waveIn_ = nullptr;
     std::vector<int16_t> playbackPcm_;
+    measurement::SweepPlaybackPlan playbackPlan_;
     WAVEHDR playbackHeader_{};
     std::vector<CaptureBuffer> captureBuffers_;
     std::vector<int16_t> capturedSamples_;
@@ -266,12 +275,11 @@ private:
 
 class WinMmAudioBackend final : public IAudioBackend {
 public:
-    std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings&,
-                                                           const measurement::SweepPlaybackPlan& playbackPlan,
-                                                           int sampleRate,
+    std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings& settings,
+                                                           const MeasurementSettings& measurementSettings,
                                                            std::wstring& errorMessage) override {
         auto session = std::make_unique<WinMmMeasurementSession>();
-        if (!session->open(playbackPlan, sampleRate, errorMessage)) {
+        if (!session->open(settings, measurementSettings, errorMessage)) {
             return nullptr;
         }
         return session;

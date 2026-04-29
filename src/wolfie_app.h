@@ -13,6 +13,7 @@
 #include <windows.h>
 
 #include "audio/asio_service.h"
+#include "audio/wasapi_service.h"
 #include "core/models.h"
 #include "measurement/measurement_controller.h"
 #include "persistence/app_state_repository.h"
@@ -119,6 +120,7 @@ private:
     persistence::WorkspaceRepository workspaceRepository_;
     persistence::AppStateRepository appStateRepository_;
     audio::AsioService asioService_;
+    audio::WasapiService wasapiService_;
 };
 
 }  // namespace wolfie

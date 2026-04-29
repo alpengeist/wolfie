@@ -561,10 +561,17 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                     const AudioSettings& audioSettings,
                                                     const MeasurementSettings& settings) {
     MeasurementResult result;
-    result.analysis.requestedDriver = audioSettings.driver;
-    result.analysis.requestedMicInputChannel = audioSettings.micInputChannel;
-    result.analysis.requestedLeftOutputChannel = audioSettings.leftOutputChannel;
-    result.analysis.requestedRightOutputChannel = audioSettings.rightOutputChannel;
+    if (audioSettings.backend == "asio") {
+        result.analysis.requestedDriver = audioSettings.driver;
+        result.analysis.requestedMicInputChannel = audioSettings.micInputChannel;
+        result.analysis.requestedLeftOutputChannel = audioSettings.leftOutputChannel;
+        result.analysis.requestedRightOutputChannel = audioSettings.rightOutputChannel;
+    } else {
+        result.analysis.requestedDriver = "Windows Audio (WASAPI)";
+        result.analysis.requestedMicInputChannel = 0;
+        result.analysis.requestedLeftOutputChannel = 0;
+        result.analysis.requestedRightOutputChannel = 0;
+    }
     result.analysis.sampleRate = sampleRate;
     result.analysis.sweepDurationSeconds = settings.durationSeconds;
     result.analysis.fadeInSeconds = settings.fadeInSeconds;

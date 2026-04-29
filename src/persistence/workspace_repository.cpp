@@ -1075,8 +1075,25 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
 
     const auto content = readTextFile(path / "workspace.json");
     if (content) {
+        bool backendExplicitlyLoaded = false;
+        if (const auto value = findJsonString(*content, "backend")) {
+            workspace.audio.backend = *value;
+            backendExplicitlyLoaded = true;
+        }
         if (const auto driver = findJsonString(*content, "driver")) {
             workspace.audio.driver = *driver;
+        }
+        if (const auto value = findJsonString(*content, "windowsInputDeviceId")) {
+            workspace.audio.windowsInputDeviceId = *value;
+        }
+        if (const auto value = findJsonString(*content, "windowsInputDeviceName")) {
+            workspace.audio.windowsInputDeviceName = *value;
+        }
+        if (const auto value = findJsonString(*content, "windowsOutputDeviceId")) {
+            workspace.audio.windowsOutputDeviceId = *value;
+        }
+        if (const auto value = findJsonString(*content, "windowsOutputDeviceName")) {
+            workspace.audio.windowsOutputDeviceName = *value;
         }
         if (const auto value = findJsonNumber(*content, "micInputChannel")) {
             workspace.audio.micInputChannel = static_cast<int>(*value);
@@ -1095,6 +1112,10 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         }
         if (const auto value = findJsonNumber(*content, "outputVolumeDb")) {
             workspace.audio.outputVolumeDb = *value;
+        }
+        if (!backendExplicitlyLoaded) {
+            workspace.audio.backend =
+                (!workspace.audio.driver.empty() && workspace.audio.driver != "ASIO driver") ? "asio" : "windows";
         }
         if (const auto value = findJsonNumber(*content, "fadeInSeconds")) {
             workspace.measurement.fadeInSeconds = *value;
@@ -1227,7 +1248,12 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
     const auto microphoneCalibrationPathUtf8 = workspace.audio.microphoneCalibrationPath.generic_u8string();
     workspaceJson << "{\n"
                   << "  \"audio\": {\n"
+                  << "    \"backend\": \"" << escapeJson(workspace.audio.backend) << "\",\n"
                   << "    \"driver\": \"" << escapeJson(workspace.audio.driver) << "\",\n"
+                  << "    \"windowsInputDeviceId\": \"" << escapeJson(workspace.audio.windowsInputDeviceId) << "\",\n"
+                  << "    \"windowsInputDeviceName\": \"" << escapeJson(workspace.audio.windowsInputDeviceName) << "\",\n"
+                  << "    \"windowsOutputDeviceId\": \"" << escapeJson(workspace.audio.windowsOutputDeviceId) << "\",\n"
+                  << "    \"windowsOutputDeviceName\": \"" << escapeJson(workspace.audio.windowsOutputDeviceName) << "\",\n"
                   << "    \"micInputChannel\": " << workspace.audio.micInputChannel << ",\n"
                   << "    \"leftOutputChannel\": " << workspace.audio.leftOutputChannel << ",\n"
                   << "    \"rightOutputChannel\": " << workspace.audio.rightOutputChannel << ",\n"

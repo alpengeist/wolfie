@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "audio/asio_sdk.h"
+#include "audio/wasapi_audio_backend.h"
 #include "audio/winmm_audio_backend.h"
 #include "core/text_utils.h"
 #include "measurement/response_analyzer.h"
@@ -50,18 +51,124 @@ int32_t readSigned24Lsb(const uint8_t* bytes) {
     return (value & 0x00800000) != 0 ? (value | ~0x00FFFFFF) : value;
 }
 
+int16_t readSigned16Msb(const uint8_t* bytes) {
+    const uint16_t value = (static_cast<uint16_t>(bytes[0]) << 8) |
+                           static_cast<uint16_t>(bytes[1]);
+    return static_cast<int16_t>(value);
+}
+
+int32_t readSigned24Msb(const uint8_t* bytes) {
+    const int32_t value = (static_cast<int32_t>(bytes[0]) << 16) |
+                          (static_cast<int32_t>(bytes[1]) << 8) |
+                          static_cast<int32_t>(bytes[2]);
+    return (value & 0x00800000) != 0 ? (value | ~0x00FFFFFF) : value;
+}
+
+int32_t readSigned32Msb(const uint8_t* bytes) {
+    const uint32_t value = (static_cast<uint32_t>(bytes[0]) << 24) |
+                           (static_cast<uint32_t>(bytes[1]) << 16) |
+                           (static_cast<uint32_t>(bytes[2]) << 8) |
+                           static_cast<uint32_t>(bytes[3]);
+    return static_cast<int32_t>(value);
+}
+
+double readFloat32Msb(const uint8_t* bytes) {
+    const uint32_t bits = (static_cast<uint32_t>(bytes[0]) << 24) |
+                          (static_cast<uint32_t>(bytes[1]) << 16) |
+                          (static_cast<uint32_t>(bytes[2]) << 8) |
+                          static_cast<uint32_t>(bytes[3]);
+    float value = 0.0f;
+    std::memcpy(&value, &bits, sizeof(value));
+    return static_cast<double>(value);
+}
+
+double readFloat64Msb(const uint8_t* bytes) {
+    const uint64_t bits = (static_cast<uint64_t>(bytes[0]) << 56) |
+                          (static_cast<uint64_t>(bytes[1]) << 48) |
+                          (static_cast<uint64_t>(bytes[2]) << 40) |
+                          (static_cast<uint64_t>(bytes[3]) << 32) |
+                          (static_cast<uint64_t>(bytes[4]) << 24) |
+                          (static_cast<uint64_t>(bytes[5]) << 16) |
+                          (static_cast<uint64_t>(bytes[6]) << 8) |
+                          static_cast<uint64_t>(bytes[7]);
+    double value = 0.0;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
 void writeSigned24Lsb(uint8_t* bytes, int32_t value) {
     bytes[0] = static_cast<uint8_t>(value & 0xFF);
     bytes[1] = static_cast<uint8_t>((value >> 8) & 0xFF);
     bytes[2] = static_cast<uint8_t>((value >> 16) & 0xFF);
 }
 
+void writeSigned16Msb(uint8_t* bytes, int16_t value) {
+    const uint16_t raw = static_cast<uint16_t>(value);
+    bytes[0] = static_cast<uint8_t>((raw >> 8) & 0xFF);
+    bytes[1] = static_cast<uint8_t>(raw & 0xFF);
+}
+
+void writeSigned24Msb(uint8_t* bytes, int32_t value) {
+    bytes[0] = static_cast<uint8_t>((value >> 16) & 0xFF);
+    bytes[1] = static_cast<uint8_t>((value >> 8) & 0xFF);
+    bytes[2] = static_cast<uint8_t>(value & 0xFF);
+}
+
+void writeSigned32Msb(uint8_t* bytes, int32_t value) {
+    const uint32_t raw = static_cast<uint32_t>(value);
+    bytes[0] = static_cast<uint8_t>((raw >> 24) & 0xFF);
+    bytes[1] = static_cast<uint8_t>((raw >> 16) & 0xFF);
+    bytes[2] = static_cast<uint8_t>((raw >> 8) & 0xFF);
+    bytes[3] = static_cast<uint8_t>(raw & 0xFF);
+}
+
+void writeFloat32Msb(uint8_t* bytes, float value) {
+    uint32_t raw = 0;
+    std::memcpy(&raw, &value, sizeof(raw));
+    bytes[0] = static_cast<uint8_t>((raw >> 24) & 0xFF);
+    bytes[1] = static_cast<uint8_t>((raw >> 16) & 0xFF);
+    bytes[2] = static_cast<uint8_t>((raw >> 8) & 0xFF);
+    bytes[3] = static_cast<uint8_t>(raw & 0xFF);
+}
+
+void writeFloat64Msb(uint8_t* bytes, double value) {
+    uint64_t raw = 0;
+    std::memcpy(&raw, &value, sizeof(raw));
+    bytes[0] = static_cast<uint8_t>((raw >> 56) & 0xFF);
+    bytes[1] = static_cast<uint8_t>((raw >> 48) & 0xFF);
+    bytes[2] = static_cast<uint8_t>((raw >> 40) & 0xFF);
+    bytes[3] = static_cast<uint8_t>((raw >> 32) & 0xFF);
+    bytes[4] = static_cast<uint8_t>((raw >> 24) & 0xFF);
+    bytes[5] = static_cast<uint8_t>((raw >> 16) & 0xFF);
+    bytes[6] = static_cast<uint8_t>((raw >> 8) & 0xFF);
+    bytes[7] = static_cast<uint8_t>(raw & 0xFF);
+}
+
 double readAsioSample(const void* buffer, ASIOSampleType sampleType, size_t frameIndex) {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(buffer);
     switch (sampleType) {
+    case kAsioSampleInt16Msb:
+        return static_cast<double>(readSigned16Msb(bytes + (frameIndex * 2))) / 32768.0;
+    case kAsioSampleInt24Msb:
+        return static_cast<double>(readSigned24Msb(bytes + (frameIndex * 3))) / 8388608.0;
+    case kAsioSampleInt32Msb:
+        return static_cast<double>(readSigned32Msb(bytes + (frameIndex * 4))) / 2147483648.0;
+    case kAsioSampleFloat32Msb:
+        return readFloat32Msb(bytes + (frameIndex * 4));
+    case kAsioSampleFloat64Msb:
+        return readFloat64Msb(bytes + (frameIndex * 8));
+    case kAsioSampleInt32Msb16:
+        return static_cast<double>(readSigned32Msb(bytes + (frameIndex * 4)) >> 16) / 32768.0;
+    case kAsioSampleInt32Msb18:
+        return static_cast<double>(readSigned32Msb(bytes + (frameIndex * 4)) >> 14) / 131072.0;
+    case kAsioSampleInt32Msb20:
+        return static_cast<double>(readSigned32Msb(bytes + (frameIndex * 4)) >> 12) / 524288.0;
+    case kAsioSampleInt32Msb24:
+        return static_cast<double>(readSigned32Msb(bytes + (frameIndex * 4)) >> 8) / 8388608.0;
     case kAsioSampleInt16Lsb:
         return static_cast<double>(reinterpret_cast<const int16_t*>(buffer)[frameIndex]) / 32768.0;
     case kAsioSampleInt24Lsb:
-        return static_cast<double>(readSigned24Lsb(reinterpret_cast<const uint8_t*>(buffer) + (frameIndex * 3))) / 8388608.0;
+        return static_cast<double>(readSigned24Lsb(bytes + (frameIndex * 3))) / 8388608.0;
     case kAsioSampleInt32Lsb:
         return static_cast<double>(reinterpret_cast<const int32_t*>(buffer)[frameIndex]) / 2147483648.0;
     case kAsioSampleFloat32Lsb:
@@ -83,13 +190,43 @@ double readAsioSample(const void* buffer, ASIOSampleType sampleType, size_t fram
 
 void writeAsioSample(void* buffer, ASIOSampleType sampleType, size_t frameIndex, int16_t pcmSample) {
     const double normalized = pcm16ToNormalized(pcmSample);
+    auto* bytes = reinterpret_cast<uint8_t*>(buffer);
     switch (sampleType) {
+    case kAsioSampleInt16Msb:
+        writeSigned16Msb(bytes + (frameIndex * 2), pcmSample);
+        break;
+    case kAsioSampleInt24Msb: {
+        const int32_t value = static_cast<int32_t>(pcmSample) << 8;
+        writeSigned24Msb(bytes + (frameIndex * 3), value);
+        break;
+    }
+    case kAsioSampleInt32Msb:
+        writeSigned32Msb(bytes + (frameIndex * 4), static_cast<int32_t>(pcmSample) << 16);
+        break;
+    case kAsioSampleFloat32Msb:
+        writeFloat32Msb(bytes + (frameIndex * 4), static_cast<float>(normalized));
+        break;
+    case kAsioSampleFloat64Msb:
+        writeFloat64Msb(bytes + (frameIndex * 8), normalized);
+        break;
+    case kAsioSampleInt32Msb16:
+        writeSigned32Msb(bytes + (frameIndex * 4), static_cast<int32_t>(pcmSample) << 16);
+        break;
+    case kAsioSampleInt32Msb18:
+        writeSigned32Msb(bytes + (frameIndex * 4), static_cast<int32_t>(pcmSample) << 14);
+        break;
+    case kAsioSampleInt32Msb20:
+        writeSigned32Msb(bytes + (frameIndex * 4), static_cast<int32_t>(pcmSample) << 12);
+        break;
+    case kAsioSampleInt32Msb24:
+        writeSigned32Msb(bytes + (frameIndex * 4), static_cast<int32_t>(pcmSample) << 8);
+        break;
     case kAsioSampleInt16Lsb:
         reinterpret_cast<int16_t*>(buffer)[frameIndex] = pcmSample;
         break;
     case kAsioSampleInt24Lsb: {
         const int32_t value = static_cast<int32_t>(pcmSample) << 8;
-        writeSigned24Lsb(reinterpret_cast<uint8_t*>(buffer) + (frameIndex * 3), value);
+        writeSigned24Lsb(bytes + (frameIndex * 3), value);
         break;
     }
     case kAsioSampleInt32Lsb:
@@ -147,11 +284,12 @@ public:
     }
 
     bool open(const AudioSettings& settings,
-              const measurement::SweepPlaybackPlan& playbackPlan,
-              int sampleRate,
+              const MeasurementSettings& measurementSettings,
               std::wstring& errorMessage) {
-        playbackPcm_ = playbackPlan.playbackPcm;
-        totalFrames_ = playbackPlan.totalFrames;
+        playbackPlan_ = measurement::buildSweepPlaybackPlan(measurementSettings, settings.outputVolumeDb);
+        playbackPcm_ = playbackPlan_.playbackPcm;
+        totalFrames_ = playbackPlan_.totalFrames;
+        const int sampleRate = std::max(8000, measurementSettings.sampleRate);
         sampleRate_ = sampleRate;
         driverName_ = toWide(settings.driver);
 
@@ -165,7 +303,14 @@ public:
             return false;
         }
 
-        if (const auto openError = openDriver(GetDesktopWindow(), driverName_, driverHandle_)) {
+        HWND hostWindow = GetActiveWindow();
+        if (hostWindow == nullptr) {
+            hostWindow = GetForegroundWindow();
+        }
+        if (hostWindow == nullptr) {
+            hostWindow = GetDesktopWindow();
+        }
+        if (const auto openError = openDriver(hostWindow, driverName_, driverHandle_)) {
             errorMessage = *openError;
             return false;
         }
@@ -225,6 +370,10 @@ public:
         inputLatency_ = 0;
         outputLatency_ = 0;
         driverHandle_.driver->getLatencies(&inputLatency_, &outputLatency_);
+        const size_t latencyPadding = static_cast<size_t>(std::max<long>(0, inputLatency_) +
+                                                          std::max<long>(0, outputLatency_) +
+                                                          (std::max<long>(bufferSize_, 0) * 4));
+        capturedSamples_.reserve(totalFrames_ + latencyPadding);
 
         bufferInfos_[0].isInput = 1;
         bufferInfos_[0].channelNum = inputChannel_.channelNumber - 1;
@@ -264,6 +413,9 @@ public:
         }
         buffersCreated_ = true;
 
+        primeOutputBuffer(0);
+        primeOutputBuffer(1);
+
         const ASIOError startResult = driverHandle_.driver->start();
         if (startResult != kAsioOk) {
             errorMessage = formatAsioError(driverHandle_.driver, L"Could not start the ASIO driver", startResult);
@@ -292,6 +444,10 @@ public:
         return playbackDone_.load();
     }
 
+    const measurement::SweepPlaybackPlan& playbackPlan() const override {
+        return playbackPlan_;
+    }
+
     const std::vector<int16_t>& capturedSamples() const override {
         return capturedSamples_;
     }
@@ -301,7 +457,17 @@ public:
     }
 
     SessionDetails details() const override {
-        return sessionDetails_;
+        SessionDetails details = sessionDetails_;
+        details.routingNotes =
+            L"ASIO measurement uses the selected driver and channels directly. Buffer size " +
+            std::to_wstring(bufferSize_) +
+            L", input latency " + std::to_wstring(inputLatency_) +
+            L" samples, output latency " + std::to_wstring(outputLatency_) +
+            L" samples, input sample type " + asioSampleTypeName(inputChannel_.info.type) +
+            L", left output sample type " + asioSampleTypeName(leftOutputChannel_.info.type) +
+            L", right output sample type " + asioSampleTypeName(rightOutputChannel_.info.type) +
+            L", callbacks " + std::to_wstring(callbackCount_.load()) + L".";
+        return details;
     }
 
     void stop(AudioLevels& levels) override {
@@ -331,16 +497,24 @@ public:
 
 private:
     static void bufferSwitch(long index, ASIOBool) {
-        std::lock_guard<std::mutex> lock(gActiveSessionMutex);
-        if (gActiveSession != nullptr) {
-            gActiveSession->processBuffer(index);
+        AsioMeasurementSession* session = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(gActiveSessionMutex);
+            session = gActiveSession;
+        }
+        if (session != nullptr) {
+            session->processBuffer(index);
         }
     }
 
     static ASIOTime* bufferSwitchTimeInfo(ASIOTime* params, long index, ASIOBool) {
-        std::lock_guard<std::mutex> lock(gActiveSessionMutex);
-        if (gActiveSession != nullptr) {
-            gActiveSession->processBuffer(index);
+        AsioMeasurementSession* session = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(gActiveSessionMutex);
+            session = gActiveSession;
+        }
+        if (session != nullptr) {
+            session->processBuffer(index);
         }
         return params;
     }
@@ -407,12 +581,37 @@ private:
             return;
         }
 
+        callbackCount_.fetch_add(1);
+
         const size_t frameCount = static_cast<size_t>(std::max<long>(bufferSize_, 0));
-        std::vector<int16_t> captureBlock(frameCount, 0);
+        renderOutputBuffer(bufferIndex);
+
+        const size_t captureOffset = capturedSamples_.size();
+        capturedSamples_.resize(captureOffset + frameCount);
+        auto* captureBlock = capturedSamples_.data() + captureOffset;
         for (size_t frame = 0; frame < frameCount; ++frame) {
             captureBlock[frame] = normalizedToPcm16(
                 readAsioSample(bufferInfos_[0].buffers[bufferIndex], inputChannel_.info.type, frame));
+        }
 
+        if (renderedFrames_.load() >= totalFrames_) {
+            playbackDone_.store(true);
+        }
+
+        const double currentDb = measurement::amplitudeDbFromPcm16(captureBlock, frameCount);
+        currentAmplitudeDb_.store(currentDb);
+        double peakDb = peakAmplitudeDb_.load();
+        while (currentDb > peakDb && !peakAmplitudeDb_.compare_exchange_weak(peakDb, currentDb)) {
+        }
+    }
+
+    void primeOutputBuffer(long bufferIndex) {
+        renderOutputBuffer(bufferIndex);
+    }
+
+    void renderOutputBuffer(long bufferIndex) {
+        const size_t frameCount = static_cast<size_t>(std::max<long>(bufferSize_, 0));
+        for (size_t frame = 0; frame < frameCount; ++frame) {
             int16_t leftSample = 0;
             int16_t rightSample = 0;
             const size_t playbackFrame = renderedFrames_.fetch_add(1);
@@ -428,19 +627,8 @@ private:
             writeAsioSample(bufferInfos_[2].buffers[bufferIndex], rightOutputChannel_.info.type, frame, rightSample);
         }
 
-        if (renderedFrames_.load() >= totalFrames_) {
-            playbackDone_.store(true);
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(dataMutex_);
-            capturedSamples_.insert(capturedSamples_.end(), captureBlock.begin(), captureBlock.end());
-        }
-
-        const double currentDb = measurement::amplitudeDbFromPcm16(captureBlock.data(), captureBlock.size());
-        currentAmplitudeDb_.store(currentDb);
-        double peakDb = peakAmplitudeDb_.load();
-        while (currentDb > peakDb && !peakAmplitudeDb_.compare_exchange_weak(peakDb, currentDb)) {
+        if (started_ && driverHandle_.driver != nullptr) {
+            driverHandle_.driver->outputReady();
         }
     }
 
@@ -449,7 +637,6 @@ private:
     measurement::SweepPlaybackPlan playbackPlan_;
     std::vector<int16_t> playbackPcm_;
     std::vector<int16_t> capturedSamples_;
-    std::mutex dataMutex_;
     std::array<ASIOBufferInfo, 3> bufferInfos_{};
     ASIOCallbacks callbacks_{};
     ChannelSelection inputChannel_;
@@ -458,6 +645,7 @@ private:
     SessionDetails sessionDetails_;
     std::atomic<double> currentAmplitudeDb_{-90.0};
     std::atomic<double> peakAmplitudeDb_{-90.0};
+    std::atomic<size_t> callbackCount_{0};
     std::atomic<bool> playbackDone_{false};
     std::atomic<bool> closed_{false};
     std::atomic<size_t> renderedFrames_{0};
@@ -473,11 +661,10 @@ private:
 class AsioAudioBackend final : public IAudioBackend {
 public:
     std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings& settings,
-                                                           const measurement::SweepPlaybackPlan& playbackPlan,
-                                                           int sampleRate,
+                                                           const MeasurementSettings& measurementSettings,
                                                            std::wstring& errorMessage) override {
         auto session = std::make_unique<AsioMeasurementSession>();
-        if (!session->open(settings, playbackPlan, sampleRate, errorMessage)) {
+        if (!session->open(settings, measurementSettings, errorMessage)) {
             return nullptr;
         }
         return session;
@@ -488,21 +675,24 @@ class DefaultAudioBackend final : public IAudioBackend {
 public:
     DefaultAudioBackend()
         : asioBackend_(createAsioAudioBackend()),
+          wasapiBackend_(createWasapiAudioBackend()),
           winMmBackend_(createWinMmAudioBackend()) {}
 
     std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings& settings,
-                                                           const measurement::SweepPlaybackPlan& playbackPlan,
-                                                           int sampleRate,
+                                                           const MeasurementSettings& measurementSettings,
                                                            std::wstring& errorMessage) override {
-        const bool hasExplicitAsioDriver = !settings.driver.empty() && settings.driver != "ASIO driver";
-        if (hasExplicitAsioDriver) {
-            return asioBackend_->startSession(settings, playbackPlan, sampleRate, errorMessage);
+        if (settings.backend == "asio") {
+            return asioBackend_->startSession(settings, measurementSettings, errorMessage);
         }
-        return winMmBackend_->startSession(settings, playbackPlan, sampleRate, errorMessage);
+        if (settings.backend == "winmm") {
+            return winMmBackend_->startSession(settings, measurementSettings, errorMessage);
+        }
+        return wasapiBackend_->startSession(settings, measurementSettings, errorMessage);
     }
 
 private:
     std::unique_ptr<IAudioBackend> asioBackend_;
+    std::unique_ptr<IAudioBackend> wasapiBackend_;
     std::unique_ptr<IAudioBackend> winMmBackend_;
 };
 
