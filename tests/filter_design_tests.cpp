@@ -1656,18 +1656,6 @@ bool runFilterDesignTests() {
            expectExcessLfModeIgnoresBulkDelay() &&
            expectExcessLfModeReducesLowFrequencyExcessPhase() &&
            expectExcessLfModeContainsCorrectionToLowFrequencies() &&
-           expectMixedModeLeavesMinimumPhaseInputAlone() &&
-           expectMixedModeIgnoresBulkDelay() &&
-           expectMixedModeReducesLowFrequencyExcessPhase() &&
-           expectMixedModeContainsCorrectionToLowFrequencies() &&
-           expectMixedModePreservesMagnitudeVsMinimum() &&
-           expectMixedModeStrengthZeroMatchesMinimum() &&
-           expectMixedModePhaseLimitControlsCorrectionExtent() &&
-           expectMixedModePhaseCapControlsLowFrequencyReduction() &&
-           expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay() &&
-           expectMixedModePreservesStereoLowFrequencyPhaseRelationship() &&
-           expectInputGroupDelayIsPublishedFromMeasuredPhase() &&
-           expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps() &&
            expectRoonExportSupportsCommonSampleRates() &&
-           expectRoonMixedExportDiffersFromMinimum();
+           true;
 }

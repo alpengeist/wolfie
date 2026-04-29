@@ -226,10 +226,18 @@ std::vector<double> buildDbTickValues(double minDb, double maxDb, double stepDb)
         return ticks;
     }
 
+    const double epsilon = std::max(stepDb * 1.0e-6, 1.0e-9);
     const double first = std::floor(minDb / stepDb) * stepDb;
     const double last = std::ceil(maxDb / stepDb) * stepDb;
     for (double value = first; value <= last + (stepDb * 0.25); value += stepDb) {
+        if (value < minDb - epsilon || value > maxDb + epsilon) {
+            continue;
+        }
         ticks.push_back(value);
+    }
+
+    if (ticks.empty()) {
+        ticks.push_back((minDb + maxDb) * 0.5);
     }
     return ticks;
 }

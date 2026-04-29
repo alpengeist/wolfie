@@ -107,7 +107,8 @@ double correctionWeightAt(double frequencyHz, const FilterDesignSettings& settin
     double weight = 1.0;
 
     const double lowCorrectionHz = std::max(settings.lowCorrectionHz, 1.0);
-    const double lowStartHz = lowCorrectionHz / std::pow(2.0, std::max(settings.lowTaperOctaves, 0.0));
+    const double lowStartHz =
+        lowCorrectionHz / std::pow(2.0, std::max(settings.lowTaperOctaves, 0.0) * 0.5);
     if (frequencyHz <= lowStartHz) {
         weight = 0.0;
     } else if (frequencyHz < lowCorrectionHz) {
@@ -264,7 +265,7 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
         const double minValueDb = -settings.maxCutDb * weight;
         const double maxValueDb = settings.maxBoostDb * weight;
         desiredCorrectionDb.push_back(applyAsymmetricSoftLimit(rawCorrectionDb, minValueDb, maxValueDb));
-        trackingWeights.push_back(weight);
+        trackingWeights.push_back(0.05 + (0.95 * weight));
         lowerBoundsDb.push_back(minValueDb);
         upperBoundsDb.push_back(maxValueDb);
     }

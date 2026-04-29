@@ -84,11 +84,19 @@ std::vector<double> majorFrequencyTicks() {
 
 std::vector<double> yTicks(double minDb, double maxDb) {
     std::vector<double> ticks;
-    for (double value = minDb; value <= maxDb + 0.001; value += 12.0) {
+    constexpr double stepDb = 12.0;
+    const double epsilon = 0.001;
+    const double first = std::floor(minDb / stepDb) * stepDb;
+    const double last = std::ceil(maxDb / stepDb) * stepDb;
+    for (double value = first; value <= last + (stepDb * 0.25); value += stepDb) {
+        if (value < minDb - epsilon || value > maxDb + epsilon) {
+            continue;
+        }
         ticks.push_back(value);
     }
-    if (ticks.empty() || std::abs(ticks.back() - maxDb) > 0.5) {
-        ticks.push_back(maxDb);
+
+    if (ticks.empty()) {
+        ticks.push_back((minDb + maxDb) * 0.5);
     }
     return ticks;
 }

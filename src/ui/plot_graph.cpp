@@ -159,8 +159,16 @@ std::vector<double> buildYTicks(double minY, double maxY) {
     const double first = std::floor(minY / step) * step;
     const double last = std::ceil(maxY / step) * step;
     std::vector<double> ticks;
+    const double epsilon = std::max(step * 1.0e-6, 1.0e-9);
     for (double value = first; value <= last + (step * 0.25); value += step) {
+        if (value < minY - epsilon || value > maxY + epsilon) {
+            continue;
+        }
         ticks.push_back(value);
+    }
+
+    if (ticks.empty()) {
+        ticks.push_back((minY + maxY) * 0.5);
     }
     return ticks;
 }
