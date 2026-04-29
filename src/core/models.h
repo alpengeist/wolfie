@@ -217,7 +217,12 @@ struct MeasurementResult {
         return nullptr;
     }
 
-    [[nodiscard]] const MeasurementValueSet* preferredMagnitudeResponse() const {
+    [[nodiscard]] const MeasurementValueSet* magnitudeResponse() const {
+        if (const MeasurementValueSet* canonical = findValueSet("measurement.magnitude_response")) {
+            if (canonical->valid()) {
+                return canonical;
+            }
+        }
         if (const MeasurementValueSet* calibrated = findValueSet("measurement.calibrated_magnitude_response")) {
             if (calibrated->valid()) {
                 return calibrated;
@@ -228,16 +233,16 @@ struct MeasurementResult {
                 return raw;
             }
         }
-        for (const MeasurementValueSet& valueSet : valueSets) {
-            if (valueSet.valid()) {
-                return &valueSet;
+        if (const MeasurementValueSet* room = findValueSet("measurement.room_magnitude_response")) {
+            if (room->valid()) {
+                return room;
             }
         }
         return nullptr;
     }
 
     [[nodiscard]] bool hasAnyValues() const {
-        return preferredMagnitudeResponse() != nullptr;
+        return magnitudeResponse() != nullptr;
     }
 };
 

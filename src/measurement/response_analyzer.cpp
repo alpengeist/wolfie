@@ -1040,6 +1040,8 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                                       sampleRate);
     appendValueSetIfValid(result, rawMagnitudeResponse);
     appendValueSetIfValid(result, rawPhaseResponse);
+    MeasurementValueSet magnitudeResponse = rawMagnitudeResponse;
+    magnitudeResponse.key = "measurement.magnitude_response";
     appendValueSetIfValid(result,
                           buildMagnitudeResponseValueSet("measurement.room_magnitude_response",
                                                          displayFrequencyAxisHz,
@@ -1084,7 +1086,10 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
         calibratedMagnitudeResponse.key = "measurement.calibrated_magnitude_response";
         applyMicrophoneCalibration(audioSettings, calibratedMagnitudeResponse);
         appendValueSetIfValid(result, std::move(calibratedMagnitudeResponse));
+
+        applyMicrophoneCalibration(audioSettings, magnitudeResponse);
     }
+    appendValueSetIfValid(result, std::move(magnitudeResponse));
 
     appendReferenceCompensatedTransferValueSets(result,
                                                 referenceResult,

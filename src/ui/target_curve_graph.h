@@ -84,7 +84,7 @@ private:
     [[nodiscard]] RECT infoLineRect() const;
     void invalidateInfoLine() const;
     void notifyParent(WORD code) const;
-    void rebuildPlot();
+    void rebuildPlot(bool resetDisplayOffset = false);
     void onPaint() const;
     void onMouseMove(LPARAM lParam);
     void onMouseLeave();
@@ -109,6 +109,7 @@ private:
     bool hasCustomVisibleDbRange_ = false;
     double visibleMinDb_ = -12.0;
     double visibleMaxDb_ = 12.0;
+    double displayCurveOffsetDb_ = 0.0;
     mutable HBITMAP backgroundCacheBitmap_ = nullptr;
     mutable SIZE backgroundCacheSize_{};
     mutable bool backgroundCacheValid_ = false;

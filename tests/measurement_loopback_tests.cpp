@@ -217,8 +217,17 @@ bool expectMeasurementResultValueSets() {
         return false;
     }
 
-    if (result.preferredMagnitudeResponse() != magnitude) {
-        std::cerr << "preferred magnitude response did not select the raw response\n";
+    const wolfie::MeasurementValueSet* canonical = result.findValueSet("measurement.magnitude_response");
+    if (canonical == nullptr || !canonical->valid()) {
+        std::cerr << "measurement result is missing the canonical magnitude response\n";
+        return false;
+    }
+
+    if (result.magnitudeResponse() != canonical ||
+        canonical->xValues != magnitude->xValues ||
+        canonical->leftValues != magnitude->leftValues ||
+        canonical->rightValues != magnitude->rightValues) {
+        std::cerr << "canonical magnitude response did not match the raw response without calibration\n";
         return false;
     }
 

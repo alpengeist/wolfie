@@ -28,6 +28,10 @@ public:
     void populate(const WorkspaceState& workspace);
     void syncToWorkspace(WorkspaceState& workspace) const;
     void setWorkspaceView(const WorkspaceState& workspace);
+    void setCalibrationRefreshInProgress(bool inProgress,
+                                         int currentStep = 0,
+                                         int totalSteps = 0,
+                                         const std::wstring& statusText = L"");
     void refreshStatus(const MeasurementStatus& status, bool hasResult);
     void invalidateGraph() const;
     bool handleDrawItem(const DRAWITEMSTRUCT* draw) const;
@@ -36,6 +40,7 @@ public:
                        WorkspaceState& workspace,
                        bool& roomMeasurePressed,
                        bool& referenceMeasurePressed,
+                       bool& microphoneCalibrationChanged,
                        bool& sampleRateChanged,
                        bool& graphZoomChanged,
                        bool& plotSelectionChanged);
@@ -45,6 +50,12 @@ public:
 
 private:
     struct Controls {
+        HWND labelMicCalibration = nullptr;
+        HWND editMicCalibrationPath = nullptr;
+        HWND buttonMicCalibrationBrowse = nullptr;
+        HWND buttonMicCalibrationClear = nullptr;
+        HWND calibrationActivityLabel = nullptr;
+        HWND calibrationActivityBar = nullptr;
         HWND labelFadeIn = nullptr;
         HWND labelFadeOut = nullptr;
         HWND labelDuration = nullptr;
@@ -131,6 +142,8 @@ private:
     static constexpr int kCheckboxShowRoomLeft = 3022;
     static constexpr int kCheckboxShowRoomRight = 3023;
     static constexpr int kCheckboxShowReference = 3024;
+    static constexpr int kButtonMicCalibrationBrowse = 3025;
+    static constexpr int kButtonMicCalibrationClear = 3026;
     static constexpr int kOutputVolumeSliderMax = 61;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -159,6 +172,7 @@ private:
     void updatePlotControlVisibility() const;
     void updateMetadataVisibility() const;
     void updateLegendVisibility() const;
+    void setInteractiveControlsEnabled(bool enabled) const;
     void refreshReferenceStatusLabels() const;
     void refreshActionButtons() const;
     std::vector<MetadataRow> buildMetadataRows(const MeasurementResult& result) const;
@@ -177,6 +191,7 @@ private:
     bool showRoomLeft_ = true;
     bool showRoomRight_ = true;
     bool showReference_ = true;
+    bool calibrationRefreshInProgress_ = false;
     ResponseGraph responseGraph_;
     WaterfallGraph waterfallGraph_;
 };

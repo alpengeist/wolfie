@@ -44,6 +44,8 @@ add_executable(wolfie WIN32
     src/persistence/app_state_repository.h
     src/persistence/microphone_calibration_repository.cpp
     src/persistence/microphone_calibration_repository.h
+    src/persistence/wave_file_repository.cpp
+    src/persistence/wave_file_repository.h
     src/persistence/workspace_repository.cpp
     src/persistence/workspace_repository.h
     src/ui/measurement_page.cpp

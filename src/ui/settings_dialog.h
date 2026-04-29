@@ -62,7 +62,6 @@ private:
     HWND loopback_ = nullptr;
     HWND left_ = nullptr;
     HWND right_ = nullptr;
-    HWND micCalibrationPath_ = nullptr;
     std::vector<audio::WasapiDevice> windowsInputs_;
     std::vector<audio::WasapiDevice> windowsOutputs_;
 };

@@ -1,6 +1,7 @@
 #include "wolfie_app.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <sstream>
@@ -18,6 +19,7 @@
 #include "measurement/response_smoother.h"
 #include "measurement/target_curve_designer.h"
 #include "persistence/microphone_calibration_repository.h"
+#include "persistence/wave_file_repository.h"
 #include "ui/plot_graph.h"
 #include "ui/response_graph.h"
 #include "ui/settings_dialog.h"
@@ -520,18 +522,7 @@ void WolfieApp::endLogResize() {
 
 void WolfieApp::showSettingsWindow() {
     ui::SettingsDialog::show(instance_, mainWindow_, workspace_.audio, wasapiService_, asioService_, [this](const AudioSettings& settings) {
-        const std::filesystem::path previousCalibrationPath = workspace_.audio.microphoneCalibrationPath;
         workspace_.audio = settings;
-        std::wstring calibrationError;
-        if (!persistence::loadMicrophoneCalibration(workspace_.audio, calibrationError)) {
-            appendLog(L"Microphone calibration unavailable: " + calibrationError, LogSeverity::Error);
-        } else if (workspace_.audio.microphoneCalibrationPath != previousCalibrationPath) {
-            if (workspace_.audio.microphoneCalibrationPath.empty()) {
-                appendLog(L"Microphone calibration cleared.");
-            } else {
-                appendLog(L"Microphone calibration loaded: " + workspace_.audio.microphoneCalibrationPath.wstring());
-            }
-        }
         populateControlsFromState();
         syncStateFromControls();
         workspaceRepository_.save(workspace_);
@@ -563,6 +554,203 @@ void WolfieApp::syncStateFromControls() {
     targetCurvePage_.syncToWorkspace(workspace_);
     filtersPage_.syncToWorkspace(workspace_);
     syncExportSampleRatesToWorkspace();
+}
+
+WolfieApp::CalibrationReanalysisTaskResult
+WolfieApp::buildReanalyzedMeasurementWithCurrentMicCalibration(const WorkspaceState& workspace,
+                                                               const std::shared_ptr<CalibrationReanalysisProgress>& progress) {
+    CalibrationReanalysisTaskResult taskResult;
+    if (!workspace.result.hasAnyValues()) {
+        taskResult.success = true;
+        return taskResult;
+    }
+
+    if (progress != nullptr) {
+        progress->currentStep.store(1);
+    }
+
+    const MeasurementAnalysis& existingAnalysis = workspace.result.analysis;
+    const MeasurementArtifact* rawCaptureArtifact = existingAnalysis.findArtifact("raw_capture_wav");
+    if (rawCaptureArtifact == nullptr || rawCaptureArtifact->path.empty()) {
+        taskResult.errorMessage = L"Could not reanalyze the measurement because the raw capture WAV is unavailable.";
+        return taskResult;
+    }
+
+    int captureSampleRate = 0;
+    std::vector<int16_t> capturedSamples;
+    std::wstring errorMessage;
+    if (!persistence::loadMonoPcm16WaveFile(rawCaptureArtifact->path, captureSampleRate, capturedSamples, errorMessage)) {
+        taskResult.errorMessage = L"Could not reanalyze the measurement: " + errorMessage;
+        return taskResult;
+    }
+
+    if (progress != nullptr) {
+        progress->currentStep.store(2);
+    }
+
+    MeasurementSettings analysisSettings = workspace.measurement;
+    analysisSettings.sampleRate = captureSampleRate;
+    if (existingAnalysis.fadeInSeconds > 0.0) {
+        analysisSettings.fadeInSeconds = existingAnalysis.fadeInSeconds;
+    }
+    if (existingAnalysis.fadeOutSeconds > 0.0) {
+        analysisSettings.fadeOutSeconds = existingAnalysis.fadeOutSeconds;
+    }
+    if (existingAnalysis.sweepDurationSeconds > 0.0) {
+        analysisSettings.durationSeconds = existingAnalysis.sweepDurationSeconds;
+    }
+    if (existingAnalysis.startFrequencyHz > 0.0) {
+        analysisSettings.startFrequencyHz = existingAnalysis.startFrequencyHz;
+    }
+    if (existingAnalysis.endFrequencyHz > 0.0) {
+        analysisSettings.endFrequencyHz = existingAnalysis.endFrequencyHz;
+    }
+    if (existingAnalysis.targetLengthSamples > 0) {
+        analysisSettings.targetLengthSamples = existingAnalysis.targetLengthSamples;
+    }
+    if (existingAnalysis.leadInSamples >= 0) {
+        analysisSettings.leadInSamples = existingAnalysis.leadInSamples;
+    }
+
+    AudioSettings analysisAudio = workspace.audio;
+    if (!existingAnalysis.requestedBackend.empty()) {
+        analysisAudio.backend = existingAnalysis.requestedBackend;
+    }
+    if (!existingAnalysis.requestedDriver.empty()) {
+        analysisAudio.driver = existingAnalysis.requestedDriver;
+    }
+    if (!existingAnalysis.requestedWindowsInputDeviceId.empty()) {
+        analysisAudio.windowsInputDeviceId = existingAnalysis.requestedWindowsInputDeviceId;
+    }
+    if (!existingAnalysis.requestedWindowsInputDeviceName.empty()) {
+        analysisAudio.windowsInputDeviceName = existingAnalysis.requestedWindowsInputDeviceName;
+    }
+    if (!existingAnalysis.requestedWindowsOutputDeviceId.empty()) {
+        analysisAudio.windowsOutputDeviceId = existingAnalysis.requestedWindowsOutputDeviceId;
+    }
+    if (!existingAnalysis.requestedWindowsOutputDeviceName.empty()) {
+        analysisAudio.windowsOutputDeviceName = existingAnalysis.requestedWindowsOutputDeviceName;
+    }
+    if (existingAnalysis.requestedMicInputChannel > 0) {
+        analysisAudio.micInputChannel = existingAnalysis.requestedMicInputChannel;
+    }
+    if (existingAnalysis.requestedLeftOutputChannel > 0) {
+        analysisAudio.leftOutputChannel = existingAnalysis.requestedLeftOutputChannel;
+    }
+    if (existingAnalysis.requestedRightOutputChannel > 0) {
+        analysisAudio.rightOutputChannel = existingAnalysis.requestedRightOutputChannel;
+    }
+    analysisAudio.outputVolumeDb = existingAnalysis.outputVolumeDb;
+
+    if (progress != nullptr) {
+        progress->currentStep.store(3);
+    }
+
+    const measurement::SweepPlaybackPlan playbackPlan =
+        measurement::buildSweepPlaybackPlan(analysisSettings, analysisAudio.outputVolumeDb, MeasurementRunMode::Room);
+    MeasurementResult reanalyzed = measurement::buildMeasurementResultFromCapture(capturedSamples,
+                                                                                  playbackPlan,
+                                                                                  captureSampleRate,
+                                                                                  analysisAudio,
+                                                                                  analysisSettings,
+                                                                                  workspace.referenceResult.hasAnyValues()
+                                                                                      ? &workspace.referenceResult
+                                                                                      : nullptr);
+
+    reanalyzed.analysis.measurementKind =
+        existingAnalysis.measurementKind.empty() ? reanalyzed.analysis.measurementKind : existingAnalysis.measurementKind;
+    reanalyzed.analysis.measurementTimestampUtc = existingAnalysis.measurementTimestampUtc;
+    reanalyzed.analysis.backendName = existingAnalysis.backendName;
+    reanalyzed.analysis.backendInputDevice = existingAnalysis.backendInputDevice;
+    reanalyzed.analysis.backendOutputDevice = existingAnalysis.backendOutputDevice;
+    reanalyzed.analysis.routingSelectionHonored = existingAnalysis.routingSelectionHonored;
+    reanalyzed.analysis.routingNotes = existingAnalysis.routingNotes;
+    reanalyzed.analysis.artifacts = existingAnalysis.artifacts;
+    taskResult.success = true;
+    taskResult.result = std::move(reanalyzed);
+    return taskResult;
+}
+
+void WolfieApp::beginCalibrationReanalysis() {
+    if (calibrationReanalysisInProgress_) {
+        return;
+    }
+
+    calibrationReanalysisInProgress_ = true;
+    if (tabControl_ != nullptr) {
+        EnableWindow(tabControl_, FALSE);
+    }
+    if (HMENU menuBar = GetMenu(mainWindow_); menuBar != nullptr) {
+        EnableMenuItem(menuBar, 0, MF_BYPOSITION | MF_DISABLED | MF_GRAYED);
+        DrawMenuBar(mainWindow_);
+    }
+    calibrationReanalysisProgress_ = std::make_shared<CalibrationReanalysisProgress>();
+    measurementPage_.setCalibrationRefreshInProgress(true, 1, CalibrationReanalysisProgress::kTotalSteps, L"Loading raw capture");
+    appendMeasurementLog(L"Reanalyzing the saved measurement with the current microphone calibration...");
+    const WorkspaceState workspaceSnapshot = workspace_;
+    const auto progress = calibrationReanalysisProgress_;
+    calibrationReanalysisFuture_ = std::async(std::launch::async, [workspaceSnapshot, progress]() {
+        return buildReanalyzedMeasurementWithCurrentMicCalibration(workspaceSnapshot, progress);
+    });
+    SetTimer(mainWindow_, kCalibrationReanalysisTimerId, 50, nullptr);
+}
+
+void WolfieApp::finishCalibrationReanalysis() {
+    if (!calibrationReanalysisFuture_.valid()) {
+        calibrationReanalysisInProgress_ = false;
+        calibrationReanalysisProgress_.reset();
+        measurementPage_.setCalibrationRefreshInProgress(false);
+        if (tabControl_ != nullptr) {
+            EnableWindow(tabControl_, TRUE);
+        }
+        if (HMENU menuBar = GetMenu(mainWindow_); menuBar != nullptr) {
+            EnableMenuItem(menuBar, 0, MF_BYPOSITION | MF_ENABLED);
+            DrawMenuBar(mainWindow_);
+        }
+        return;
+    }
+
+    if (calibrationReanalysisProgress_ != nullptr) {
+        calibrationReanalysisProgress_->currentStep.store(CalibrationReanalysisProgress::kTotalSteps);
+    }
+    measurementPage_.setCalibrationRefreshInProgress(true,
+                                                     CalibrationReanalysisProgress::kTotalSteps,
+                                                     CalibrationReanalysisProgress::kTotalSteps,
+                                                     L"Refreshing views");
+    CalibrationReanalysisTaskResult taskResult = calibrationReanalysisFuture_.get();
+    calibrationReanalysisInProgress_ = false;
+    calibrationReanalysisProgress_.reset();
+    if (tabControl_ != nullptr) {
+        EnableWindow(tabControl_, TRUE);
+    }
+    if (HMENU menuBar = GetMenu(mainWindow_); menuBar != nullptr) {
+        EnableMenuItem(menuBar, 0, MF_BYPOSITION | MF_ENABLED);
+        DrawMenuBar(mainWindow_);
+    }
+
+    if (!taskResult.success) {
+        measurementPage_.setCalibrationRefreshInProgress(false);
+        appendMeasurementLog(taskResult.errorMessage, LogSeverity::Error);
+        measurementPage_.setWorkspaceView(workspace_);
+        smoothingPage_.populate(workspace_);
+        targetCurvePage_.populate(workspace_);
+        filtersPage_.populate(workspace_);
+        refreshMeasurementStatus();
+        return;
+    }
+
+    workspace_.result = std::move(taskResult.result);
+    workspace_.smoothedResponse = {};
+    invalidateFilterDesign();
+    ensureSmoothedResponseReady();
+    measurementPage_.setWorkspaceView(workspace_);
+    smoothingPage_.populate(workspace_);
+    targetCurvePage_.populate(workspace_);
+    filtersPage_.populate(workspace_);
+    workspaceRepository_.save(workspace_);
+    measurementPage_.setCalibrationRefreshInProgress(false);
+    appendMeasurementLog(L"Reanalyzed the saved measurement with the current microphone calibration.");
+    refreshMeasurementStatus();
 }
 
 void WolfieApp::populateExportSampleRateControls() {
@@ -807,8 +995,13 @@ void WolfieApp::exportRoonFilters() {
 }
 
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
+    if (calibrationReanalysisInProgress_) {
+        return;
+    }
+
     bool roomMeasurePressed = false;
     bool referenceMeasurePressed = false;
+    bool microphoneCalibrationChanged = false;
     bool sampleRateChanged = false;
     bool measurementGraphZoomChanged = false;
     bool measurementPlotChanged = false;
@@ -817,6 +1010,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
                                        workspace_,
                                        roomMeasurePressed,
                                        referenceMeasurePressed,
+                                       microphoneCalibrationChanged,
                                        sampleRateChanged,
                                        measurementGraphZoomChanged,
                                        measurementPlotChanged)) {
@@ -825,6 +1019,29 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         }
         if (measurementPlotChanged) {
             workspaceRepository_.save(workspace_);
+            return;
+        }
+        if (microphoneCalibrationChanged) {
+            std::wstring calibrationError;
+            if (!persistence::loadMicrophoneCalibration(workspace_.audio, calibrationError)) {
+                appendMeasurementLog(L"Microphone calibration unavailable: " + calibrationError, LogSeverity::Error);
+            } else if (workspace_.audio.microphoneCalibrationPath.empty()) {
+                appendMeasurementLog(L"Microphone calibration cleared.");
+            } else {
+                appendMeasurementLog(L"Microphone calibration loaded: " + workspace_.audio.microphoneCalibrationPath.wstring());
+            }
+
+            if (workspace_.result.hasAnyValues()) {
+                beginCalibrationReanalysis();
+                return;
+            }
+
+            measurementPage_.setWorkspaceView(workspace_);
+            smoothingPage_.populate(workspace_);
+            targetCurvePage_.populate(workspace_);
+            filtersPage_.populate(workspace_);
+            workspaceRepository_.save(workspace_);
+            refreshMeasurementStatus();
             return;
         }
         if (sampleRateChanged) {
@@ -961,6 +1178,10 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
 }
 
 void WolfieApp::onHScroll(HWND source) {
+    if (calibrationReanalysisInProgress_) {
+        return;
+    }
+
     if (measurementPage_.handleHScroll(source, workspace_)) {
         syncStateFromControls();
         workspaceRepository_.save(workspace_);
@@ -995,6 +1216,10 @@ void WolfieApp::onHScroll(HWND source) {
 }
 
 void WolfieApp::onNotify(LPARAM lParam) {
+    if (calibrationReanalysisInProgress_) {
+        return;
+    }
+
     const auto* header = reinterpret_cast<const NMHDR*>(lParam);
     if (header != nullptr && header->hwndFrom == tabControl_ && header->code == TCN_SELCHANGE) {
         const int selected = TabCtrl_GetCurSel(tabControl_);
@@ -1007,6 +1232,42 @@ void WolfieApp::onNotify(LPARAM lParam) {
 }
 
 void WolfieApp::onTimer(UINT_PTR timerId) {
+    if (timerId == kCalibrationReanalysisTimerId) {
+        if (!calibrationReanalysisInProgress_ || !calibrationReanalysisFuture_.valid()) {
+            KillTimer(mainWindow_, kCalibrationReanalysisTimerId);
+            return;
+        }
+
+        const int currentStep =
+            calibrationReanalysisProgress_ == nullptr ? 1 : calibrationReanalysisProgress_->currentStep.load();
+        std::wstring statusText = L"Loading raw capture";
+        switch (currentStep) {
+        case 1:
+            statusText = L"Loading raw capture";
+            break;
+        case 2:
+            statusText = L"Preparing analyzer inputs";
+            break;
+        case 3:
+            statusText = L"Running analysis";
+            break;
+        case 4:
+            statusText = L"Refreshing views";
+            break;
+        default:
+            break;
+        }
+        measurementPage_.setCalibrationRefreshInProgress(true,
+                                                         std::clamp(currentStep, 1, CalibrationReanalysisProgress::kTotalSteps),
+                                                         CalibrationReanalysisProgress::kTotalSteps,
+                                                         statusText);
+        if (calibrationReanalysisFuture_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            KillTimer(mainWindow_, kCalibrationReanalysisTimerId);
+            finishCalibrationReanalysis();
+        }
+        return;
+    }
+
     if (timerId != kMeasurementTimerId) {
         return;
     }
@@ -1243,9 +1504,9 @@ void WolfieApp::finalizeMeasurement() {
     const MeasurementResult& finishedResult = referenceRun ? workspace_.referenceResult : workspace_.result;
     appendMeasurementLog(std::wstring(referenceRun ? L"Reference measurement finished. Generated "
                                                    : L"Measurement finished. Generated ") +
-                         std::to_wstring(finishedResult.preferredMagnitudeResponse() == nullptr
-                                             ? 0
-                                             : finishedResult.preferredMagnitudeResponse()->xValues.size()) +
+                         std::to_wstring(finishedResult.magnitudeResponse() == nullptr
+                                              ? 0
+                                              : finishedResult.magnitudeResponse()->xValues.size()) +
                          L" response points. Peak capture level " +
                          std::to_wstring(static_cast<int>(std::lround(completedStatus.peakAmplitudeDb))) +
                          L" dB.");

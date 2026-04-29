@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <cwchar>
 
 #include <commctrl.h>
+#include <commdlg.h>
 
 #include "core/text_utils.h"
 #include "measurement/response_analyzer.h"
@@ -42,6 +44,32 @@ std::wstring formatSamplesAndMs(int sampleCount, int sampleRate) {
 
 std::wstring formatPathValue(const std::filesystem::path& path) {
     return path.empty() ? L"-" : path.wstring();
+}
+
+std::optional<std::filesystem::path> pickCalibrationFile(HWND owner, const std::filesystem::path& initialPath) {
+    std::wstring buffer(32768, L'\0');
+    const std::wstring initialText = initialPath.wstring();
+    if (!initialText.empty()) {
+        initialText.copy(buffer.data(), std::min(initialText.size(), buffer.size() - 1));
+    }
+
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = owner;
+    dialog.lpstrFile = buffer.data();
+    dialog.nMaxFile = static_cast<DWORD>(buffer.size());
+    dialog.lpstrFilter =
+        L"Calibration Files (*.txt;*.cal;*.csv)\0*.txt;*.cal;*.csv\0"
+        L"All Files (*.*)\0*.*\0\0";
+    dialog.lpstrTitle = L"Select Microphone Calibration File";
+    dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
+
+    if (!GetOpenFileNameW(&dialog)) {
+        return std::nullopt;
+    }
+
+    buffer.resize(wcslen(buffer.c_str()));
+    return std::filesystem::path(buffer);
 }
 
 bool hasValidMicrophoneCalibration(const AudioSettings& audio) {
@@ -227,6 +255,64 @@ void MeasurementPage::create(HWND parent, HINSTANCE instance) {
 }
 
 void MeasurementPage::createControls() {
+    controls_.labelMicCalibration = CreateWindowW(L"STATIC", L"Mic calibration", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.editMicCalibrationPath = CreateWindowExW(WS_EX_CLIENTEDGE,
+                                                       L"EDIT",
+                                                       L"",
+                                                       WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_READONLY,
+                                                       0,
+                                                       0,
+                                                       0,
+                                                       0,
+                                                       window_,
+                                                       nullptr,
+                                                       instance_,
+                                                       nullptr);
+    controls_.buttonMicCalibrationBrowse = CreateWindowW(L"BUTTON",
+                                                         L"Browse...",
+                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         window_,
+                                                         reinterpret_cast<HMENU>(kButtonMicCalibrationBrowse),
+                                                         instance_,
+                                                         nullptr);
+    controls_.buttonMicCalibrationClear = CreateWindowW(L"BUTTON",
+                                                         L"Clear",
+                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                                                        0,
+                                                        0,
+                                                        0,
+                                                        0,
+                                                        window_,
+                                                         reinterpret_cast<HMENU>(kButtonMicCalibrationClear),
+                                                         instance_,
+                                                         nullptr);
+    controls_.calibrationActivityLabel = CreateWindowW(L"STATIC",
+                                                       L"Reanalysis in progress",
+                                                       WS_CHILD,
+                                                       0,
+                                                       0,
+                                                       0,
+                                                       0,
+                                                       window_,
+                                                       nullptr,
+                                                       instance_,
+                                                       nullptr);
+    controls_.calibrationActivityBar = CreateWindowExW(0,
+                                                       PROGRESS_CLASSW,
+                                                       nullptr,
+                                                       WS_CHILD | WS_VISIBLE,
+                                                       0,
+                                                       0,
+                                                       0,
+                                                       0,
+                                                       window_,
+                                                       nullptr,
+                                                       instance_,
+                                                       nullptr);
     controls_.labelFadeIn = CreateWindowW(L"STATIC", L"Fade-In", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelFadeOut = CreateWindowW(L"STATIC", L"Fade-Out", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelDuration = CreateWindowW(L"STATIC", L"Sweep Time", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -417,6 +503,9 @@ void MeasurementPage::createControls() {
 
     SendMessageW(controls_.leftProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
     SendMessageW(controls_.rightProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
+    SendMessageW(controls_.calibrationActivityBar, PBM_SETRANGE32, 0, 100);
+    ShowWindow(controls_.calibrationActivityLabel, SW_HIDE);
+    ShowWindow(controls_.calibrationActivityBar, SW_HIDE);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMIN, FALSE, 0);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMAX, FALSE, kOutputVolumeSliderMax);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETTICFREQ, 10, 0);
@@ -472,6 +561,10 @@ void MeasurementPage::layout() {
     constexpr int kLegendGap = 14;
     constexpr int kLegendWidth = 172;
     constexpr int kInfoBoxHeight = 48;
+    constexpr int kCalibrationLabelWidth = 104;
+    constexpr int kCalibrationBrowseWidth = 74;
+    constexpr int kCalibrationClearWidth = 58;
+    constexpr int kCalibrationGap = 10;
 
     auto placeCenteredFieldWithUnit = [&](HWND label, HWND edit, HWND unit, int left, int top, int labelWidth, int editWidth, int unitWidth) {
         const int labelLeft = left + ((editWidth - labelWidth) / 2);
@@ -487,7 +580,28 @@ void MeasurementPage::layout() {
         MoveWindow(combo, left, top + kFieldTopOffset, comboWidth, 220, TRUE);
     };
 
-    const int paramsTop = contentTop;
+    const int calibrationTop = contentTop;
+    const int calibrationFieldLeft = contentLeft + kCalibrationLabelWidth + 12;
+    const int calibrationButtonsWidth = kCalibrationBrowseWidth + kCalibrationGap + kCalibrationClearWidth;
+    const int calibrationFieldWidth = std::max(180, innerWidth - kCalibrationLabelWidth - 12 - calibrationButtonsWidth - (kCalibrationGap * 2));
+    MoveWindow(controls_.labelMicCalibration, contentLeft, calibrationTop + 4, kCalibrationLabelWidth, 20, TRUE);
+    MoveWindow(controls_.editMicCalibrationPath, calibrationFieldLeft, calibrationTop, calibrationFieldWidth, 24, TRUE);
+    MoveWindow(controls_.buttonMicCalibrationBrowse,
+               calibrationFieldLeft + calibrationFieldWidth + kCalibrationGap,
+               calibrationTop - 2,
+               kCalibrationBrowseWidth,
+               28,
+               TRUE);
+    MoveWindow(controls_.buttonMicCalibrationClear,
+               calibrationFieldLeft + calibrationFieldWidth + kCalibrationGap + kCalibrationBrowseWidth + kCalibrationGap,
+               calibrationTop - 2,
+               kCalibrationClearWidth,
+               28,
+               TRUE);
+    MoveWindow(controls_.calibrationActivityLabel, calibrationFieldLeft, calibrationTop + 32, 260, 18, TRUE);
+    MoveWindow(controls_.calibrationActivityBar, calibrationFieldLeft, calibrationTop + 52, calibrationFieldWidth + calibrationButtonsWidth + kCalibrationGap, 16, TRUE);
+
+    const int paramsTop = calibrationTop + 74;
     int left = contentLeft;
     placeCenteredFieldWithUnit(controls_.labelFadeIn, controls_.editFadeIn, controls_.unitFadeIn, left, paramsTop, kLabelWidthSmall, kValueWidthTiny, 32);
     left += kValueWidthTiny + kFieldGap;
@@ -553,7 +667,7 @@ void MeasurementPage::layout() {
                TRUE);
     const int infoBoxWidth = std::clamp(innerWidth / 4, 260, 340);
     const int infoBoxLeft = contentLeft + innerWidth - infoBoxWidth;
-    const int infoBoxTop = contentTop;
+    const int infoBoxTop = paramsTop;
     MoveWindow(controls_.infoStatusFrame, infoBoxLeft, infoBoxTop, infoBoxWidth, kInfoBoxHeight, TRUE);
     MoveWindow(controls_.referenceStatus, infoBoxLeft + 14, infoBoxTop + 10, infoBoxWidth - 28, 16, TRUE);
     MoveWindow(controls_.micCompStatus, infoBoxLeft + 14, infoBoxTop + 26, infoBoxWidth - 28, 16, TRUE);
@@ -627,6 +741,7 @@ void MeasurementPage::setVisible(bool visible) const {
 }
 
 void MeasurementPage::populate(const WorkspaceState& workspace) {
+    setWindowTextValue(controls_.editMicCalibrationPath, workspace.audio.microphoneCalibrationPath.wstring());
     setWindowTextValue(controls_.editFadeIn, formatWideDouble(workspace.measurement.fadeInSeconds));
     setWindowTextValue(controls_.editFadeOut, formatWideDouble(workspace.measurement.fadeOutSeconds));
     setWindowTextValue(controls_.editDuration, formatWideDouble(workspace.measurement.durationSeconds, 0));
@@ -658,6 +773,7 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
 }
 
 void MeasurementPage::syncToWorkspace(WorkspaceState& workspace) const {
+    workspace.audio.microphoneCalibrationPath = std::filesystem::path(getWindowTextValue(controls_.editMicCalibrationPath));
     workspace.measurement.sampleRate = measurementSampleRateFromComboIndex(static_cast<int>(SendMessageW(controls_.comboSampleRate, CB_GETCURSEL, 0, 0)));
     workspace.measurement.fadeInSeconds = std::stod(getWindowTextValue(controls_.editFadeIn));
     workspace.measurement.fadeOutSeconds = std::stod(getWindowTextValue(controls_.editFadeOut));
@@ -692,6 +808,37 @@ void MeasurementPage::setWorkspaceView(const WorkspaceState& workspace) {
     populateMetadataTable(result_);
 }
 
+void MeasurementPage::setCalibrationRefreshInProgress(bool inProgress,
+                                                      int currentStep,
+                                                      int totalSteps,
+                                                      const std::wstring& statusText) {
+    calibrationRefreshInProgress_ = inProgress;
+    if (!inProgress) {
+        ShowWindow(controls_.calibrationActivityLabel, SW_HIDE);
+        ShowWindow(controls_.calibrationActivityBar, SW_HIDE);
+        SetWindowTextW(controls_.calibrationActivityLabel, L"");
+        SendMessageW(controls_.calibrationActivityBar, PBM_SETPOS, 0, 0);
+        setInteractiveControlsEnabled(true);
+        refreshActionButtons();
+        return;
+    }
+
+    const int safeTotalSteps = std::max(1, totalSteps);
+    const int safeCurrentStep = std::clamp(currentStep, 0, safeTotalSteps);
+    std::wstring text = statusText;
+    if (text.empty()) {
+        text = L"Working...";
+    }
+    SetWindowTextW(controls_.calibrationActivityLabel,
+                   (L"Reanalysis " + std::to_wstring(safeCurrentStep) + L"/" + std::to_wstring(safeTotalSteps) + L": " + text).c_str());
+    SendMessageW(controls_.calibrationActivityBar, PBM_SETRANGE32, 0, safeTotalSteps);
+    SendMessageW(controls_.calibrationActivityBar, PBM_SETPOS, safeCurrentStep, 0);
+    ShowWindow(controls_.calibrationActivityLabel, SW_SHOW);
+    ShowWindow(controls_.calibrationActivityBar, SW_SHOW);
+    setInteractiveControlsEnabled(false);
+    refreshActionButtons();
+}
+
 void MeasurementPage::refreshStatus(const MeasurementStatus& status, bool hasResult) {
     status_ = status;
     int leftProgress = 0;
@@ -721,6 +868,25 @@ void MeasurementPage::refreshStatus(const MeasurementStatus& status, bool hasRes
     refreshActionButtons();
 
     (void)hasResult;
+}
+
+void MeasurementPage::setInteractiveControlsEnabled(bool enabled) const {
+    EnableWindow(controls_.editFadeIn, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.editFadeOut, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.editDuration, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.editStartFrequency, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.editTargetLength, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.editLeadIn, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.comboSampleRate, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.outputVolumeSlider, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.comboPlot, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.comboWaterfallChannel, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.checkboxShowRoomLeft, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.checkboxShowRoomRight, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.checkboxShowReference, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.metadataToggle, enabled ? TRUE : FALSE);
+    EnableWindow(responseGraph_.window(), enabled ? TRUE : FALSE);
+    EnableWindow(waterfallGraph_.window(), enabled ? TRUE : FALSE);
 }
 
 void MeasurementPage::invalidateGraph() const {
@@ -856,6 +1022,7 @@ bool MeasurementPage::handleCommand(WORD commandId,
                                     WorkspaceState& workspace,
                                     bool& roomMeasurePressed,
                                     bool& referenceMeasurePressed,
+                                    bool& microphoneCalibrationChanged,
                                     bool& sampleRateChanged,
                                     bool& graphZoomChanged,
                                     bool& plotSelectionChanged) {
@@ -866,6 +1033,32 @@ bool MeasurementPage::handleCommand(WORD commandId,
 
     if (commandId == kButtonMeasureReference) {
         referenceMeasurePressed = true;
+        return true;
+    }
+
+    if (commandId == kButtonMicCalibrationBrowse && notificationCode == BN_CLICKED) {
+        if (const auto selected = pickCalibrationFile(window_, workspace.audio.microphoneCalibrationPath)) {
+            if (*selected != workspace.audio.microphoneCalibrationPath) {
+                workspace.audio.microphoneCalibrationPath = *selected;
+                workspace.audio.microphoneCalibrationFrequencyHz.clear();
+                workspace.audio.microphoneCalibrationCorrectionDb.clear();
+                setWindowTextValue(controls_.editMicCalibrationPath, selected->wstring());
+                microphoneCalibrationChanged = true;
+            }
+        }
+        return true;
+    }
+
+    if (commandId == kButtonMicCalibrationClear && notificationCode == BN_CLICKED) {
+        if (!workspace.audio.microphoneCalibrationPath.empty() ||
+            !workspace.audio.microphoneCalibrationFrequencyHz.empty() ||
+            !workspace.audio.microphoneCalibrationCorrectionDb.empty()) {
+            workspace.audio.microphoneCalibrationPath.clear();
+            workspace.audio.microphoneCalibrationFrequencyHz.clear();
+            workspace.audio.microphoneCalibrationCorrectionDb.clear();
+            setWindowTextValue(controls_.editMicCalibrationPath, L"");
+            microphoneCalibrationChanged = true;
+        }
         return true;
     }
 
@@ -1094,17 +1287,17 @@ std::wstring MeasurementPage::referenceStatusText(const AudioSettings& audio,
 
 std::wstring MeasurementPage::microphoneCompStatusText(const AudioSettings& audio) {
     if (audio.microphoneCalibrationPath.empty()) {
-        return L"Mic compensation: none";
+        return L"Mic calibration: none";
     }
     if (!hasValidMicrophoneCalibration(audio)) {
-        return L"Mic compensation: invalid";
+        return L"Mic calibration: invalid";
     }
-    return L"Mic compensation: loaded (room only)";
+    return L"Mic calibration: loaded";
 }
 
 ResponseGraphData MeasurementPage::buildGraphData() const {
     ResponseGraphData data;
-    const MeasurementValueSet* magnitudeResponse = result_.preferredMagnitudeResponse();
+    const MeasurementValueSet* magnitudeResponse = result_.magnitudeResponse();
     if (magnitudeResponse != nullptr && magnitudeResponse->valid() &&
         (showRoomLeft_ || showRoomRight_)) {
         data.frequencyAxisHz = magnitudeResponse->xValues;
@@ -1116,7 +1309,7 @@ ResponseGraphData MeasurementPage::buildGraphData() const {
         }
     }
 
-    const MeasurementValueSet* referenceResponse = referenceResult_.preferredMagnitudeResponse();
+    const MeasurementValueSet* referenceResponse = referenceResult_.magnitudeResponse();
     if (showReference_ && referenceResponse != nullptr && referenceResponse->valid()) {
         if (data.frequencyAxisHz.empty()) {
             data.frequencyAxisHz = referenceResponse->xValues;
@@ -1161,7 +1354,7 @@ void MeasurementPage::updateLegendVisibility() const {
     const std::string plotMode =
         plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0)));
     const bool showLegend = plotMode != "waterfall";
-    const bool hasReference = referenceResult_.preferredMagnitudeResponse() != nullptr;
+    const bool hasReference = referenceResult_.magnitudeResponse() != nullptr;
     ShowWindow(controls_.responseLegendFrame, showLegend ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.checkboxShowRoomLeft, showLegend ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.lineRoomLeft, showLegend ? SW_SHOW : SW_HIDE);
@@ -1194,10 +1387,18 @@ void MeasurementPage::refreshReferenceStatusLabels() const {
 
 void MeasurementPage::refreshActionButtons() const {
     const bool running = status_.running;
-    EnableWindow(controls_.buttonMeasure, (running && status_.runMode == MeasurementRunMode::Room) || !running);
+    const bool busy = running || calibrationRefreshInProgress_;
+    EnableWindow(controls_.buttonMicCalibrationBrowse, busy ? FALSE : TRUE);
+    EnableWindow(controls_.buttonMicCalibrationClear, busy ? FALSE : TRUE);
+    EnableWindow(controls_.buttonMeasure,
+                 calibrationRefreshInProgress_ ? FALSE
+                                               : (((running && status_.runMode == MeasurementRunMode::Room) || !running) ? TRUE : FALSE));
     EnableWindow(controls_.buttonMeasureReference,
-                 audioSettings_.loopbackEnabled &&
-                     ((running && status_.runMode == MeasurementRunMode::Reference) || !running));
+                 (!calibrationRefreshInProgress_ &&
+                  audioSettings_.loopbackEnabled &&
+                  ((running && status_.runMode == MeasurementRunMode::Reference) || !running))
+                     ? TRUE
+                     : FALSE);
     InvalidateRect(controls_.buttonMeasure, nullptr, TRUE);
     InvalidateRect(controls_.buttonMeasureReference, nullptr, TRUE);
 }
@@ -1217,12 +1418,12 @@ std::vector<MeasurementPage::MetadataRow> MeasurementPage::buildMetadataRows(con
     };
 
     add(L"Result", L"Value Sets", std::to_wstring(result.valueSets.size()));
-    if (const MeasurementValueSet* preferred = result.preferredMagnitudeResponse(); preferred != nullptr) {
-        add(L"Result", L"Preferred Magnitude Key", toWide(preferred->key));
-        add(L"Result", L"Preferred Magnitude Points", std::to_wstring(preferred->xValues.size()));
+    if (const MeasurementValueSet* magnitude = result.magnitudeResponse(); magnitude != nullptr) {
+        add(L"Result", L"Magnitude Response Key", toWide(magnitude->key));
+        add(L"Result", L"Magnitude Response Points", std::to_wstring(magnitude->xValues.size()));
     } else {
-        add(L"Result", L"Preferred Magnitude Key", L"-");
-        add(L"Result", L"Preferred Magnitude Points", L"0");
+        add(L"Result", L"Magnitude Response Key", L"-");
+        add(L"Result", L"Magnitude Response Points", L"0");
     }
 
     add(L"Run", L"Analyzer Version", toWide(analysis.analyzerVersion));

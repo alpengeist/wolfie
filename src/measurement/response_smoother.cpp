@@ -222,7 +222,7 @@ int effectiveSlidingOctaveDenominator(const ResponseSmoothingSettings& settings)
 SmoothedResponse buildSmoothedResponse(const MeasurementResult& result,
                                        const ResponseSmoothingSettings& settings) {
     SmoothedResponse smoothedResponse;
-    const MeasurementValueSet* magnitudeResponse = result.preferredMagnitudeResponse();
+    const MeasurementValueSet* magnitudeResponse = result.magnitudeResponse();
     if (magnitudeResponse == nullptr || !magnitudeResponse->valid()) {
         return smoothedResponse;
     }

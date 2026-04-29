@@ -340,6 +340,25 @@ bool hasBrushHeight(const POINT& anchor, const POINT& current) {
     return std::abs(current.y - anchor.y) >= kMinBrushPixels;
 }
 
+double plotDisplayOffsetDb(const measurement::TargetCurvePlotData& plot, const TargetCurveSettings& settings) {
+    if (plot.basicCurveDb.empty()) {
+        return 0.0;
+    }
+    return plot.basicCurveDb.front() - settings.lowGainDb;
+}
+
+void shiftPlotDisplayOffset(measurement::TargetCurvePlotData& plot, double deltaDb) {
+    if (std::abs(deltaDb) < 1e-9) {
+        return;
+    }
+    for (double& value : plot.basicCurveDb) {
+        value += deltaDb;
+    }
+    for (double& value : plot.targetCurveDb) {
+        value += deltaDb;
+    }
+}
+
 void fillSelectionOverlay(HDC hdc, const RECT& selection) {
     const int width = std::max(selection.right - selection.left, 1L);
     const int height = std::max(selection.bottom - selection.top, 1L);
@@ -502,7 +521,7 @@ void TargetCurveGraph::setModel(const SmoothedResponse& response,
     measurement_ = measurement;
     settings_ = settings;
     selectedBandIndex_ = selectedBandIndex;
-    rebuildPlot();
+    rebuildPlot(true);
     if (responseChanged || boundsChanged) {
         invalidateBackgroundCache();
     }
@@ -713,7 +732,7 @@ void TargetCurveGraph::drawStaticLayer(HDC hdc, const RECT& rect, const RECT& pa
     DrawTextW(hdc, L"Hz", -1, &xUnitRect, DT_CENTER | DT_TOP | DT_SINGLELINE);
 }
 
-void TargetCurveGraph::rebuildPlot() {
+void TargetCurveGraph::rebuildPlot(bool resetDisplayOffset) {
     plot_ = measurement::buildTargetCurvePlotData(response_,
                                                   measurement_,
                                                   settings_,
@@ -721,6 +740,12 @@ void TargetCurveGraph::rebuildPlot() {
                                                       ? std::optional<size_t>(static_cast<size_t>(selectedBandIndex_))
                                                       : std::nullopt);
     measurement::normalizeTargetCurveSettings(settings_, plot_.minFrequencyHz, plot_.maxFrequencyHz);
+    const double plotOffsetDb = plotDisplayOffsetDb(plot_, settings_);
+    if (resetDisplayOffset) {
+        displayCurveOffsetDb_ = plotOffsetDb;
+    } else {
+        shiftPlotDisplayOffset(plot_, displayCurveOffsetDb_ - plotOffsetDb);
+    }
     if (selectedBandIndex_ >= static_cast<int>(settings_.eqBands.size())) {
         selectedBandIndex_ = settings_.eqBands.empty() ? -1 : static_cast<int>(settings_.eqBands.size() - 1);
     }
@@ -1001,6 +1026,7 @@ void TargetCurveGraph::updateDrag(const POINT& position) {
     const double currentDb = dbFromGraphY(layout.graph, position.y, layout.axisMinDb, layout.axisMaxDb);
     const double originDb = dbFromGraphY(layout.graph, drag_.origin.y, layout.axisMinDb, layout.axisMaxDb);
     const double deltaDb = currentDb - originDb;
+    const double currentSettingDb = currentDb - displayCurveOffsetDb_;
 
     settings_ = drag_.originalSettings;
     switch (drag_.type) {
@@ -1010,11 +1036,11 @@ void TargetCurveGraph::updateDrag(const POINT& position) {
         settings_.highGainDb += deltaDb;
         break;
     case DragHandleType::BasicMid:
-        settings_.midGainDb = currentDb;
+        settings_.midGainDb = currentSettingDb;
         settings_.midFrequencyHz = frequencyFromGraphX(layout.graph, plot_.minFrequencyHz, plot_.maxFrequencyHz, position.x);
         break;
     case DragHandleType::BasicHigh:
-        settings_.highGainDb = currentDb;
+        settings_.highGainDb = currentSettingDb;
         break;
     case DragHandleType::EqBand:
         if (drag_.bandIndex >= 0 && drag_.bandIndex < static_cast<int>(settings_.eqBands.size())) {
@@ -1061,7 +1087,7 @@ int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type)
     const GraphLayout layout = buildLayout(hdc, rect, *this);
     ReleaseDC(window_, hdc);
 
-    const double lowHandleDb = plot_.basicCurveDb.empty() ? settings_.lowGainDb : plot_.basicCurveDb.front();
+    const double lowHandleDb = settings_.lowGainDb + displayCurveOffsetDb_;
     const POINT lowPoint = pointOnCurve(layout.graph,
                                         plot_.minFrequencyHz,
                                         plot_.maxFrequencyHz,
@@ -1080,7 +1106,7 @@ int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type)
                                         layout.axisMinDb,
                                         layout.axisMaxDb,
                                         settings_.midFrequencyHz,
-                                        settings_.midGainDb);
+                                        settings_.midGainDb + displayCurveOffsetDb_);
     if (pointHitsHandle(position, midPoint)) {
         type = DragHandleType::BasicMid;
         return -1;
@@ -1092,7 +1118,7 @@ int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type)
                                          layout.axisMinDb,
                                          layout.axisMaxDb,
                                          plot_.maxFrequencyHz,
-                                         settings_.highGainDb);
+                                         settings_.highGainDb + displayCurveOffsetDb_);
     if (pointHitsHandle(position, highPoint)) {
         type = DragHandleType::BasicHigh;
         return -1;
@@ -1172,7 +1198,7 @@ void TargetCurveGraph::onPaint() const {
                ui_theme::kAccent,
                2);
 
-    const double lowHandleDb = plot_.basicCurveDb.empty() ? settings_.lowGainDb : plot_.basicCurveDb.front();
+    const double lowHandleDb = settings_.lowGainDb + displayCurveOffsetDb_;
     const POINT lowPoint = pointOnCurve(layout.graph,
                                         plot_.minFrequencyHz,
                                         plot_.maxFrequencyHz,
@@ -1186,14 +1212,14 @@ void TargetCurveGraph::onPaint() const {
                                         layout.axisMinDb,
                                         layout.axisMaxDb,
                                         settings_.midFrequencyHz,
-                                        settings_.midGainDb);
+                                        settings_.midGainDb + displayCurveOffsetDb_);
     const POINT highPoint = pointOnCurve(layout.graph,
                                          plot_.minFrequencyHz,
                                          plot_.maxFrequencyHz,
                                          layout.axisMinDb,
                                          layout.axisMaxDb,
                                          plot_.maxFrequencyHz,
-                                         settings_.highGainDb);
+                                         settings_.highGainDb + displayCurveOffsetDb_);
     drawRectHandle(frameDc, lowPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicLow);
     drawRectHandle(frameDc, midPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicMid);
     drawRectHandle(frameDc, highPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicHigh);

@@ -1,9 +1,6 @@
 #include "ui/settings_dialog.h"
 
 #include <algorithm>
-#include <optional>
-
-#include <commdlg.h>
 
 #include "core/text_utils.h"
 #include "ui/ui_theme.h"
@@ -25,10 +22,8 @@ constexpr int kLoopbackEnabledControlId = 6;
 constexpr int kLoopbackControlId = 7;
 constexpr int kLeftControlId = 8;
 constexpr int kRightControlId = 9;
-constexpr int kMicCalibrationBrowseId = 10;
-constexpr int kMicCalibrationClearId = 11;
-constexpr int kOpenControlPanelId = 12;
-constexpr int kCloseControlId = 13;
+constexpr int kOpenControlPanelId = 10;
+constexpr int kCloseControlId = 11;
 
 void registerSettingsWindowClass(HINSTANCE instance) {
     WNDCLASSW settingsClass{};
@@ -123,32 +118,6 @@ void selectWasapiDevice(HWND combo, const std::vector<audio::WasapiDevice>& devi
     }
 }
 
-std::optional<std::filesystem::path> pickCalibrationFile(HWND owner, const std::filesystem::path& initialPath) {
-    std::wstring buffer(32768, L'\0');
-    const std::wstring initialText = initialPath.wstring();
-    if (!initialText.empty()) {
-        initialText.copy(buffer.data(), std::min(initialText.size(), buffer.size() - 1));
-    }
-
-    OPENFILENAMEW dialog{};
-    dialog.lStructSize = sizeof(dialog);
-    dialog.hwndOwner = owner;
-    dialog.lpstrFile = buffer.data();
-    dialog.nMaxFile = static_cast<DWORD>(buffer.size());
-    dialog.lpstrFilter =
-        L"Calibration Files (*.txt;*.cal;*.csv)\0*.txt;*.cal;*.csv\0"
-        L"All Files (*.*)\0*.*\0\0";
-    dialog.lpstrTitle = L"Select Microphone Calibration File";
-    dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
-
-    if (!GetOpenFileNameW(&dialog)) {
-        return std::nullopt;
-    }
-
-    buffer.resize(wcslen(buffer.c_str()));
-    return std::filesystem::path(buffer);
-}
-
 }  // namespace
 
 void SettingsDialog::show(HINSTANCE instance,
@@ -159,7 +128,7 @@ void SettingsDialog::show(HINSTANCE instance,
                           SaveCallback onSave) {
     registerSettingsWindowClass(instance);
     auto* dialog = new SettingsDialog(instance, owner, settings, wasapiService, asioService, std::move(onSave));
-    dialog->window_ = CreateWindowExW(WS_EX_DLGMODALFRAME, kWindowClassName, L"Measurement Settings",
+    dialog->window_ = CreateWindowExW(WS_EX_DLGMODALFRAME, kWindowClassName, L"Audio Settings",
                                       WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
                                       CW_USEDEFAULT, CW_USEDEFAULT, 860, 460,
                                       owner, nullptr, instance, dialog);
@@ -240,19 +209,6 @@ LRESULT CALLBACK SettingsDialog::WindowProc(HWND window, UINT message, WPARAM wP
             dialog->applyAndNotify();
             return 0;
         }
-        if (commandId == kMicCalibrationBrowseId) {
-            const std::wstring currentPath = getWindowTextValue(dialog->micCalibrationPath_);
-            if (const auto selected = pickCalibrationFile(window, std::filesystem::path(currentPath))) {
-                SetWindowTextW(dialog->micCalibrationPath_, selected->wstring().c_str());
-                dialog->applyAndNotify();
-            }
-            return 0;
-        }
-        if (commandId == kMicCalibrationClearId) {
-            SetWindowTextW(dialog->micCalibrationPath_, L"");
-            dialog->applyAndNotify();
-            return 0;
-        }
         if (commandId == kOpenControlPanelId) {
             const std::wstring driverText = getWindowTextValue(dialog->driver_);
             if (const auto error = dialog->asioService_.openControlPanelIsolated(driverText == kNoAsioDrivers ? L"" : driverText)) {
@@ -301,9 +257,6 @@ void SettingsDialog::createControls() {
     constexpr int kAsioButtonWidth = 132;
     constexpr int kInlineCheckLeft = kControlLeft + kComboSmallWidth + 18;
     constexpr int kInlineCheckWidth = 84;
-    constexpr int kCalibrationFieldWidth = 404;
-    constexpr int kCalibrationBrowseLeft = kControlLeft + kCalibrationFieldWidth + 18;
-    constexpr int kCalibrationClearLeft = kCalibrationBrowseLeft + 86;
     constexpr int kRowStep = 36;
     constexpr int kSpacer = 14;
     const int backendTop = 20;
@@ -312,8 +265,7 @@ void SettingsDialog::createControls() {
     const int windowsOutputTop = windowsInputTop + kRowStep;
     const int referenceTop = windowsOutputTop + kRowStep + kSpacer;
     const int micTop = referenceTop + kRowStep + kSpacer;
-    const int calibrationTop = micTop + kRowStep;
-    const int leftTop = calibrationTop + kRowStep;
+    const int leftTop = micTop + kRowStep;
     const int rightTop = leftTop + kRowStep;
     const int buttonTop = rightTop + kRowStep + 18;
 
@@ -368,16 +320,6 @@ void SettingsDialog::createControls() {
     CreateWindowW(L"STATIC", L"Mic input channel", WS_CHILD | WS_VISIBLE, kLabelLeft, micTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     mic_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
                          kControlLeft, micTop, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kMicControlId), nullptr, nullptr);
-    CreateWindowW(L"STATIC", L"Mic calibration file", WS_CHILD | WS_VISIBLE, kLabelLeft, calibrationTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
-    micCalibrationPath_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                                          WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_READONLY,
-                                          kControlLeft, calibrationTop, kCalibrationFieldWidth, 24, window_, nullptr, nullptr, nullptr);
-    SetWindowTextW(micCalibrationPath_, settings_.microphoneCalibrationPath.wstring().c_str());
-    CreateWindowW(L"BUTTON", L"Browse...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, kCalibrationBrowseLeft, calibrationTop - 2, 74, 28, window_,
-                  reinterpret_cast<HMENU>(kMicCalibrationBrowseId), nullptr, nullptr);
-    CreateWindowW(L"BUTTON", L"Clear", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, kCalibrationClearLeft, calibrationTop - 2, 58, 28, window_,
-                  reinterpret_cast<HMENU>(kMicCalibrationClearId), nullptr, nullptr);
-
     CreateWindowW(L"STATIC", L"Left output channel", WS_CHILD | WS_VISIBLE, kLabelLeft, leftTop + 4, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     left_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
                           kControlLeft, leftTop, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kLeftControlId), nullptr, nullptr);
@@ -531,9 +473,6 @@ void SettingsDialog::applyAndNotify() {
     settings_.loopbackInputChannel = selectedChannelNumber(loopback_, settings_.loopbackInputChannel);
     settings_.leftOutputChannel = selectedChannelNumber(left_, settings_.leftOutputChannel);
     settings_.rightOutputChannel = selectedChannelNumber(right_, settings_.rightOutputChannel);
-    settings_.microphoneCalibrationPath = std::filesystem::path(getWindowTextValue(micCalibrationPath_));
-    settings_.microphoneCalibrationFrequencyHz.clear();
-    settings_.microphoneCalibrationCorrectionDb.clear();
 
     if (onSave_) {
         onSave_(settings_);

@@ -1,6 +1,9 @@
 #pragma once
 
+#include <atomic>
 #include <filesystem>
+#include <future>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -36,7 +39,19 @@ private:
         Error
     };
 
+    struct CalibrationReanalysisTaskResult {
+        bool success = false;
+        MeasurementResult result;
+        std::wstring errorMessage;
+    };
+
+    struct CalibrationReanalysisProgress {
+        static constexpr int kTotalSteps = 4;
+        std::atomic<int> currentStep{0};
+    };
+
     static constexpr UINT_PTR kMeasurementTimerId = 101;
+    static constexpr UINT_PTR kCalibrationReanalysisTimerId = 102;
     static constexpr int kContentMargin = 20;
 
     static LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -55,6 +70,11 @@ private:
     void showSettingsWindow();
     void populateControlsFromState();
     void syncStateFromControls();
+    static CalibrationReanalysisTaskResult buildReanalyzedMeasurementWithCurrentMicCalibration(
+        const WorkspaceState& workspace,
+        const std::shared_ptr<CalibrationReanalysisProgress>& progress);
+    void beginCalibrationReanalysis();
+    void finishCalibrationReanalysis();
     void saveCurrentWorkspaceIfOpen();
     void refreshWindowTitle();
     void refreshMeasurementStatus();
@@ -107,6 +127,7 @@ private:
     bool exportRunning_ = false;
     bool resizingLog_ = false;
     bool measurementCompletionHandled_ = true;
+    bool calibrationReanalysisInProgress_ = false;
     int activeTabIndex_ = 0;
     bool targetCurvePersistencePending_ = false;
     RECT logSplitterRect_{};
@@ -121,6 +142,8 @@ private:
     persistence::AppStateRepository appStateRepository_;
     audio::AsioService asioService_;
     audio::WasapiService wasapiService_;
+    std::future<CalibrationReanalysisTaskResult> calibrationReanalysisFuture_;
+    std::shared_ptr<CalibrationReanalysisProgress> calibrationReanalysisProgress_;
 };
 
 }  // namespace wolfie
