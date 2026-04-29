@@ -17,8 +17,6 @@ Read `_architecture.md` before making structural changes.
 
 ## Build And Verify
 
-There is no build conflict. No need to create a new build directory for each task.
-The IDE will use cmake-build-debug by default. For building, use build-agent.
 Preferred local configure/build flow on this machine:
 
 ```powershell

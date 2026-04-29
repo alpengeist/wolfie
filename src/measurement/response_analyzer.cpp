@@ -166,6 +166,8 @@ void applyMicrophoneCalibration(const AudioSettings& audioSettings, MeasurementV
 
 constexpr double kPi = 3.14159265358979323846;
 
+void appendValueSetIfValid(MeasurementResult& result, MeasurementValueSet valueSet);
+
 std::vector<double> convolveReal(const std::vector<double>& left, const std::vector<double>& right) {
     if (left.empty() || right.empty()) {
         return {};
@@ -423,6 +425,256 @@ MeasurementValueSet buildFullSpectrumValueSet(const std::string& key,
     return valueSet;
 }
 
+MeasurementValueSet buildImpulseValueSet(const std::string& key,
+                                         const std::vector<double>& timeAxisSeconds,
+                                         const std::vector<double>& leftImpulse,
+                                         const std::vector<double>& rightImpulse) {
+    MeasurementValueSet valueSet;
+    valueSet.key = key;
+    valueSet.xQuantity = "time";
+    valueSet.xUnit = "seconds";
+    valueSet.yQuantity = "amplitude";
+    valueSet.yUnit = "linear";
+    valueSet.xValues = timeAxisSeconds;
+    valueSet.leftValues = leftImpulse;
+    valueSet.rightValues = rightImpulse;
+    return valueSet;
+}
+
+std::vector<double> buildPositiveFrequencyAxis(int sampleRate, size_t spectrumSize) {
+    const size_t positiveBinCount = spectrumSize == 0 ? 0 : (spectrumSize / 2) + 1;
+    std::vector<double> axis;
+    axis.reserve(positiveBinCount);
+    for (size_t i = 0; i < positiveBinCount; ++i) {
+        axis.push_back(static_cast<double>(i) * static_cast<double>(sampleRate) /
+                       static_cast<double>(std::max<size_t>(1, spectrumSize)));
+    }
+    return axis;
+}
+
+std::vector<double> buildWindowedImpulseSegment(const std::vector<double>& impulseResponse,
+                                                size_t targetLengthFrames,
+                                                size_t preRollFrames,
+                                                size_t& fadeFrames) {
+    std::vector<double> windowedImpulse;
+    if (impulseResponse.empty() || targetLengthFrames == 0) {
+        fadeFrames = 0;
+        return windowedImpulse;
+    }
+
+    const size_t length = std::min(targetLengthFrames, impulseResponse.size());
+    windowedImpulse.assign(impulseResponse.begin(),
+                           impulseResponse.begin() + static_cast<std::ptrdiff_t>(length));
+    fadeFrames = applyAnalysisWindow(windowedImpulse, std::min(preRollFrames, windowedImpulse.size()));
+    return windowedImpulse;
+}
+
+size_t directWindowLengthFrames(size_t impulseLengthFrames,
+                                size_t preRollFrames,
+                                int sampleRate) {
+    const size_t directPostFrames =
+        std::clamp(static_cast<size_t>(std::max(sampleRate / 125, 1)), size_t{256}, size_t{2048});
+    const size_t targetLength = std::max(preRollFrames + directPostFrames, size_t{1024});
+    return std::min(impulseLengthFrames, targetLength);
+}
+
+const MeasurementValueSet* findValidValueSet(const MeasurementResult* result,
+                                             std::string_view primaryKey,
+                                             std::string_view fallbackKey) {
+    if (result == nullptr) {
+        return nullptr;
+    }
+
+    if (const MeasurementValueSet* valueSet = result->findValueSet(primaryKey)) {
+        if (valueSet->valid()) {
+            return valueSet;
+        }
+    }
+    if (const MeasurementValueSet* valueSet = result->findValueSet(fallbackKey)) {
+        if (valueSet->valid()) {
+            return valueSet;
+        }
+    }
+    return nullptr;
+}
+
+struct StoredSpectrum {
+    std::vector<double> frequencyAxisHz;
+    std::vector<std::complex<double>> leftValues;
+    std::vector<std::complex<double>> rightValues;
+
+    [[nodiscard]] bool valid() const {
+        return !frequencyAxisHz.empty() &&
+               leftValues.size() == frequencyAxisHz.size() &&
+               rightValues.size() == frequencyAxisHz.size();
+    }
+};
+
+StoredSpectrum loadStoredSpectrum(const MeasurementResult* result,
+                                  std::string_view magnitudePrimaryKey,
+                                  std::string_view magnitudeFallbackKey,
+                                  std::string_view phasePrimaryKey,
+                                  std::string_view phaseFallbackKey) {
+    StoredSpectrum spectrum;
+    const MeasurementValueSet* magnitude = findValidValueSet(result, magnitudePrimaryKey, magnitudeFallbackKey);
+    const MeasurementValueSet* phase = findValidValueSet(result, phasePrimaryKey, phaseFallbackKey);
+    if (magnitude == nullptr || phase == nullptr || magnitude->xValues != phase->xValues) {
+        return spectrum;
+    }
+
+    spectrum.frequencyAxisHz = magnitude->xValues;
+    spectrum.leftValues.reserve(magnitude->xValues.size());
+    spectrum.rightValues.reserve(magnitude->xValues.size());
+    for (size_t index = 0; index < magnitude->xValues.size(); ++index) {
+        const double leftMagnitude = std::pow(10.0, magnitude->leftValues[index] / 20.0);
+        const double rightMagnitude = std::pow(10.0, magnitude->rightValues[index] / 20.0);
+        const double leftPhaseRadians = phase->leftValues[index] * kPi / 180.0;
+        const double rightPhaseRadians = phase->rightValues[index] * kPi / 180.0;
+        spectrum.leftValues.push_back(std::polar(leftMagnitude, leftPhaseRadians));
+        spectrum.rightValues.push_back(std::polar(rightMagnitude, rightPhaseRadians));
+    }
+    return spectrum;
+}
+
+std::complex<double> interpolateComplexSpectrum(const std::vector<double>& frequencyAxisHz,
+                                                const std::vector<std::complex<double>>& values,
+                                                double frequencyHz) {
+    if (frequencyAxisHz.empty() || values.size() != frequencyAxisHz.size()) {
+        return {};
+    }
+    if (frequencyAxisHz.size() == 1 || frequencyHz <= frequencyAxisHz.front()) {
+        return values.front();
+    }
+    if (frequencyHz >= frequencyAxisHz.back()) {
+        return values.back();
+    }
+
+    const auto upper = std::lower_bound(frequencyAxisHz.begin(), frequencyAxisHz.end(), frequencyHz);
+    const size_t upperIndex = static_cast<size_t>(std::distance(frequencyAxisHz.begin(), upper));
+    if (upperIndex == 0) {
+        return values.front();
+    }
+    const size_t lowerIndex = upperIndex - 1;
+    const double lowFrequencyHz = frequencyAxisHz[lowerIndex];
+    const double highFrequencyHz = frequencyAxisHz[upperIndex];
+    const double blend =
+        clampValue((frequencyHz - lowFrequencyHz) / std::max(highFrequencyHz - lowFrequencyHz, 1.0e-9), 0.0, 1.0);
+    return values[lowerIndex] + ((values[upperIndex] - values[lowerIndex]) * blend);
+}
+
+std::vector<std::complex<double>> averageComplexSeries(const std::vector<std::complex<double>>& left,
+                                                       const std::vector<std::complex<double>>& right) {
+    const size_t count = std::min(left.size(), right.size());
+    std::vector<std::complex<double>> averaged;
+    averaged.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        averaged.push_back((left[index] + right[index]) * 0.5);
+    }
+    return averaged;
+}
+
+std::vector<std::complex<double>> buildHermitianSpectrumFromPositiveBins(
+    const std::vector<std::complex<double>>& positiveBins,
+    size_t spectrumSize) {
+    std::vector<std::complex<double>> fullSpectrum(spectrumSize, {0.0, 0.0});
+    const size_t positiveBinCount = std::min(positiveBins.size(), (spectrumSize / 2) + 1);
+    for (size_t index = 0; index < positiveBinCount; ++index) {
+        fullSpectrum[index] = positiveBins[index];
+    }
+    for (size_t index = 1; index + 1 < positiveBinCount; ++index) {
+        fullSpectrum[spectrumSize - index] = std::conj(positiveBins[index]);
+    }
+    return fullSpectrum;
+}
+
+bool appendReferenceCompensatedTransferValueSets(MeasurementResult& result,
+                                                 const MeasurementResult* referenceResult,
+                                                 std::string_view windowKey,
+                                                 const std::vector<std::complex<double>>& leftSpectrum,
+                                                 const std::vector<std::complex<double>>& rightSpectrum,
+                                                 int sampleRate,
+                                                 const std::vector<double>& displayFrequencyAxisHz) {
+    if (referenceResult == nullptr) {
+        return false;
+    }
+    if (referenceResult->analysis.sampleRate > 0 && referenceResult->analysis.sampleRate != sampleRate) {
+        return false;
+    }
+
+    const std::string window(windowKey);
+    const StoredSpectrum referenceSpectrum = loadStoredSpectrum(referenceResult,
+                                                                "measurement." + window + "_magnitude_spectrum",
+                                                                "measurement.raw_magnitude_spectrum",
+                                                                "measurement." + window + "_phase_spectrum",
+                                                                "measurement.raw_phase_spectrum");
+    if (!referenceSpectrum.valid()) {
+        return false;
+    }
+
+    const std::vector<std::complex<double>> monoReference =
+        averageComplexSeries(referenceSpectrum.leftValues, referenceSpectrum.rightValues);
+    if (monoReference.empty()) {
+        return false;
+    }
+
+    double maxReferenceNorm = 0.0;
+    for (const std::complex<double>& value : monoReference) {
+        maxReferenceNorm = std::max(maxReferenceNorm, std::norm(value));
+    }
+    const double regularization = std::max(maxReferenceNorm * 1.0e-6, 1.0e-12);
+    const std::vector<double> positiveAxisHz = buildPositiveFrequencyAxis(sampleRate, leftSpectrum.size());
+    if (positiveAxisHz.empty()) {
+        return false;
+    }
+
+    std::vector<std::complex<double>> compensatedLeftPositive;
+    std::vector<std::complex<double>> compensatedRightPositive;
+    compensatedLeftPositive.reserve(positiveAxisHz.size());
+    compensatedRightPositive.reserve(positiveAxisHz.size());
+    for (size_t index = 0; index < positiveAxisHz.size(); ++index) {
+        const std::complex<double> referenceValue =
+            interpolateComplexSpectrum(referenceSpectrum.frequencyAxisHz, monoReference, positiveAxisHz[index]);
+        const std::complex<double> divider =
+            std::conj(referenceValue) / (std::norm(referenceValue) + regularization);
+        compensatedLeftPositive.push_back(leftSpectrum[index] * divider);
+        compensatedRightPositive.push_back(rightSpectrum[index] * divider);
+    }
+
+    const std::vector<std::complex<double>> compensatedLeft =
+        buildHermitianSpectrumFromPositiveBins(compensatedLeftPositive, leftSpectrum.size());
+    const std::vector<std::complex<double>> compensatedRight =
+        buildHermitianSpectrumFromPositiveBins(compensatedRightPositive, rightSpectrum.size());
+    appendValueSetIfValid(result,
+                          buildFullSpectrumValueSet("measurement.reference_compensated_" + window + "_magnitude_spectrum",
+                                                    "level",
+                                                    "dB",
+                                                    compensatedLeft,
+                                                    compensatedRight,
+                                                    sampleRate,
+                                                    true));
+    appendValueSetIfValid(result,
+                          buildFullSpectrumValueSet("measurement.reference_compensated_" + window + "_phase_spectrum",
+                                                    "phase",
+                                                    "degrees",
+                                                    compensatedLeft,
+                                                    compensatedRight,
+                                                    sampleRate,
+                                                    false));
+    appendValueSetIfValid(result,
+                          buildMagnitudeResponseValueSet("measurement.reference_compensated_" + window + "_magnitude_response",
+                                                         displayFrequencyAxisHz,
+                                                         compensatedLeft,
+                                                         compensatedRight,
+                                                         sampleRate));
+    appendValueSetIfValid(result,
+                          buildPhaseResponseValueSet("measurement.reference_compensated_" + window + "_phase_response",
+                                                     displayFrequencyAxisHz,
+                                                     compensatedLeft,
+                                                     compensatedRight,
+                                                     sampleRate));
+    return true;
+}
+
 struct ChannelAnalysis {
     std::vector<double> captureSegment;
     std::vector<double> impulseResponse;
@@ -559,8 +811,10 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                     const SweepPlaybackPlan& playbackPlan,
                                                     int sampleRate,
                                                     const AudioSettings& audioSettings,
-                                                    const MeasurementSettings& settings) {
+                                                    const MeasurementSettings& settings,
+                                                    const MeasurementResult* referenceResult) {
     MeasurementResult result;
+    result.analysis.analyzerVersion = "ir-v3";
     result.analysis.requestedBackend = audioSettings.backend;
     result.analysis.requestedDriver = audioSettings.backend == "asio" ? audioSettings.driver : "Windows Audio (WASAPI)";
     result.analysis.requestedWindowsInputDeviceId = audioSettings.windowsInputDeviceId;
@@ -582,7 +836,7 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
     result.analysis.playedSweepSamples = static_cast<int>(playbackPlan.playedSweep.size());
     result.analysis.capturedSamples = static_cast<int>(capturedSamples.size());
     result.analysis.alignmentMethod = "Deconvolved impulse peak per sweep segment";
-    result.analysis.windowType = "Cosine-tapered analysis window";
+    result.analysis.windowType = "Separate direct and room cosine-tapered analysis windows";
     if (playbackPlan.playedSweep.empty()) {
         return result;
     }
@@ -655,17 +909,59 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
     rawImpulseResponse.rightValues = rightAnalysis.impulseResponse;
     appendValueSetIfValid(result, std::move(rawImpulseResponse));
 
-    std::vector<double> leftWindowedImpulse = leftAnalysis.impulseResponse;
-    std::vector<double> rightWindowedImpulse = rightAnalysis.impulseResponse;
-    leftAnalysis.analysisWindowFadeFrames = applyAnalysisWindow(leftWindowedImpulse, commonPreRollFrames);
-    rightAnalysis.analysisWindowFadeFrames = applyAnalysisWindow(rightWindowedImpulse, commonPreRollFrames);
-    leftAnalysis.analysisWindowLengthFrames = leftWindowedImpulse.size();
-    rightAnalysis.analysisWindowLengthFrames = rightWindowedImpulse.size();
+    size_t leftRoomFadeFrames = 0;
+    size_t rightRoomFadeFrames = 0;
+    const std::vector<double> leftRoomWindowedImpulse =
+        buildWindowedImpulseSegment(leftAnalysis.impulseResponse,
+                                    leftAnalysis.impulseResponse.size(),
+                                    commonPreRollFrames,
+                                    leftRoomFadeFrames);
+    const std::vector<double> rightRoomWindowedImpulse =
+        buildWindowedImpulseSegment(rightAnalysis.impulseResponse,
+                                    rightAnalysis.impulseResponse.size(),
+                                    commonPreRollFrames,
+                                    rightRoomFadeFrames);
+    leftAnalysis.analysisWindowFadeFrames = leftRoomFadeFrames;
+    rightAnalysis.analysisWindowFadeFrames = rightRoomFadeFrames;
+    leftAnalysis.analysisWindowLengthFrames = leftRoomWindowedImpulse.size();
+    rightAnalysis.analysisWindowLengthFrames = rightRoomWindowedImpulse.size();
 
-    const size_t fftSize = nextPowerOfTwo(std::max({leftWindowedImpulse.size(), rightWindowedImpulse.size(), size_t{4096}}));
-    const std::vector<std::complex<double>> leftSpectrum = fftOfRealSignal(leftWindowedImpulse, fftSize);
-    const std::vector<std::complex<double>> rightSpectrum = fftOfRealSignal(rightWindowedImpulse, fftSize);
-    if (leftSpectrum.empty() || rightSpectrum.empty()) {
+    const size_t directWindowLength = directWindowLengthFrames(impulseLength, commonPreRollFrames, sampleRate);
+    size_t leftDirectFadeFrames = 0;
+    size_t rightDirectFadeFrames = 0;
+    const std::vector<double> leftDirectWindowedImpulse =
+        buildWindowedImpulseSegment(leftAnalysis.impulseResponse,
+                                    directWindowLength,
+                                    commonPreRollFrames,
+                                    leftDirectFadeFrames);
+    const std::vector<double> rightDirectWindowedImpulse =
+        buildWindowedImpulseSegment(rightAnalysis.impulseResponse,
+                                    directWindowLength,
+                                    commonPreRollFrames,
+                                    rightDirectFadeFrames);
+
+    appendValueSetIfValid(result,
+                          buildImpulseValueSet("measurement.room_impulse_response",
+                                               makeTimeAxisSeconds(leftRoomWindowedImpulse.size(), commonPreRollFrames, sampleRate),
+                                               leftRoomWindowedImpulse,
+                                               rightRoomWindowedImpulse));
+    appendValueSetIfValid(result,
+                          buildImpulseValueSet("measurement.direct_impulse_response",
+                                               makeTimeAxisSeconds(leftDirectWindowedImpulse.size(), commonPreRollFrames, sampleRate),
+                                               leftDirectWindowedImpulse,
+                                               rightDirectWindowedImpulse));
+
+    const size_t fftSize = nextPowerOfTwo(std::max({leftRoomWindowedImpulse.size(),
+                                                    rightRoomWindowedImpulse.size(),
+                                                    leftDirectWindowedImpulse.size(),
+                                                    rightDirectWindowedImpulse.size(),
+                                                    size_t{4096}}));
+    const std::vector<std::complex<double>> leftRoomSpectrum = fftOfRealSignal(leftRoomWindowedImpulse, fftSize);
+    const std::vector<std::complex<double>> rightRoomSpectrum = fftOfRealSignal(rightRoomWindowedImpulse, fftSize);
+    const std::vector<std::complex<double>> leftDirectSpectrum = fftOfRealSignal(leftDirectWindowedImpulse, fftSize);
+    const std::vector<std::complex<double>> rightDirectSpectrum = fftOfRealSignal(rightDirectWindowedImpulse, fftSize);
+    if (leftRoomSpectrum.empty() || rightRoomSpectrum.empty() ||
+        leftDirectSpectrum.empty() || rightDirectSpectrum.empty()) {
         return result;
     }
 
@@ -673,20 +969,52 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                           buildFullSpectrumValueSet("measurement.raw_magnitude_spectrum",
                                                     "level",
                                                     "dB",
-                                                    leftSpectrum,
-                                                    rightSpectrum,
+                                                    leftRoomSpectrum,
+                                                    rightRoomSpectrum,
                                                     sampleRate,
                                                     true));
     appendValueSetIfValid(result,
                           buildFullSpectrumValueSet("measurement.raw_phase_spectrum",
                                                     "phase",
                                                     "degrees",
-                                                    leftSpectrum,
-                                                    rightSpectrum,
+                                                    leftRoomSpectrum,
+                                                    rightRoomSpectrum,
+                                                    sampleRate,
+                                                    false));
+    appendValueSetIfValid(result,
+                          buildFullSpectrumValueSet("measurement.room_magnitude_spectrum",
+                                                    "level",
+                                                    "dB",
+                                                    leftRoomSpectrum,
+                                                    rightRoomSpectrum,
+                                                    sampleRate,
+                                                    true));
+    appendValueSetIfValid(result,
+                          buildFullSpectrumValueSet("measurement.room_phase_spectrum",
+                                                    "phase",
+                                                    "degrees",
+                                                    leftRoomSpectrum,
+                                                    rightRoomSpectrum,
+                                                    sampleRate,
+                                                    false));
+    appendValueSetIfValid(result,
+                          buildFullSpectrumValueSet("measurement.direct_magnitude_spectrum",
+                                                    "level",
+                                                    "dB",
+                                                    leftDirectSpectrum,
+                                                    rightDirectSpectrum,
+                                                    sampleRate,
+                                                    true));
+    appendValueSetIfValid(result,
+                          buildFullSpectrumValueSet("measurement.direct_phase_spectrum",
+                                                    "phase",
+                                                    "degrees",
+                                                    leftDirectSpectrum,
+                                                    rightDirectSpectrum,
                                                     sampleRate,
                                                     false));
 
-    const size_t positiveBinCount = (std::min(leftSpectrum.size(), rightSpectrum.size()) / 2) + 1;
+    const size_t positiveBinCount = (std::min(leftRoomSpectrum.size(), rightRoomSpectrum.size()) / 2) + 1;
     if (positiveBinCount == 0) {
         return result;
     }
@@ -702,16 +1030,40 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
 
     MeasurementValueSet rawMagnitudeResponse = buildMagnitudeResponseValueSet("measurement.raw_magnitude_response",
                                                                               displayFrequencyAxisHz,
-                                                                              leftSpectrum,
-                                                                              rightSpectrum,
+                                                                              leftRoomSpectrum,
+                                                                              rightRoomSpectrum,
                                                                               sampleRate);
     MeasurementValueSet rawPhaseResponse = buildPhaseResponseValueSet("measurement.raw_phase_response",
                                                                       displayFrequencyAxisHz,
-                                                                      leftSpectrum,
-                                                                      rightSpectrum,
+                                                                      leftRoomSpectrum,
+                                                                      rightRoomSpectrum,
                                                                       sampleRate);
     appendValueSetIfValid(result, rawMagnitudeResponse);
     appendValueSetIfValid(result, rawPhaseResponse);
+    appendValueSetIfValid(result,
+                          buildMagnitudeResponseValueSet("measurement.room_magnitude_response",
+                                                         displayFrequencyAxisHz,
+                                                         leftRoomSpectrum,
+                                                         rightRoomSpectrum,
+                                                         sampleRate));
+    appendValueSetIfValid(result,
+                          buildPhaseResponseValueSet("measurement.room_phase_response",
+                                                     displayFrequencyAxisHz,
+                                                     leftRoomSpectrum,
+                                                     rightRoomSpectrum,
+                                                     sampleRate));
+    appendValueSetIfValid(result,
+                          buildMagnitudeResponseValueSet("measurement.direct_magnitude_response",
+                                                         displayFrequencyAxisHz,
+                                                         leftDirectSpectrum,
+                                                         rightDirectSpectrum,
+                                                         sampleRate));
+    appendValueSetIfValid(result,
+                          buildPhaseResponseValueSet("measurement.direct_phase_response",
+                                                     displayFrequencyAxisHz,
+                                                     leftDirectSpectrum,
+                                                     rightDirectSpectrum,
+                                                     sampleRate));
 
     const bool hasMicrophoneCalibration =
         audioSettings.microphoneCalibrationFrequencyHz.size() >= 2 &&
@@ -721,8 +1073,8 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
             buildFullSpectrumValueSet("measurement.calibrated_magnitude_spectrum",
                                       "level",
                                       "dB",
-                                      leftSpectrum,
-                                      rightSpectrum,
+                                      leftRoomSpectrum,
+                                      rightRoomSpectrum,
                                       sampleRate,
                                       true);
         applyMicrophoneCalibration(audioSettings, calibratedMagnitudeSpectrum);
@@ -733,6 +1085,21 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
         applyMicrophoneCalibration(audioSettings, calibratedMagnitudeResponse);
         appendValueSetIfValid(result, std::move(calibratedMagnitudeResponse));
     }
+
+    appendReferenceCompensatedTransferValueSets(result,
+                                                referenceResult,
+                                                "room",
+                                                leftRoomSpectrum,
+                                                rightRoomSpectrum,
+                                                sampleRate,
+                                                displayFrequencyAxisHz);
+    appendReferenceCompensatedTransferValueSets(result,
+                                                referenceResult,
+                                                "direct",
+                                                leftDirectSpectrum,
+                                                rightDirectSpectrum,
+                                                sampleRate,
+                                                displayFrequencyAxisHz);
 
     auto fillChannelMetrics = [&](MeasurementChannelMetrics& metrics, const ChannelAnalysis& analysis) {
         metrics.available = !analysis.impulseResponse.empty();

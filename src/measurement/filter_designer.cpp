@@ -264,7 +264,7 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
         const double minValueDb = -settings.maxCutDb * weight;
         const double maxValueDb = settings.maxBoostDb * weight;
         desiredCorrectionDb.push_back(applyAsymmetricSoftLimit(rawCorrectionDb, minValueDb, maxValueDb));
-        trackingWeights.push_back(0.05 + (0.95 * weight));
+        trackingWeights.push_back(weight);
         lowerBoundsDb.push_back(minValueDb);
         upperBoundsDb.push_back(maxValueDb);
     }

@@ -188,7 +188,11 @@ void MeasurementController::tick() {
                                                              playbackPlan_,
                                                              session_->sampleRate(),
                                                              snapshot_.audio,
-                                                             activeMeasurementSettings_);
+                                                             activeMeasurementSettings_,
+                                                             runMode_ == MeasurementRunMode::Room &&
+                                                                     snapshot_.referenceResult.hasAnyValues()
+                                                                 ? &snapshot_.referenceResult
+                                                                 : nullptr);
     result_.analysis.measurementKind = runMode_ == MeasurementRunMode::Reference ? "reference" : "room";
     result_.analysis.measurementTimestampUtc = measurementTimestampUtc_;
     result_.analysis.backendName = sessionDetails.backendName;

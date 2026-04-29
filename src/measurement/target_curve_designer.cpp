@@ -94,6 +94,33 @@ double bandContributionDb(const TargetEqBand& band, int sampleRate, double frequ
     return 20.0 * std::log10(std::max(magnitude, 1e-9));
 }
 
+double meanResponseLevelDb(const SmoothedResponse& response) {
+    const size_t count = std::min({response.frequencyAxisHz.size(),
+                                   response.leftChannelDb.size(),
+                                   response.rightChannelDb.size()});
+    if (count == 0) {
+        return 0.0;
+    }
+
+    double sum = 0.0;
+    for (size_t index = 0; index < count; ++index) {
+        sum += (response.leftChannelDb[index] + response.rightChannelDb[index]) * 0.5;
+    }
+    return sum / static_cast<double>(count);
+}
+
+double meanSeriesValue(const std::vector<double>& values) {
+    if (values.empty()) {
+        return 0.0;
+    }
+
+    double sum = 0.0;
+    for (const double value : values) {
+        sum += value;
+    }
+    return sum / static_cast<double>(values.size());
+}
+
 }  // namespace
 
 TargetEqBand makeDefaultTargetEqBand(double frequencyHz, int colorIndex) {
@@ -198,6 +225,19 @@ TargetCurvePlotData buildTargetCurvePlotData(const SmoothedResponse& response,
         plot.targetCurveDb.push_back(basicDb + eqDb);
         if (selectedBandIndex && *selectedBandIndex < settings.eqBands.size()) {
             plot.selectedBandContributionDb.push_back(selectedDb);
+        }
+    }
+
+    const size_t responseCount = std::min({response.frequencyAxisHz.size(),
+                                           response.leftChannelDb.size(),
+                                           response.rightChannelDb.size()});
+    if (responseCount > 0 && responseCount == plot.frequencyAxisHz.size()) {
+        const double anchorOffsetDb = meanResponseLevelDb(response) - meanSeriesValue(plot.targetCurveDb);
+        for (double& value : plot.basicCurveDb) {
+            value += anchorOffsetDb;
+        }
+        for (double& value : plot.targetCurveDb) {
+            value += anchorOffsetDb;
         }
     }
 

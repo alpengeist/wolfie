@@ -747,7 +747,7 @@ bool MeasurementPage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
         return true;
     }
     if (draw->hwndItem == controls_.lineReference) {
-        drawLegendLineSample(*draw, ui_theme::kAccent, true);
+        drawLegendLineSample(*draw, ui_theme::kAccent, false);
         return true;
     }
 
@@ -1128,7 +1128,7 @@ ResponseGraphData MeasurementPage::buildGraphData() const {
             }
         }
         if (!referenceValues.empty()) {
-            data.series.push_back({L"Reference", ui_theme::kAccent, true, std::move(referenceValues)});
+            data.series.push_back({L"Reference", ui_theme::kAccent, false, std::move(referenceValues)});
         }
     }
     return data;
