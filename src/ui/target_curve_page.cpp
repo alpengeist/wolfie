@@ -235,15 +235,16 @@ void TargetCurvePage::layout() {
     MoveWindow(controls_.profileLabel, sidebarLeft, contentTop, 56, 20, TRUE);
     MoveWindow(controls_.comboProfiles, sidebarLeft, contentTop + 22, sidebarWidth - 80, 240, TRUE);
     MoveWindow(controls_.buttonNewProfile, sidebarLeft + sidebarWidth - 72, contentTop + 21, 72, 26, TRUE);
-    MoveWindow(controls_.buttonNew, sidebarLeft, contentTop + 58, 72, 28, TRUE);
-    MoveWindow(controls_.buttonDelete, sidebarLeft + 80, contentTop + 58, 72, 28, TRUE);
-    MoveWindow(controls_.buttonReset, sidebarLeft + 160, contentTop + 58, 72, 28, TRUE);
-    MoveWindow(controls_.checkboxBypassAll, sidebarLeft, contentTop + 92, sidebarWidth, 20, TRUE);
-    const int listTop = contentTop + 120;
+    MoveWindow(controls_.checkboxBypassAll, sidebarLeft, contentTop + 58, sidebarWidth, 20, TRUE);
+    const int listTop = contentTop + 86;
     const int listHeight = 180;
     MoveWindow(controls_.listBands, sidebarLeft, listTop, sidebarWidth, listHeight, TRUE);
+    const int bandButtonTop = listTop + listHeight + 10;
+    MoveWindow(controls_.buttonNew, sidebarLeft, bandButtonTop, 72, 28, TRUE);
+    MoveWindow(controls_.buttonDelete, sidebarLeft + 80, bandButtonTop, 72, 28, TRUE);
+    MoveWindow(controls_.buttonReset, sidebarLeft + 160, bandButtonTop, 72, 28, TRUE);
 
-    const int detailTop = listTop + listHeight + 16;
+    const int detailTop = bandButtonTop + 28 + 16;
     MoveWindow(controls_.checkboxEnabled, sidebarLeft, detailTop, 90, 20, TRUE);
     MoveWindow(controls_.typeValue, sidebarLeft + 116, detailTop, 80, 20, TRUE);
 

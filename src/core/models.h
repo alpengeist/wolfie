@@ -70,7 +70,6 @@ struct UiSettings {
     bool filterShowExcessPhaseInputLeft = true;
     bool filterShowExcessPhasePredictedRight = true;
     bool filterShowExcessPhasePredictedLeft = true;
-    bool filterUnwrapExcessPhase = false;
     bool filterShowInputGroupDelayLeft = true;
     bool filterShowInputGroupDelayRight = true;
     bool filterShowPredictedGroupDelayRight = true;

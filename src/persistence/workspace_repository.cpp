@@ -261,9 +261,6 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonBool(content, "filterShowExcessPhasePredictedLeft")) {
         ui.filterShowExcessPhasePredictedLeft = *value;
     }
-    if (const auto value = findJsonBool(content, "filterUnwrapExcessPhase")) {
-        ui.filterUnwrapExcessPhase = *value;
-    }
     if (const auto value = findJsonBool(content, "filterShowInputGroupDelayLeft")) {
         ui.filterShowInputGroupDelayLeft = *value;
     }
@@ -1324,7 +1321,6 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << (workspace.ui.filterShowExcessPhasePredictedRight ? "true" : "false") << ",\n"
                   << "    \"filterShowExcessPhasePredictedLeft\": "
                   << (workspace.ui.filterShowExcessPhasePredictedLeft ? "true" : "false") << ",\n"
-                  << "    \"filterUnwrapExcessPhase\": " << (workspace.ui.filterUnwrapExcessPhase ? "true" : "false") << ",\n"
                   << "    \"filterShowInputGroupDelayLeft\": "
                   << (workspace.ui.filterShowInputGroupDelayLeft ? "true" : "false") << ",\n"
                   << "    \"filterShowInputGroupDelayRight\": "
@@ -1393,7 +1389,6 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << (workspace.ui.filterShowExcessPhasePredictedRight ? "true" : "false") << ",\n"
            << "  \"filterShowExcessPhasePredictedLeft\": "
            << (workspace.ui.filterShowExcessPhasePredictedLeft ? "true" : "false") << ",\n"
-           << "  \"filterUnwrapExcessPhase\": " << (workspace.ui.filterUnwrapExcessPhase ? "true" : "false") << ",\n"
            << "  \"filterShowInputGroupDelayLeft\": "
            << (workspace.ui.filterShowInputGroupDelayLeft ? "true" : "false") << ",\n"
            << "  \"filterShowInputGroupDelayRight\": "

@@ -161,20 +161,6 @@ std::vector<double> buildSharedImpulseTimeAxisMs(const FilterDesignResult& filte
     return xValues;
 }
 
-std::vector<double> breakWrappedPhaseDiscontinuities(const std::vector<double>& valuesDegrees) {
-    std::vector<double> values = valuesDegrees;
-    for (size_t index = 1; index < values.size(); ++index) {
-        if (!std::isfinite(values[index - 1]) ||
-            !std::isfinite(values[index]) ||
-            std::abs(values[index] - values[index - 1]) <= 180.0) {
-            continue;
-        }
-
-        values[index] = std::numeric_limits<double>::quiet_NaN();
-    }
-    return values;
-}
-
 std::vector<double> subtractConstant(const std::vector<double>& values, double offset) {
     std::vector<double> shifted = values;
     for (double& value : shifted) {
@@ -429,17 +415,6 @@ void FiltersPage::createControls() {
     controls_.labelCorrectedRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.excessPhaseTitle = CreateWindowW(L"STATIC", L"Excess Phase", WS_CHILD | WS_VISIBLE,
                                                0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.checkboxUnwrapExcessPhase = CreateWindowW(L"BUTTON",
-                                                        L"Unwrap phase",
-                                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                                        0,
-                                                        0,
-                                                        0,
-                                                        0,
-                                                        window_,
-                                                        reinterpret_cast<HMENU>(kCheckboxUnwrapExcessPhase),
-                                                        instance_,
-                                                        nullptr);
     controls_.excessPhaseLegendFrame = CreateWindowW(L"STATIC",
                                                      L"",
                                                      WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
@@ -740,7 +715,6 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.excessPhaseTitle, contentLeft, y, contentWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxUnwrapExcessPhase, graphRight - 124, y - 2, 124, 20, TRUE);
     MoveWindow(controls_.excessPhaseLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     excessPhaseGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int excessPhaseFirstRowTop = y + 24 + 18;
@@ -927,7 +901,6 @@ void FiltersPage::loadViewSettings(const UiSettings& ui) {
     showExcessPhaseInputLeft_ = ui.filterShowExcessPhaseInputLeft;
     showExcessPhasePredictedRight_ = ui.filterShowExcessPhasePredictedRight;
     showExcessPhasePredictedLeft_ = ui.filterShowExcessPhasePredictedLeft;
-    unwrapExcessPhase_ = ui.filterUnwrapExcessPhase;
     showInputGroupDelayLeft_ = ui.filterShowInputGroupDelayLeft;
     showInputGroupDelayRight_ = ui.filterShowInputGroupDelayRight;
     showPredictedGroupDelayRight_ = ui.filterShowPredictedGroupDelayRight;
@@ -966,7 +939,6 @@ void FiltersPage::syncViewSettingsToControls() const {
                  BM_SETCHECK,
                  showExcessPhasePredictedLeft_ ? BST_CHECKED : BST_UNCHECKED,
                  0);
-    SendMessageW(controls_.checkboxUnwrapExcessPhase, BM_SETCHECK, unwrapExcessPhase_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInputGroupDelayLeft,
                  BM_SETCHECK,
                  showInputGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED,
@@ -1018,7 +990,6 @@ void FiltersPage::syncViewSettingsFromControls() {
         SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhasePredictedLeft_ =
         SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    unwrapExcessPhase_ = SendMessageW(controls_.checkboxUnwrapExcessPhase, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showInputGroupDelayLeft_ =
         SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showInputGroupDelayRight_ =
@@ -1057,7 +1028,6 @@ void FiltersPage::saveViewSettings(UiSettings& ui) const {
         SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterShowExcessPhasePredictedLeft =
         SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    ui.filterUnwrapExcessPhase = SendMessageW(controls_.checkboxUnwrapExcessPhase, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterShowInputGroupDelayLeft =
         SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterShowInputGroupDelayRight =
@@ -1257,7 +1227,6 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowExcessPhaseInputLeft ||
          commandId == kCheckboxShowExcessPhasePredictedRight ||
          commandId == kCheckboxShowExcessPhasePredictedLeft ||
-         commandId == kCheckboxUnwrapExcessPhase ||
          commandId == kCheckboxShowInputGroupDelayLeft ||
          commandId == kCheckboxShowInputGroupDelayRight ||
          commandId == kCheckboxShowPredictedGroupDelayRight ||
@@ -1867,18 +1836,10 @@ PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& works
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"deg";
-    data.fixedYRange = !unwrapExcessPhase_;
-    data.minY = -180.0;
-    data.maxY = 180.0;
     if (!workspace.filterResult.valid) {
         return data;
     }
 
-    const auto displayPhaseSeries = [this](const std::vector<double>& wrappedValuesDegrees,
-                                           const std::vector<double>& continuousValuesDegrees) {
-        return unwrapExcessPhase_ ? continuousValuesDegrees
-                                  : breakWrappedPhaseDiscontinuities(wrappedValuesDegrees);
-    };
     double minY = std::numeric_limits<double>::max();
     double maxY = std::numeric_limits<double>::lowest();
     const auto accumulateRange = [&minY, &maxY](const std::vector<double>& values) {
@@ -1892,35 +1853,27 @@ PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& works
     };
 
     if (showExcessPhaseInputRight_) {
-        std::vector<double> values =
-            displayPhaseSeries(workspace.filterResult.right.inputExcessPhaseDegrees,
-                               workspace.filterResult.right.inputExcessPhaseContinuousDegrees);
+        std::vector<double> values = workspace.filterResult.right.inputExcessPhaseContinuousDegrees;
         accumulateRange(values);
         data.series.push_back({L"Right before", ui_theme::kRed, std::move(values)});
     }
     if (showExcessPhaseInputLeft_) {
-        std::vector<double> values =
-            displayPhaseSeries(workspace.filterResult.left.inputExcessPhaseDegrees,
-                               workspace.filterResult.left.inputExcessPhaseContinuousDegrees);
+        std::vector<double> values = workspace.filterResult.left.inputExcessPhaseContinuousDegrees;
         accumulateRange(values);
         data.series.push_back({L"Left before", ui_theme::kGreen, std::move(values)});
     }
     if (showExcessPhasePredictedRight_) {
-        std::vector<double> values =
-            displayPhaseSeries(workspace.filterResult.right.predictedExcessPhaseDegrees,
-                               workspace.filterResult.right.predictedExcessPhaseContinuousDegrees);
+        std::vector<double> values = workspace.filterResult.right.predictedExcessPhaseContinuousDegrees;
         accumulateRange(values);
         data.series.push_back({L"Right after", ui_theme::kMagenta, std::move(values)});
     }
     if (showExcessPhasePredictedLeft_) {
-        std::vector<double> values =
-            displayPhaseSeries(workspace.filterResult.left.predictedExcessPhaseDegrees,
-                               workspace.filterResult.left.predictedExcessPhaseContinuousDegrees);
+        std::vector<double> values = workspace.filterResult.left.predictedExcessPhaseContinuousDegrees;
         accumulateRange(values);
         data.series.push_back({L"Left after", ui_theme::kGray, std::move(values)});
     }
 
-    if (unwrapExcessPhase_ && std::isfinite(minY) && std::isfinite(maxY)) {
+    if (std::isfinite(minY) && std::isfinite(maxY)) {
         const double paddedMin = std::floor((minY - 30.0) / 60.0) * 60.0;
         const double paddedMax = std::ceil((maxY + 30.0) / 60.0) * 60.0;
         const double minimumSpan = 360.0;
