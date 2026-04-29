@@ -44,6 +44,111 @@ std::wstring formatPathValue(const std::filesystem::path& path) {
     return path.empty() ? L"-" : path.wstring();
 }
 
+bool hasValidMicrophoneCalibration(const AudioSettings& audio) {
+    return audio.microphoneCalibrationFrequencyHz.size() >= 2 &&
+           audio.microphoneCalibrationFrequencyHz.size() == audio.microphoneCalibrationCorrectionDb.size();
+}
+
+std::vector<double> buildMonoReferenceValues(const MeasurementValueSet& valueSet) {
+    std::vector<double> values;
+    const size_t count = std::min({valueSet.xValues.size(), valueSet.leftValues.size(), valueSet.rightValues.size()});
+    values.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        values.push_back((valueSet.leftValues[index] + valueSet.rightValues[index]) * 0.5);
+    }
+    return values;
+}
+
+double interpolateLinear(double x, double x0, double y0, double x1, double y1) {
+    if (std::abs(x1 - x0) < 1.0e-9) {
+        return y0;
+    }
+    const double t = (x - x0) / (x1 - x0);
+    return y0 + (t * (y1 - y0));
+}
+
+std::vector<double> resampleLogFrequency(const std::vector<double>& sourceAxisHz,
+                                         const std::vector<double>& sourceValues,
+                                         const std::vector<double>& targetAxisHz) {
+    std::vector<double> resampled;
+    if (sourceAxisHz.empty() || sourceValues.size() != sourceAxisHz.size() || targetAxisHz.empty()) {
+        return resampled;
+    }
+
+    resampled.reserve(targetAxisHz.size());
+    for (const double frequencyHz : targetAxisHz) {
+        if (frequencyHz <= sourceAxisHz.front()) {
+            resampled.push_back(sourceValues.front());
+            continue;
+        }
+        if (frequencyHz >= sourceAxisHz.back()) {
+            resampled.push_back(sourceValues.back());
+            continue;
+        }
+
+        const auto upper = std::lower_bound(sourceAxisHz.begin(), sourceAxisHz.end(), frequencyHz);
+        if (upper == sourceAxisHz.begin()) {
+            resampled.push_back(sourceValues.front());
+            continue;
+        }
+        if (upper == sourceAxisHz.end()) {
+            resampled.push_back(sourceValues.back());
+            continue;
+        }
+
+        const size_t upperIndex = static_cast<size_t>(upper - sourceAxisHz.begin());
+        const size_t lowerIndex = upperIndex - 1;
+        const double x = std::log10(std::max(frequencyHz, 1.0));
+        const double x0 = std::log10(std::max(sourceAxisHz[lowerIndex], 1.0));
+        const double x1 = std::log10(std::max(sourceAxisHz[upperIndex], 1.0));
+        resampled.push_back(interpolateLinear(x, x0, sourceValues[lowerIndex], x1, sourceValues[upperIndex]));
+    }
+    return resampled;
+}
+
+std::wstring referenceStaleReason(const AudioSettings& audio,
+                                  const MeasurementSettings& measurement,
+                                  const MeasurementResult& referenceResult) {
+    if (!referenceResult.hasAnyValues()) {
+        return L"missing";
+    }
+    if (!audio.loopbackEnabled) {
+        return L"loopback off";
+    }
+
+    const MeasurementAnalysis& analysis = referenceResult.analysis;
+    if (analysis.sampleRate > 0 && analysis.sampleRate != measurement.sampleRate) {
+        return L"sample rate changed";
+    }
+    if (!analysis.requestedBackend.empty() && analysis.requestedBackend != audio.backend) {
+        return L"backend changed";
+    }
+    if (audio.backend == "asio") {
+        if (!analysis.requestedDriver.empty() && analysis.requestedDriver != audio.driver) {
+            return L"driver changed";
+        }
+    } else {
+        if (!analysis.requestedWindowsInputDeviceId.empty() &&
+            analysis.requestedWindowsInputDeviceId != audio.windowsInputDeviceId) {
+            return L"input device changed";
+        }
+        if (!analysis.requestedWindowsOutputDeviceId.empty() &&
+            analysis.requestedWindowsOutputDeviceId != audio.windowsOutputDeviceId) {
+            return L"output device changed";
+        }
+    }
+    if (analysis.requestedMicInputChannel > 0 && analysis.requestedMicInputChannel != audio.loopbackInputChannel) {
+        return L"loopback input changed";
+    }
+    if (analysis.requestedLeftOutputChannel > 0 && analysis.requestedLeftOutputChannel != audio.leftOutputChannel) {
+        return L"left output changed";
+    }
+    if (analysis.requestedRightOutputChannel > 0 && analysis.requestedRightOutputChannel != audio.rightOutputChannel) {
+        return L"right output changed";
+    }
+    return {};
+}
+
 void drawDisclosureTriangle(HDC hdc, const RECT& rect, bool collapsed, COLORREF color) {
     const int centerX = (rect.left + rect.right) / 2;
     const int centerY = (rect.top + rect.bottom) / 2;
@@ -66,6 +171,35 @@ void drawDisclosureTriangle(HDC hdc, const RECT& rect, bool collapsed, COLORREF 
     SelectObject(hdc, oldBrush);
     SelectObject(hdc, oldPen);
     DeleteObject(brush);
+    DeleteObject(pen);
+}
+
+void drawLegendFrame(const DRAWITEMSTRUCT& draw) {
+    HBRUSH backgroundBrush = CreateSolidBrush(ui_theme::kBackground);
+    FillRect(draw.hDC, &draw.rcItem, backgroundBrush);
+    DeleteObject(backgroundBrush);
+
+    const int savedDc = SaveDC(draw.hDC);
+    SelectObject(draw.hDC, GetStockObject(HOLLOW_BRUSH));
+    HPEN borderPen = CreatePen(PS_SOLID, 1, ui_theme::kBorder);
+    SelectObject(draw.hDC, borderPen);
+    Rectangle(draw.hDC, draw.rcItem.left, draw.rcItem.top, draw.rcItem.right, draw.rcItem.bottom);
+    RestoreDC(draw.hDC, savedDc);
+    DeleteObject(borderPen);
+}
+
+void drawLegendLineSample(const DRAWITEMSTRUCT& draw, COLORREF color, bool dashed) {
+    HBRUSH backgroundBrush = CreateSolidBrush(ui_theme::kBackground);
+    FillRect(draw.hDC, &draw.rcItem, backgroundBrush);
+    DeleteObject(backgroundBrush);
+
+    const int savedDc = SaveDC(draw.hDC);
+    HPEN pen = CreatePen(dashed ? PS_DASH : PS_SOLID, 1, color);
+    SelectObject(draw.hDC, pen);
+    const int centerY = (draw.rcItem.top + draw.rcItem.bottom) / 2;
+    MoveToEx(draw.hDC, draw.rcItem.left, centerY, nullptr);
+    LineTo(draw.hDC, draw.rcItem.right, centerY);
+    RestoreDC(draw.hDC, savedDc);
     DeleteObject(pen);
 }
 
@@ -122,6 +256,17 @@ void MeasurementPage::createControls() {
     controls_.outputVolumeMuteLabel = CreateWindowW(L"STATIC", L"Mute", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.outputVolumeMaxLabel = CreateWindowW(L"STATIC", L"0 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonMeasure = CreateWindowW(L"BUTTON", L"START", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonMeasure), instance_, nullptr);
+    controls_.buttonMeasureReference = CreateWindowW(L"BUTTON",
+                                                     L"REFERENCE",
+                                                     WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     window_,
+                                                     reinterpret_cast<HMENU>(kButtonMeasureReference),
+                                                     instance_,
+                                                     nullptr);
     controls_.leftChannelLabel = CreateWindowW(L"STATIC", L"Left", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.leftProgressBar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.leftProgressText = CreateWindowW(L"STATIC", L"0%", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -155,6 +300,70 @@ void MeasurementPage::createControls() {
                                                     reinterpret_cast<HMENU>(kComboWaterfallChannel),
                                                     instance_,
                                                     nullptr);
+    controls_.infoStatusFrame = CreateWindowExW(0,
+                                              L"STATIC",
+                                              L"",
+                                              WS_CHILD | WS_VISIBLE | SS_ETCHEDFRAME,
+                                              0,
+                                              0,
+                                              0,
+                                              0,
+                                              window_,
+                                              nullptr,
+                                              instance_,
+                                              nullptr);
+    controls_.referenceStatus = CreateWindowW(L"STATIC", L"Reference: missing", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.micCompStatus = CreateWindowW(L"STATIC", L"Mic compensation: none", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.responseLegendFrame = CreateWindowW(L"STATIC",
+                                                  L"",
+                                                  WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
+                                                  0,
+                                                  0,
+                                                  0,
+                                                  0,
+                                                  window_,
+                                                  nullptr,
+                                                  instance_,
+                                                  nullptr);
+    controls_.checkboxShowRoomLeft = CreateWindowW(L"BUTTON",
+                                                   L"",
+                                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   window_,
+                                                   reinterpret_cast<HMENU>(kCheckboxShowRoomLeft),
+                                                   instance_,
+                                                   nullptr);
+    controls_.lineRoomLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelRoomLeft = CreateWindowW(L"STATIC", L"Room Left", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowRoomRight = CreateWindowW(L"BUTTON",
+                                                    L"",
+                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    window_,
+                                                    reinterpret_cast<HMENU>(kCheckboxShowRoomRight),
+                                                    instance_,
+                                                    nullptr);
+    controls_.lineRoomRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelRoomRight = CreateWindowW(L"STATIC", L"Room Right", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowReference = CreateWindowW(L"BUTTON",
+                                                    L"",
+                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    window_,
+                                                    reinterpret_cast<HMENU>(kCheckboxShowReference),
+                                                    instance_,
+                                                    nullptr);
+    controls_.lineReference = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelReference = CreateWindowW(L"STATIC", L"Reference", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.metadataLabel = CreateWindowW(L"STATIC", L"Measurement Metadata", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.metadataToggle = CreateWindowW(L"BUTTON",
                                              L"",
@@ -202,6 +411,9 @@ void MeasurementPage::createControls() {
     SetWindowLongPtrW(controls_.labelPlot, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelWaterfallChannel, GWL_STYLE, centeredStaticStyle);
     SendMessageW(controls_.editEndFrequency, EM_SETREADONLY, TRUE, 0);
+    SendMessageW(controls_.checkboxShowRoomLeft, BM_SETCHECK, BST_CHECKED, 0);
+    SendMessageW(controls_.checkboxShowRoomRight, BM_SETCHECK, BST_CHECKED, 0);
+    SendMessageW(controls_.checkboxShowReference, BM_SETCHECK, BST_CHECKED, 0);
 
     SendMessageW(controls_.leftProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
     SendMessageW(controls_.rightProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 1000));
@@ -251,12 +463,15 @@ void MeasurementPage::layout() {
     constexpr int kProgressLabelWidth = 42;
     constexpr int kProgressBarWidth = 180;
     constexpr int kProgressTextWidth = 44;
-    constexpr int kMetricWidth = 90;
+    constexpr int kMetricWidth = 118;
     constexpr int kMetricGap = 10;
     constexpr int kSliderWidth = 220;
     constexpr int kSliderValueWidth = 56;
     constexpr int kGraphComboWidth = 150;
     constexpr int kGraphComboHeight = 220;
+    constexpr int kLegendGap = 14;
+    constexpr int kLegendWidth = 172;
+    constexpr int kInfoBoxHeight = 48;
 
     auto placeCenteredFieldWithUnit = [&](HWND label, HWND edit, HWND unit, int left, int top, int labelWidth, int editWidth, int unitWidth) {
         const int labelLeft = left + ((editWidth - labelWidth) / 2);
@@ -302,15 +517,22 @@ void MeasurementPage::layout() {
     const int progressRowTop = dataRowTop + 30;
     const int buttonTop = dataRowTop - 4;
     const int buttonHeight = (progressRowTop + 20) - buttonTop;
+    constexpr int kReferenceButtonWidth = 138;
     MoveWindow(controls_.buttonMeasure, contentLeft, buttonTop, kButtonWidth, buttonHeight, TRUE);
-    int metricLeft = contentLeft + kButtonWidth + kMetricGap;
+    MoveWindow(controls_.buttonMeasureReference,
+               contentLeft + kButtonWidth + 10,
+               buttonTop,
+               kReferenceButtonWidth,
+               buttonHeight,
+               TRUE);
+    int metricLeft = contentLeft + kButtonWidth + 10 + kReferenceButtonWidth + kMetricGap;
     MoveWindow(controls_.currentFrequency, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
     metricLeft += kMetricWidth + kMetricGap;
     MoveWindow(controls_.currentAmplitude, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
     metricLeft += kMetricWidth + kMetricGap;
     MoveWindow(controls_.peakAmplitude, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
 
-    metricLeft = contentLeft + kButtonWidth + kMetricGap;
+    metricLeft = contentLeft + kButtonWidth + 10 + kReferenceButtonWidth + kMetricGap;
     MoveWindow(controls_.leftChannelLabel, metricLeft, progressRowTop + 2, kProgressLabelWidth, 18, TRUE);
     MoveWindow(controls_.leftProgressBar, metricLeft + kProgressLabelWidth + 8, progressRowTop + 4, kProgressBarWidth, 16, TRUE);
     MoveWindow(controls_.leftProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
@@ -329,15 +551,51 @@ void MeasurementPage::layout() {
                110,
                kGraphComboHeight,
                TRUE);
+    const int infoBoxWidth = std::clamp(innerWidth / 4, 260, 340);
+    const int infoBoxLeft = contentLeft + innerWidth - infoBoxWidth;
+    const int infoBoxTop = contentTop;
+    MoveWindow(controls_.infoStatusFrame, infoBoxLeft, infoBoxTop, infoBoxWidth, kInfoBoxHeight, TRUE);
+    MoveWindow(controls_.referenceStatus, infoBoxLeft + 14, infoBoxTop + 10, infoBoxWidth - 28, 16, TRUE);
+    MoveWindow(controls_.micCompStatus, infoBoxLeft + 14, infoBoxTop + 26, infoBoxWidth - 28, 16, TRUE);
 
-    const int graphTop = graphControlsTop + 34;
+    const int graphTop = graphControlsTop + 56;
     const int availableBottom = contentTop + innerHeight;
     const int metadataSectionHeight = metadataCollapsed_ ? 26 : std::max(150, (availableBottom - graphTop) * 9 / 20);
     const int metadataLabelTop = availableBottom - metadataSectionHeight;
     const int graphBottom = std::max(graphTop + 200, metadataLabelTop - 10);
-    const RECT graphBounds{contentLeft, graphTop, contentLeft + innerWidth, graphBottom};
+    const bool waterfallVisible =
+        plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0))) == "waterfall";
+    const int legendLeft = contentLeft + innerWidth - kLegendWidth;
+    const int graphRight = waterfallVisible ? (contentLeft + innerWidth) : (legendLeft - kLegendGap);
+    const RECT graphBounds{contentLeft, graphTop, graphRight, graphBottom};
     responseGraph_.layout(graphBounds);
     waterfallGraph_.layout(graphBounds);
+    const int legendHeight = std::max(116, graphBottom - graphTop);
+    MoveWindow(controls_.responseLegendFrame, legendLeft, graphTop, kLegendWidth, legendHeight, TRUE);
+    const int checkboxLeft = legendLeft + 14;
+    const int lineLeft = checkboxLeft + 26;
+    const int labelLeft = lineLeft + 34;
+    const int rowTop = graphTop + 14;
+    const int rowStep = 28;
+    MoveWindow(controls_.checkboxShowRoomLeft, checkboxLeft, rowTop, 18, 20, TRUE);
+    MoveWindow(controls_.lineRoomLeft, lineLeft, rowTop + 9, 24, 4, TRUE);
+    MoveWindow(controls_.labelRoomLeft, labelLeft, rowTop, kLegendWidth - (labelLeft - legendLeft) - 12, 20, TRUE);
+    MoveWindow(controls_.checkboxShowRoomRight, checkboxLeft, rowTop + rowStep, 18, 20, TRUE);
+    MoveWindow(controls_.lineRoomRight, lineLeft, rowTop + rowStep + 9, 24, 4, TRUE);
+    MoveWindow(controls_.labelRoomRight,
+               labelLeft,
+               rowTop + rowStep,
+               kLegendWidth - (labelLeft - legendLeft) - 12,
+               20,
+               TRUE);
+    MoveWindow(controls_.checkboxShowReference, checkboxLeft, rowTop + (rowStep * 2), 18, 20, TRUE);
+    MoveWindow(controls_.lineReference, lineLeft, rowTop + (rowStep * 2) + 9, 24, 4, TRUE);
+    MoveWindow(controls_.labelReference,
+               labelLeft,
+               rowTop + (rowStep * 2),
+               kLegendWidth - (labelLeft - legendLeft) - 12,
+               20,
+               TRUE);
     constexpr int kMetadataToggleSize = 24;
     MoveWindow(controls_.metadataLabel, contentLeft, metadataLabelTop, std::max(160, innerWidth - 36), 20, TRUE);
     MoveWindow(controls_.metadataToggle,
@@ -387,10 +645,16 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
                  CB_SETCURSEL,
                  comboIndexFromWaterfallChannel(workspace.ui.measurementWaterfallChannel),
                  0);
+    showRoomLeft_ = workspace.ui.measurementShowRoomLeft;
+    showRoomRight_ = workspace.ui.measurementShowRoomRight;
+    showReference_ = workspace.ui.measurementShowReference;
+    SendMessageW(controls_.checkboxShowRoomLeft, BM_SETCHECK, showRoomLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowRoomRight, BM_SETCHECK, showRoomRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.checkboxShowReference, BM_SETCHECK, showReference_ ? BST_CHECKED : BST_UNCHECKED, 0);
     metadataCollapsed_ = workspace.ui.measurementMetadataCollapsed;
     updatePlotControlVisibility();
     updateMetadataVisibility();
-    setMeasurementResult(workspace.result);
+    setWorkspaceView(workspace);
 }
 
 void MeasurementPage::syncToWorkspace(WorkspaceState& workspace) const {
@@ -410,17 +674,26 @@ void MeasurementPage::syncToWorkspace(WorkspaceState& workspace) const {
         plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0)));
     workspace.ui.measurementWaterfallChannel = waterfallChannelFromComboIndex(
         static_cast<int>(SendMessageW(controls_.comboWaterfallChannel, CB_GETCURSEL, 0, 0)));
+    workspace.ui.measurementShowRoomLeft = SendMessageW(controls_.checkboxShowRoomLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    workspace.ui.measurementShowRoomRight = SendMessageW(controls_.checkboxShowRoomRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    workspace.ui.measurementShowReference = SendMessageW(controls_.checkboxShowReference, BM_GETCHECK, 0, 0) == BST_CHECKED;
     workspace.ui.measurementMetadataCollapsed = metadataCollapsed_;
     measurement::syncDerivedMeasurementSettings(workspace.measurement);
 }
 
-void MeasurementPage::setMeasurementResult(const MeasurementResult& result) {
-    result_ = result;
+void MeasurementPage::setWorkspaceView(const WorkspaceState& workspace) {
+    audioSettings_ = workspace.audio;
+    measurementSettings_ = workspace.measurement;
+    result_ = workspace.result;
+    referenceResult_ = workspace.referenceResult;
+    refreshReferenceStatusLabels();
+    refreshActionButtons();
     refreshPlots();
     populateMetadataTable(result_);
 }
 
 void MeasurementPage::refreshStatus(const MeasurementStatus& status, bool hasResult) {
+    status_ = status;
     int leftProgress = 0;
     int rightProgress = 0;
     const int currentProgress = static_cast<int>(status.progress * 1000.0);
@@ -444,6 +717,8 @@ void MeasurementPage::refreshStatus(const MeasurementStatus& status, bool hasRes
     setWindowTextValue(controls_.currentAmplitude, L"Amp " + formatWideDouble(status.currentAmplitudeDb, 1) + L" dB");
     setWindowTextValue(controls_.peakAmplitude, L"Peak " + formatWideDouble(status.peakAmplitudeDb, 1) + L" dB");
     InvalidateRect(controls_.buttonMeasure, nullptr, TRUE);
+    InvalidateRect(controls_.buttonMeasureReference, nullptr, TRUE);
+    refreshActionButtons();
 
     (void)hasResult;
 }
@@ -453,9 +728,27 @@ void MeasurementPage::invalidateGraph() const {
     waterfallGraph_.invalidate();
 }
 
-bool MeasurementPage::handleDrawItem(const DRAWITEMSTRUCT* draw, bool measurementRunning) const {
+bool MeasurementPage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
     if (draw == nullptr) {
         return false;
+    }
+
+    if (draw->hwndItem == controls_.responseLegendFrame) {
+        drawLegendFrame(*draw);
+        return true;
+    }
+
+    if (draw->hwndItem == controls_.lineRoomLeft) {
+        drawLegendLineSample(*draw, ui_theme::kGreen, false);
+        return true;
+    }
+    if (draw->hwndItem == controls_.lineRoomRight) {
+        drawLegendLineSample(*draw, ui_theme::kRed, false);
+        return true;
+    }
+    if (draw->hwndItem == controls_.lineReference) {
+        drawLegendLineSample(*draw, ui_theme::kAccent, true);
+        return true;
     }
 
     if (draw->CtlID == kButtonMetadataToggle) {
@@ -489,7 +782,7 @@ bool MeasurementPage::handleDrawItem(const DRAWITEMSTRUCT* draw, bool measuremen
         return true;
     }
 
-    if (draw->CtlID != kButtonMeasure) {
+    if (draw->CtlID != kButtonMeasure && draw->CtlID != kButtonMeasureReference) {
         return false;
     }
 
@@ -497,9 +790,24 @@ bool MeasurementPage::handleDrawItem(const DRAWITEMSTRUCT* draw, bool measuremen
     RECT rect = draw->rcItem;
     const bool pressed = (draw->itemState & ODS_SELECTED) != 0;
     const bool focused = (draw->itemState & ODS_FOCUS) != 0;
-    const COLORREF fill = measurementRunning ? ui_theme::kRed : ui_theme::kGreen;
-    const COLORREF fillPressed = measurementRunning ? RGB(156, 53, 53) : RGB(37, 118, 68);
-    const COLORREF border = measurementRunning ? RGB(132, 42, 42) : RGB(29, 95, 55);
+    const bool enabled = IsWindowEnabled(draw->hwndItem) != FALSE;
+    const bool isReferenceButton = draw->CtlID == kButtonMeasureReference;
+    const bool activeRun = status_.running && (status_.runMode == (isReferenceButton ? MeasurementRunMode::Reference
+                                                                                      : MeasurementRunMode::Room));
+    const bool inactiveDuringOtherRun = status_.running && !activeRun;
+    const COLORREF fill = !enabled ? RGB(186, 192, 200)
+                                   : (inactiveDuringOtherRun ? RGB(162, 170, 180)
+                                                             : (activeRun ? ui_theme::kRed
+                                                                          : (isReferenceButton ? ui_theme::kAccent
+                                                                                               : ui_theme::kGreen)));
+    const COLORREF fillPressed = !enabled ? fill
+                                          : (activeRun ? RGB(156, 53, 53)
+                                                       : (isReferenceButton ? RGB(35, 90, 149) : RGB(37, 118, 68)));
+    const COLORREF border = !enabled ? RGB(156, 163, 172)
+                                     : (inactiveDuringOtherRun ? RGB(138, 146, 156)
+                                                               : (activeRun ? RGB(132, 42, 42)
+                                                                            : (isReferenceButton ? RGB(29, 76, 126)
+                                                                                                 : RGB(29, 95, 55))));
 
     HBRUSH brush = CreateSolidBrush(pressed ? fillPressed : fill);
     FillRect(hdc, &rect, brush);
@@ -522,12 +830,15 @@ bool MeasurementPage::handleDrawItem(const DRAWITEMSTRUCT* draw, bool measuremen
     HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, buttonFont));
 
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, RGB(255, 255, 255));
+    SetTextColor(hdc, enabled ? RGB(255, 255, 255) : RGB(245, 247, 250));
     RECT textRect = rect;
     if (pressed) {
         OffsetRect(&textRect, 0, 1);
     }
-    DrawTextW(hdc, measurementRunning ? L"STOP" : L"START", -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    const wchar_t* buttonText = isReferenceButton
+                                    ? (activeRun ? L"STOP" : L"REFERENCE")
+                                    : (activeRun ? L"STOP" : L"START");
+    DrawTextW(hdc, buttonText, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     if (focused) {
         RECT focusRect = rect;
@@ -543,12 +854,18 @@ bool MeasurementPage::handleDrawItem(const DRAWITEMSTRUCT* draw, bool measuremen
 bool MeasurementPage::handleCommand(WORD commandId,
                                     WORD notificationCode,
                                     WorkspaceState& workspace,
-                                    bool& measurePressed,
+                                    bool& roomMeasurePressed,
+                                    bool& referenceMeasurePressed,
                                     bool& sampleRateChanged,
                                     bool& graphZoomChanged,
                                     bool& plotSelectionChanged) {
     if (commandId == kButtonMeasure) {
-        measurePressed = true;
+        roomMeasurePressed = true;
+        return true;
+    }
+
+    if (commandId == kButtonMeasureReference) {
+        referenceMeasurePressed = true;
         return true;
     }
 
@@ -587,6 +904,19 @@ bool MeasurementPage::handleCommand(WORD commandId,
         if (commandId == kComboPlot) {
             updatePlotControlVisibility();
         }
+        syncToWorkspace(workspace);
+        refreshPlots();
+        plotSelectionChanged = true;
+        return true;
+    }
+
+    if ((commandId == kCheckboxShowRoomLeft ||
+         commandId == kCheckboxShowRoomRight ||
+         commandId == kCheckboxShowReference) &&
+        notificationCode == BN_CLICKED) {
+        showRoomLeft_ = SendMessageW(controls_.checkboxShowRoomLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showRoomRight_ = SendMessageW(controls_.checkboxShowRoomRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        showReference_ = SendMessageW(controls_.checkboxShowReference, BM_GETCHECK, 0, 0) == BST_CHECKED;
         syncToWorkspace(workspace);
         refreshPlots();
         plotSelectionChanged = true;
@@ -741,19 +1071,71 @@ void MeasurementPage::setListViewText(HWND listView, int row, int column, const 
     }
 }
 
-ResponseGraphData MeasurementPage::buildGraphData(const MeasurementResult& result) const {
+std::wstring MeasurementPage::referenceStatusText(const AudioSettings& audio,
+                                                  const MeasurementSettings& measurement,
+                                                  const MeasurementResult& referenceResult) {
+    const std::wstring staleReason = referenceStaleReason(audio, measurement, referenceResult);
+    if (staleReason == L"missing") {
+        return L"Reference: missing";
+    }
+
+    std::wstring text = L"Reference: ";
+    if (staleReason.empty()) {
+        text += L"current";
+    } else {
+        text += L"stale (" + staleReason + L")";
+    }
+
+    if (!referenceResult.analysis.measurementTimestampUtc.empty()) {
+        text += L" - " + toWide(referenceResult.analysis.measurementTimestampUtc);
+    }
+    return text;
+}
+
+std::wstring MeasurementPage::microphoneCompStatusText(const AudioSettings& audio) {
+    if (audio.microphoneCalibrationPath.empty()) {
+        return L"Mic compensation: none";
+    }
+    if (!hasValidMicrophoneCalibration(audio)) {
+        return L"Mic compensation: invalid";
+    }
+    return L"Mic compensation: loaded (room only)";
+}
+
+ResponseGraphData MeasurementPage::buildGraphData() const {
     ResponseGraphData data;
-    const MeasurementValueSet* magnitudeResponse = result.preferredMagnitudeResponse();
-    if (magnitudeResponse != nullptr && magnitudeResponse->valid()) {
+    const MeasurementValueSet* magnitudeResponse = result_.preferredMagnitudeResponse();
+    if (magnitudeResponse != nullptr && magnitudeResponse->valid() &&
+        (showRoomLeft_ || showRoomRight_)) {
         data.frequencyAxisHz = magnitudeResponse->xValues;
-        data.series.push_back({L"Left", ui_theme::kGreen, magnitudeResponse->leftValues});
-        data.series.push_back({L"Right", ui_theme::kRed, magnitudeResponse->rightValues});
+        if (showRoomLeft_) {
+            data.series.push_back({L"Room Left", ui_theme::kGreen, false, magnitudeResponse->leftValues});
+        }
+        if (showRoomRight_) {
+            data.series.push_back({L"Room Right", ui_theme::kRed, false, magnitudeResponse->rightValues});
+        }
+    }
+
+    const MeasurementValueSet* referenceResponse = referenceResult_.preferredMagnitudeResponse();
+    if (showReference_ && referenceResponse != nullptr && referenceResponse->valid()) {
+        if (data.frequencyAxisHz.empty()) {
+            data.frequencyAxisHz = referenceResponse->xValues;
+        }
+        std::vector<double> referenceValues = buildMonoReferenceValues(*referenceResponse);
+        if (!referenceValues.empty()) {
+            if (referenceResponse->xValues != data.frequencyAxisHz) {
+                referenceValues = resampleLogFrequency(referenceResponse->xValues, referenceValues, data.frequencyAxisHz);
+            }
+        }
+        if (!referenceValues.empty()) {
+            data.series.push_back({L"Reference", ui_theme::kAccent, true, std::move(referenceValues)});
+        }
     }
     return data;
 }
 
 void MeasurementPage::refreshPlots() {
-    responseGraph_.setData(buildGraphData(result_));
+    responseGraph_.setData(buildGraphData());
 
     const std::string channelSelection = waterfallChannelFromComboIndex(
         static_cast<int>(SendMessageW(controls_.comboWaterfallChannel, CB_GETCURSEL, 0, 0)));
@@ -772,6 +1154,27 @@ void MeasurementPage::updatePlotControlVisibility() const {
     ShowWindow(waterfallGraph_.window(), waterfallVisible ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.labelWaterfallChannel, waterfallVisible ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.comboWaterfallChannel, waterfallVisible ? SW_SHOW : SW_HIDE);
+    updateLegendVisibility();
+}
+
+void MeasurementPage::updateLegendVisibility() const {
+    const std::string plotMode =
+        plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0)));
+    const bool showLegend = plotMode != "waterfall";
+    const bool hasReference = referenceResult_.preferredMagnitudeResponse() != nullptr;
+    ShowWindow(controls_.responseLegendFrame, showLegend ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.checkboxShowRoomLeft, showLegend ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.lineRoomLeft, showLegend ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.labelRoomLeft, showLegend ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.checkboxShowRoomRight, showLegend ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.lineRoomRight, showLegend ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.labelRoomRight, showLegend ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.checkboxShowReference, showLegend ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.lineReference, showLegend ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.labelReference, showLegend ? SW_SHOW : SW_HIDE);
+    EnableWindow(controls_.checkboxShowReference, hasReference ? TRUE : FALSE);
+    EnableWindow(controls_.lineReference, hasReference ? TRUE : FALSE);
+    EnableWindow(controls_.labelReference, hasReference ? TRUE : FALSE);
 }
 
 void MeasurementPage::updateMetadataVisibility() const {
@@ -782,6 +1185,21 @@ void MeasurementPage::updateMetadataVisibility() const {
     if (controls_.metadataTable != nullptr) {
         ShowWindow(controls_.metadataTable, metadataCollapsed_ ? SW_HIDE : SW_SHOW);
     }
+}
+
+void MeasurementPage::refreshReferenceStatusLabels() const {
+    setWindowTextValue(controls_.referenceStatus, referenceStatusText(audioSettings_, measurementSettings_, referenceResult_));
+    setWindowTextValue(controls_.micCompStatus, microphoneCompStatusText(audioSettings_));
+}
+
+void MeasurementPage::refreshActionButtons() const {
+    const bool running = status_.running;
+    EnableWindow(controls_.buttonMeasure, (running && status_.runMode == MeasurementRunMode::Room) || !running);
+    EnableWindow(controls_.buttonMeasureReference,
+                 audioSettings_.loopbackEnabled &&
+                     ((running && status_.runMode == MeasurementRunMode::Reference) || !running));
+    InvalidateRect(controls_.buttonMeasure, nullptr, TRUE);
+    InvalidateRect(controls_.buttonMeasureReference, nullptr, TRUE);
 }
 
 std::vector<MeasurementPage::MetadataRow> MeasurementPage::buildMetadataRows(const MeasurementResult& result) const {

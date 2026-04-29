@@ -14,7 +14,7 @@ public:
     explicit MeasurementController(std::unique_ptr<audio::IAudioBackend> backend);
     ~MeasurementController();
 
-    bool start(const WorkspaceState& workspace);
+    bool start(const WorkspaceState& workspace, MeasurementRunMode runMode);
     void cancel();
     void tick();
 
@@ -27,6 +27,7 @@ private:
     std::unique_ptr<audio::IAudioBackend> backend_;
     std::unique_ptr<audio::IAudioMeasurementSession> session_;
     WorkspaceState snapshot_;
+    MeasurementRunMode runMode_ = MeasurementRunMode::Room;
     MeasurementSettings activeMeasurementSettings_;
     measurement::SweepPlaybackPlan playbackPlan_;
     MeasurementResult result_;

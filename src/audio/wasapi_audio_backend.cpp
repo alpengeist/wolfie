@@ -579,9 +579,11 @@ public:
 
     bool open(const AudioSettings& settings,
               const MeasurementSettings& measurementSettings,
+              MeasurementRunMode runMode,
               std::wstring& errorMessage) {
         settings_ = settings;
         measurementSettings_ = measurementSettings;
+        runMode_ = runMode;
         stopRequested_.store(false);
         playbackDone_.store(false);
         closed_.store(false);
@@ -857,7 +859,7 @@ private:
         MeasurementSettings effectiveSettings = measurementSettings_;
         effectiveSettings.sampleRate = sampleRate_;
         measurement::syncDerivedMeasurementSettings(effectiveSettings);
-        playbackPlan_ = measurement::buildSweepPlaybackPlan(effectiveSettings, settings_.outputVolumeDb);
+        playbackPlan_ = measurement::buildSweepPlaybackPlan(effectiveSettings, settings_.outputVolumeDb, runMode_);
 
         UINT32 captureBufferFrames = 0;
         UINT32 renderBufferFrames = 0;
@@ -949,6 +951,7 @@ private:
 
     AudioSettings settings_;
     MeasurementSettings measurementSettings_;
+    MeasurementRunMode runMode_ = MeasurementRunMode::Room;
     std::thread workerThread_;
     std::mutex startupMutex_;
     std::condition_variable startupCv_;
@@ -976,9 +979,10 @@ class WasapiAudioBackend final : public IAudioBackend {
 public:
     std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings& settings,
                                                            const MeasurementSettings& measurementSettings,
+                                                           MeasurementRunMode runMode,
                                                            std::wstring& errorMessage) override {
         auto session = std::make_unique<WasapiMeasurementSession>();
-        if (!session->open(settings, measurementSettings, errorMessage)) {
+        if (!session->open(settings, measurementSettings, runMode, errorMessage)) {
             return nullptr;
         }
         return session;

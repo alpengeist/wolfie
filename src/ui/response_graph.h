@@ -16,6 +16,7 @@ namespace wolfie::ui {
 struct ResponseGraphSeries {
     std::wstring label;
     COLORREF color = RGB(0, 0, 0);
+    bool dashed = false;
     std::vector<double> values;
 };
 

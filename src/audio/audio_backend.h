@@ -41,6 +41,7 @@ public:
 
     virtual std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings& settings,
                                                                    const MeasurementSettings& measurementSettings,
+                                                                   MeasurementRunMode runMode,
                                                                    std::wstring& errorMessage) = 0;
 };
 

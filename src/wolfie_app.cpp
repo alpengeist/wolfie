@@ -192,8 +192,7 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
         app->resizingLog_ = false;
         break;
     case WM_DRAWITEM:
-        if (app->measurementPage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam),
-                                                 app->measurementController_.status().running)) {
+        if (app->measurementPage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
             return TRUE;
         }
         if (app->targetCurvePage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
@@ -808,14 +807,16 @@ void WolfieApp::exportRoonFilters() {
 }
 
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
-    bool measurePressed = false;
+    bool roomMeasurePressed = false;
+    bool referenceMeasurePressed = false;
     bool sampleRateChanged = false;
     bool measurementGraphZoomChanged = false;
     bool measurementPlotChanged = false;
     if (measurementPage_.handleCommand(commandId,
                                        notificationCode,
                                        workspace_,
-                                       measurePressed,
+                                       roomMeasurePressed,
+                                       referenceMeasurePressed,
                                        sampleRateChanged,
                                        measurementGraphZoomChanged,
                                        measurementPlotChanged)) {
@@ -832,11 +833,11 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             workspaceRepository_.save(workspace_);
             refreshMeasurementStatus();
         }
-        if (measurePressed) {
+        if (roomMeasurePressed || referenceMeasurePressed) {
             if (measurementController_.status().running) {
                 stopMeasurement();
             } else {
-                startMeasurement();
+                startMeasurement(referenceMeasurePressed ? MeasurementRunMode::Reference : MeasurementRunMode::Room);
             }
         }
         return;
@@ -1150,17 +1151,18 @@ void WolfieApp::touchRecentWorkspace(const std::filesystem::path& path) {
     appStateRepository_.save(appState_);
 }
 
-void WolfieApp::startMeasurement() {
+void WolfieApp::startMeasurement(MeasurementRunMode runMode) {
     if (workspace_.rootPath.empty()) {
         appendMeasurementLog(L"Cannot start measurement because no workspace is open.", LogSeverity::Error);
         return;
     }
 
     syncStateFromControls();
-    appendMeasurementLog(L"Starting sweep measurement at " +
+    appendMeasurementLog(std::wstring(runMode == MeasurementRunMode::Reference ? L"Starting reference measurement at "
+                                                                              : L"Starting sweep measurement at ") +
                          std::to_wstring(workspace_.measurement.sampleRate) +
                          L" Hz.");
-    if (!workspace_.audio.microphoneCalibrationPath.empty()) {
+    if (runMode == MeasurementRunMode::Room && !workspace_.audio.microphoneCalibrationPath.empty()) {
         if (workspace_.audio.microphoneCalibrationFrequencyHz.size() >= 2) {
             appendMeasurementLog(L"Using microphone calibration: " + workspace_.audio.microphoneCalibrationPath.wstring());
         } else {
@@ -1169,7 +1171,7 @@ void WolfieApp::startMeasurement() {
                                  LogSeverity::Error);
         }
     }
-    if (!measurementController_.start(workspace_)) {
+    if (!measurementController_.start(workspace_, runMode)) {
         refreshMeasurementStatus();
         if (!measurementController_.status().lastErrorMessage.empty()) {
             appendMeasurementLog(L"Start failed: " + measurementController_.status().lastErrorMessage, LogSeverity::Error);
@@ -1180,13 +1182,15 @@ void WolfieApp::startMeasurement() {
     measurementCompletionHandled_ = false;
     appendMeasurementLog(L"Playback file written to " + measurementController_.status().generatedSweepPath.wstring());
 
-    workspace_.result = {};
-    workspace_.smoothedResponse = {};
-    invalidateFilterDesign();
-    measurementPage_.setMeasurementResult(workspace_.result);
-    smoothingPage_.populate(workspace_);
-    targetCurvePage_.populate(workspace_);
-    filtersPage_.populate(workspace_);
+    if (runMode == MeasurementRunMode::Room) {
+        workspace_.result = {};
+        workspace_.smoothedResponse = {};
+        invalidateFilterDesign();
+        smoothingPage_.populate(workspace_);
+        targetCurvePage_.populate(workspace_);
+        filtersPage_.populate(workspace_);
+    }
+    measurementPage_.setWorkspaceView(workspace_);
     SetTimer(mainWindow_, kMeasurementTimerId, 50, nullptr);
     refreshMeasurementStatus();
 }
@@ -1196,16 +1200,19 @@ void WolfieApp::stopMeasurement() {
         return;
     }
 
-    appendMeasurementLog(L"Measurement stopped by user.");
+    appendMeasurementLog(measurementController_.status().runMode == MeasurementRunMode::Reference
+                             ? L"Reference measurement stopped by user."
+                             : L"Measurement stopped by user.");
     measurementCompletionHandled_ = true;
     measurementController_.cancel();
     KillTimer(mainWindow_, kMeasurementTimerId);
     if (!workspace_.rootPath.empty()) {
         const WorkspaceState persistedWorkspace = workspaceRepository_.load(workspace_.rootPath);
         workspace_.result = persistedWorkspace.result;
+        workspace_.referenceResult = persistedWorkspace.referenceResult;
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
-        measurementPage_.setMeasurementResult(workspace_.result);
+        measurementPage_.setWorkspaceView(workspace_);
         smoothingPage_.populate(workspace_);
         targetCurvePage_.populate(workspace_);
         filtersPage_.populate(workspace_);
@@ -1215,35 +1222,42 @@ void WolfieApp::stopMeasurement() {
 
 void WolfieApp::finalizeMeasurement() {
     const MeasurementStatus completedStatus = measurementController_.status();
-    workspace_.result = measurementController_.result();
-    workspace_.smoothedResponse = {};
-    invalidateFilterDesign();
-    const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
-    if (selected == 1 || selected == 2 || selected == 3) {
-        ensureSmoothedResponseReady();
+    const bool referenceRun = completedStatus.runMode == MeasurementRunMode::Reference;
+    if (referenceRun) {
+        workspace_.referenceResult = measurementController_.result();
+    } else {
+        workspace_.result = measurementController_.result();
+        workspace_.smoothedResponse = {};
+        invalidateFilterDesign();
+        const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
+        if (selected == 1 || selected == 2 || selected == 3) {
+            ensureSmoothedResponseReady();
+        }
     }
-    measurementPage_.setMeasurementResult(workspace_.result);
+    measurementPage_.setWorkspaceView(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
     filtersPage_.populate(workspace_);
     syncStateFromControls();
     workspaceRepository_.save(workspace_);
-    appendMeasurementLog(L"Measurement finished. Generated " +
-                         std::to_wstring(workspace_.result.preferredMagnitudeResponse() == nullptr
+    const MeasurementResult& finishedResult = referenceRun ? workspace_.referenceResult : workspace_.result;
+    appendMeasurementLog(std::wstring(referenceRun ? L"Reference measurement finished. Generated "
+                                                   : L"Measurement finished. Generated ") +
+                         std::to_wstring(finishedResult.preferredMagnitudeResponse() == nullptr
                                              ? 0
-                                             : workspace_.result.preferredMagnitudeResponse()->xValues.size()) +
+                                             : finishedResult.preferredMagnitudeResponse()->xValues.size()) +
                          L" response points. Peak capture level " +
                          std::to_wstring(static_cast<int>(std::lround(completedStatus.peakAmplitudeDb))) +
                          L" dB.");
     appendMeasurementLog(L"Detected alignment: left " +
-                         std::to_wstring(workspace_.result.analysis.left.detectedLatencySamples) +
+                         std::to_wstring(finishedResult.analysis.left.detectedLatencySamples) +
                          L" samples, right " +
-                         std::to_wstring(workspace_.result.analysis.right.detectedLatencySamples) +
+                         std::to_wstring(finishedResult.analysis.right.detectedLatencySamples) +
                          L" samples.");
-    if (workspace_.result.analysis.captureClippingDetected) {
+    if (finishedResult.analysis.captureClippingDetected) {
         appendMeasurementLog(L"Warning: clipping was detected during the sweep capture.", LogSeverity::Error);
     }
-    if (workspace_.result.analysis.captureTooQuiet) {
+    if (finishedResult.analysis.captureTooQuiet) {
         appendMeasurementLog(L"Warning: sweep capture level was very low.", LogSeverity::Error);
     }
     refreshMeasurementStatus();

@@ -74,17 +74,20 @@ int16_t sampleToPcm16(double sample) {
 
 std::vector<int16_t> buildStereoSweepPcm(const std::vector<double>& sweepSamples,
                                          int leadInSamples,
-                                         size_t postRollFrames) {
+                                         size_t postRollFrames,
+                                         size_t channelSweepCount) {
     const size_t safeLeadIn = static_cast<size_t>(std::max(0, leadInSamples));
     const size_t segmentFrames = safeLeadIn + sweepSamples.size() + postRollFrames;
-    const size_t totalFrames = segmentFrames * 2;
+    const size_t totalFrames = segmentFrames * std::max<size_t>(1, channelSweepCount);
     std::vector<int16_t> pcm(totalFrames * 2, 0);
 
     for (size_t i = 0; i < sweepSamples.size(); ++i) {
         const size_t leftFrame = safeLeadIn + i;
-        const size_t rightFrame = segmentFrames + safeLeadIn + i;
         pcm[leftFrame * 2] = sampleToPcm16(sweepSamples[i]);
-        pcm[rightFrame * 2 + 1] = sampleToPcm16(sweepSamples[i]);
+        if (channelSweepCount >= 2) {
+            const size_t rightFrame = segmentFrames + safeLeadIn + i;
+            pcm[rightFrame * 2 + 1] = sampleToPcm16(sweepSamples[i]);
+        }
     }
 
     return pcm;
@@ -100,7 +103,9 @@ void syncDerivedMeasurementSettings(MeasurementSettings& settings) {
     settings.endFrequencyHz = defaultSweepEndFrequencyHz(settings.sampleRate);
 }
 
-SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings, double outputVolumeDb) {
+SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings,
+                                         double outputVolumeDb,
+                                         MeasurementRunMode runMode) {
     const int sampleRate = std::max(8000, settings.sampleRate);
 
     SweepPlaybackPlan plan;
@@ -109,8 +114,10 @@ SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings, do
     plan.sweepFrames = plan.playedSweep.size();
     plan.postRollFrames = static_cast<size_t>(std::max(settings.targetLengthSamples, sampleRate / 5));
     plan.segmentFrames = plan.leadInFrames + plan.sweepFrames + plan.postRollFrames;
-    plan.totalFrames = plan.segmentFrames * 2;
-    plan.playbackPcm = buildStereoSweepPcm(plan.playedSweep, settings.leadInSamples, plan.postRollFrames);
+    plan.channelSweepCount = runMode == MeasurementRunMode::Reference ? 1 : 2;
+    plan.totalFrames = plan.segmentFrames * plan.channelSweepCount;
+    plan.playbackPcm =
+        buildStereoSweepPcm(plan.playedSweep, settings.leadInSamples, plan.postRollFrames, plan.channelSweepCount);
     return plan;
 }
 

@@ -27,14 +27,15 @@ public:
     void setVisible(bool visible) const;
     void populate(const WorkspaceState& workspace);
     void syncToWorkspace(WorkspaceState& workspace) const;
-    void setMeasurementResult(const MeasurementResult& result);
+    void setWorkspaceView(const WorkspaceState& workspace);
     void refreshStatus(const MeasurementStatus& status, bool hasResult);
     void invalidateGraph() const;
-    bool handleDrawItem(const DRAWITEMSTRUCT* draw, bool measurementRunning) const;
+    bool handleDrawItem(const DRAWITEMSTRUCT* draw) const;
     bool handleCommand(WORD commandId,
                        WORD notificationCode,
                        WorkspaceState& workspace,
-                       bool& measurePressed,
+                       bool& roomMeasurePressed,
+                       bool& referenceMeasurePressed,
                        bool& sampleRateChanged,
                        bool& graphZoomChanged,
                        bool& plotSelectionChanged);
@@ -73,6 +74,7 @@ private:
         HWND outputVolumeMuteLabel = nullptr;
         HWND outputVolumeMaxLabel = nullptr;
         HWND buttonMeasure = nullptr;
+        HWND buttonMeasureReference = nullptr;
         HWND leftChannelLabel = nullptr;
         HWND leftProgressBar = nullptr;
         HWND leftProgressText = nullptr;
@@ -86,6 +88,19 @@ private:
         HWND comboPlot = nullptr;
         HWND labelWaterfallChannel = nullptr;
         HWND comboWaterfallChannel = nullptr;
+        HWND infoStatusFrame = nullptr;
+        HWND referenceStatus = nullptr;
+        HWND micCompStatus = nullptr;
+        HWND responseLegendFrame = nullptr;
+        HWND checkboxShowRoomLeft = nullptr;
+        HWND lineRoomLeft = nullptr;
+        HWND labelRoomLeft = nullptr;
+        HWND checkboxShowRoomRight = nullptr;
+        HWND lineRoomRight = nullptr;
+        HWND labelRoomRight = nullptr;
+        HWND checkboxShowReference = nullptr;
+        HWND lineReference = nullptr;
+        HWND labelReference = nullptr;
         HWND metadataLabel = nullptr;
         HWND metadataToggle = nullptr;
         HWND metadataTable = nullptr;
@@ -112,6 +127,10 @@ private:
     static constexpr int kComboWaterfallChannel = 3019;
     static constexpr int kMetadataTable = 3017;
     static constexpr int kButtonMetadataToggle = 3020;
+    static constexpr int kButtonMeasureReference = 3021;
+    static constexpr int kCheckboxShowRoomLeft = 3022;
+    static constexpr int kCheckboxShowRoomRight = 3023;
+    static constexpr int kCheckboxShowReference = 3024;
     static constexpr int kOutputVolumeSliderMax = 61;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -130,11 +149,18 @@ private:
     static std::wstring getWindowTextValue(HWND control);
     static void setWindowTextValue(HWND control, const std::wstring& text);
     static void setListViewText(HWND listView, int row, int column, const std::wstring& text);
+    static std::wstring referenceStatusText(const AudioSettings& audio,
+                                            const MeasurementSettings& measurement,
+                                            const MeasurementResult& referenceResult);
+    static std::wstring microphoneCompStatusText(const AudioSettings& audio);
 
-    ResponseGraphData buildGraphData(const MeasurementResult& result) const;
+    ResponseGraphData buildGraphData() const;
     void refreshPlots();
     void updatePlotControlVisibility() const;
     void updateMetadataVisibility() const;
+    void updateLegendVisibility() const;
+    void refreshReferenceStatusLabels() const;
+    void refreshActionButtons() const;
     std::vector<MetadataRow> buildMetadataRows(const MeasurementResult& result) const;
     void populateMetadataTable(const MeasurementResult& result) const;
     void createControls();
@@ -143,7 +169,14 @@ private:
     HWND window_ = nullptr;
     Controls controls_;
     MeasurementResult result_;
+    MeasurementResult referenceResult_;
+    AudioSettings audioSettings_;
+    MeasurementSettings measurementSettings_;
+    MeasurementStatus status_;
     bool metadataCollapsed_ = false;
+    bool showRoomLeft_ = true;
+    bool showRoomRight_ = true;
+    bool showReference_ = true;
     ResponseGraph responseGraph_;
     WaterfallGraph waterfallGraph_;
 };

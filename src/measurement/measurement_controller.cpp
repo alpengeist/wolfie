@@ -49,24 +49,38 @@ MeasurementController::~MeasurementController() {
 void MeasurementController::resetState() {
     result_ = {};
     status_ = {};
+    status_.runMode = MeasurementRunMode::Room;
     startTickMs_ = 0;
     durationMs_ = 0;
+    runMode_ = MeasurementRunMode::Room;
     activeMeasurementSettings_ = {};
     playbackPlan_ = {};
     measurementTimestampUtc_.clear();
 }
 
-bool MeasurementController::start(const WorkspaceState& workspace) {
+bool MeasurementController::start(const WorkspaceState& workspace, MeasurementRunMode runMode) {
     cancel();
     resetState();
 
     snapshot_ = workspace;
+    runMode_ = runMode;
+    status_.runMode = runMode_;
     measurement::syncDerivedMeasurementSettings(snapshot_.measurement);
+    if (runMode_ == MeasurementRunMode::Reference) {
+        if (!snapshot_.audio.loopbackEnabled) {
+            status_.lastErrorMessage = L"Loopback reference routing is not enabled in Measurement Settings.";
+            return false;
+        }
+        snapshot_.audio.micInputChannel = snapshot_.audio.loopbackInputChannel;
+        snapshot_.audio.microphoneCalibrationPath.clear();
+        snapshot_.audio.microphoneCalibrationFrequencyHz.clear();
+        snapshot_.audio.microphoneCalibrationCorrectionDb.clear();
+    }
 
     measurementTimestampUtc_ = currentUtcTimestamp();
 
     std::wstring errorMessage;
-    session_ = backend_->startSession(snapshot_.audio, snapshot_.measurement, errorMessage);
+    session_ = backend_->startSession(snapshot_.audio, snapshot_.measurement, runMode_, errorMessage);
     if (!session_) {
         status_.lastErrorMessage = errorMessage;
         return false;
@@ -79,7 +93,8 @@ bool MeasurementController::start(const WorkspaceState& workspace) {
 
     const std::filesystem::path measurementDir = snapshot_.rootPath / "measurement";
     std::filesystem::create_directories(measurementDir);
-    status_.generatedSweepPath = measurementDir / "logsweep.wav";
+    status_.generatedSweepPath = measurementDir /
+                                 (runMode_ == MeasurementRunMode::Reference ? "reference-logsweep.wav" : "logsweep.wav");
     measurement::writeStereoWaveFile(status_.generatedSweepPath, playbackPlan_.playbackPcm, session_->sampleRate());
 
     durationMs_ = static_cast<uint64_t>(
@@ -114,11 +129,9 @@ void MeasurementController::tick() {
         playbackPlan_.totalFrames,
         static_cast<size_t>((elapsedMs * static_cast<uint64_t>(session_->sampleRate())) / 1000ULL));
     const size_t leftSweepStart = playbackPlan_.leadInFrames;
-    const size_t rightSegmentStart = playbackPlan_.segmentFrames;
-    const size_t rightSweepStart = rightSegmentStart + playbackPlan_.leadInFrames;
     const double sweepFrames = std::max(1.0, static_cast<double>(playbackPlan_.sweepFrames));
 
-    if (elapsedFrames < rightSegmentStart) {
+    if (playbackPlan_.channelSweepCount < 2 || elapsedFrames < playbackPlan_.segmentFrames) {
         status_.currentChannel = MeasurementChannel::Left;
         if (elapsedFrames <= leftSweepStart) {
             status_.progress = 0.0;
@@ -126,6 +139,8 @@ void MeasurementController::tick() {
             status_.progress = clampValue(static_cast<double>(elapsedFrames - leftSweepStart) / sweepFrames, 0.0, 1.0);
         }
     } else {
+        const size_t rightSegmentStart = playbackPlan_.segmentFrames;
+        const size_t rightSweepStart = rightSegmentStart + playbackPlan_.leadInFrames;
         status_.currentChannel = MeasurementChannel::Right;
         if (elapsedFrames <= rightSweepStart) {
             status_.progress = 0.0;
@@ -141,9 +156,12 @@ void MeasurementController::tick() {
                                                                          session_->sampleRate(),
                                                                          elapsedFrames - playbackPlan_.leadInFrames,
                                                                          playbackPlan_.sweepFrames);
-    } else if (elapsedFrames < rightSegmentStart + playbackPlan_.leadInFrames) {
+    } else if (playbackPlan_.channelSweepCount < 2) {
+        status_.currentFrequencyHz = activeMeasurementSettings_.endFrequencyHz;
+    } else if (elapsedFrames < playbackPlan_.segmentFrames + playbackPlan_.leadInFrames) {
         status_.currentFrequencyHz = activeMeasurementSettings_.startFrequencyHz;
     } else {
+        const size_t rightSegmentStart = playbackPlan_.segmentFrames;
         const size_t rightSweepFrame = std::min(playbackPlan_.sweepFrames, elapsedFrames - rightSegmentStart - playbackPlan_.leadInFrames);
         status_.currentFrequencyHz = measurement::sweepFrequencyAtSample(activeMeasurementSettings_,
                                                                          session_->sampleRate(),
@@ -162,7 +180,8 @@ void MeasurementController::tick() {
 
     const std::filesystem::path measurementDir = snapshot_.rootPath / "measurement";
     std::filesystem::create_directories(measurementDir);
-    const std::filesystem::path rawCapturePath = measurementDir / "raw-capture.wav";
+    const std::filesystem::path rawCapturePath =
+        measurementDir / (runMode_ == MeasurementRunMode::Reference ? "reference-raw-capture.wav" : "raw-capture.wav");
     measurement::writeMonoWaveFile(rawCapturePath, session_->capturedSamples(), session_->sampleRate());
 
     result_ = measurement::buildMeasurementResultFromCapture(session_->capturedSamples(),
@@ -170,6 +189,7 @@ void MeasurementController::tick() {
                                                              session_->sampleRate(),
                                                              snapshot_.audio,
                                                              activeMeasurementSettings_);
+    result_.analysis.measurementKind = runMode_ == MeasurementRunMode::Reference ? "reference" : "room";
     result_.analysis.measurementTimestampUtc = measurementTimestampUtc_;
     result_.analysis.backendName = sessionDetails.backendName;
     result_.analysis.backendInputDevice = toUtf8(sessionDetails.inputDeviceName);
@@ -178,8 +198,12 @@ void MeasurementController::tick() {
     result_.analysis.routingNotes = toUtf8(sessionDetails.routingNotes);
     result_.analysis.artifacts.push_back({"generated_sweep_wav", status_.generatedSweepPath});
     result_.analysis.artifacts.push_back({"raw_capture_wav", rawCapturePath});
-    result_.analysis.artifacts.push_back({"result_values_txt", measurementDir / "result-values.txt"});
-    result_.analysis.artifacts.push_back({"analysis_json", measurementDir / "analysis.json"});
+    result_.analysis.artifacts.push_back(
+        {"result_values_txt",
+         measurementDir / (runMode_ == MeasurementRunMode::Reference ? "reference-result-values.txt" : "result-values.txt")});
+    result_.analysis.artifacts.push_back(
+        {"analysis_json",
+         measurementDir / (runMode_ == MeasurementRunMode::Reference ? "reference-analysis.json" : "analysis.json")});
 
     session_.reset();
     status_.running = false;

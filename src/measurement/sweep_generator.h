@@ -16,12 +16,15 @@ struct SweepPlaybackPlan {
     size_t sweepFrames = 0;
     size_t postRollFrames = 0;
     size_t segmentFrames = 0;
+    size_t channelSweepCount = 2;
     size_t totalFrames = 0;
 };
 
 double defaultSweepEndFrequencyHz(int sampleRate);
 void syncDerivedMeasurementSettings(MeasurementSettings& settings);
-SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings, double outputVolumeDb);
+SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings,
+                                         double outputVolumeDb,
+                                         MeasurementRunMode runMode = MeasurementRunMode::Room);
 bool writeStereoWaveFile(const std::filesystem::path& path,
                          const std::vector<int16_t>& interleavedSamples,
                          int sampleRate);

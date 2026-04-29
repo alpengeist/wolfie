@@ -285,8 +285,9 @@ public:
 
     bool open(const AudioSettings& settings,
               const MeasurementSettings& measurementSettings,
+              MeasurementRunMode runMode,
               std::wstring& errorMessage) {
-        playbackPlan_ = measurement::buildSweepPlaybackPlan(measurementSettings, settings.outputVolumeDb);
+        playbackPlan_ = measurement::buildSweepPlaybackPlan(measurementSettings, settings.outputVolumeDb, runMode);
         playbackPcm_ = playbackPlan_.playbackPcm;
         totalFrames_ = playbackPlan_.totalFrames;
         const int sampleRate = std::max(8000, measurementSettings.sampleRate);
@@ -662,9 +663,10 @@ class AsioAudioBackend final : public IAudioBackend {
 public:
     std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings& settings,
                                                            const MeasurementSettings& measurementSettings,
+                                                           MeasurementRunMode runMode,
                                                            std::wstring& errorMessage) override {
         auto session = std::make_unique<AsioMeasurementSession>();
-        if (!session->open(settings, measurementSettings, errorMessage)) {
+        if (!session->open(settings, measurementSettings, runMode, errorMessage)) {
             return nullptr;
         }
         return session;
@@ -680,14 +682,15 @@ public:
 
     std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings& settings,
                                                            const MeasurementSettings& measurementSettings,
+                                                           MeasurementRunMode runMode,
                                                            std::wstring& errorMessage) override {
         if (settings.backend == "asio") {
-            return asioBackend_->startSession(settings, measurementSettings, errorMessage);
+            return asioBackend_->startSession(settings, measurementSettings, runMode, errorMessage);
         }
         if (settings.backend == "winmm") {
-            return winMmBackend_->startSession(settings, measurementSettings, errorMessage);
+            return winMmBackend_->startSession(settings, measurementSettings, runMode, errorMessage);
         }
-        return wasapiBackend_->startSession(settings, measurementSettings, errorMessage);
+        return wasapiBackend_->startSession(settings, measurementSettings, runMode, errorMessage);
     }
 
 private:

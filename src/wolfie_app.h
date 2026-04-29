@@ -83,7 +83,7 @@ private:
     void saveWorkspace(bool saveAs);
     void loadLastWorkspaceIfPossible();
     void touchRecentWorkspace(const std::filesystem::path& path);
-    void startMeasurement();
+    void startMeasurement(MeasurementRunMode runMode);
     void stopMeasurement();
     void finalizeMeasurement();
 

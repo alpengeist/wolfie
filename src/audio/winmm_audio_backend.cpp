@@ -149,8 +149,9 @@ public:
 
     bool open(const AudioSettings& settings,
               const MeasurementSettings& measurementSettings,
+              MeasurementRunMode runMode,
               std::wstring& errorMessage) {
-        playbackPlan_ = measurement::buildSweepPlaybackPlan(measurementSettings, settings.outputVolumeDb);
+        playbackPlan_ = measurement::buildSweepPlaybackPlan(measurementSettings, settings.outputVolumeDb, runMode);
         const int sampleRate = std::max(8000, measurementSettings.sampleRate);
         sampleRate_ = sampleRate;
         playbackPcm_ = playbackPlan_.playbackPcm;
@@ -277,9 +278,10 @@ class WinMmAudioBackend final : public IAudioBackend {
 public:
     std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings& settings,
                                                            const MeasurementSettings& measurementSettings,
+                                                           MeasurementRunMode runMode,
                                                            std::wstring& errorMessage) override {
         auto session = std::make_unique<WinMmMeasurementSession>();
-        if (!session->open(settings, measurementSettings, errorMessage)) {
+        if (!session->open(settings, measurementSettings, runMode, errorMessage)) {
             return nullptr;
         }
         return session;

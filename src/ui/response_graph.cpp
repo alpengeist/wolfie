@@ -501,13 +501,15 @@ void drawSeries(HDC hdc,
                 double maxVisibleFrequencyHz,
                 const std::vector<double>& frequencyAxisHz,
                 const std::vector<double>& values,
-                COLORREF color) {
+                COLORREF color,
+                bool dashed) {
     if (frequencyAxisHz.empty() || values.empty()) {
         return;
     }
 
-    SetDCPenColor(hdc, color);
     const int savedDc = SaveDC(hdc);
+    HPEN pen = CreatePen(dashed ? PS_DASH : PS_SOLID, 1, color);
+    SelectObject(hdc, pen);
     IntersectClipRect(hdc, graph.left, graph.top, graph.right, graph.bottom);
     for (size_t i = 0; i < values.size() && i < frequencyAxisHz.size(); ++i) {
         const int x = graphXFromFrequency(graph,
@@ -523,6 +525,7 @@ void drawSeries(HDC hdc,
         }
     }
     RestoreDC(hdc, savedDc);
+    DeleteObject(pen);
 }
 
 RECT brushRect(const RECT& graph, const POINT& anchor, const POINT& current) {
@@ -786,7 +789,8 @@ void ResponseGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
                        layout.visibleMaxFrequencyHz,
                        data_.frequencyAxisHz,
                        series.values,
-                       series.color);
+                       series.color,
+                       series.dashed);
         }
     }
 

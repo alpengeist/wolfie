@@ -14,6 +14,11 @@ enum class MeasurementChannel {
     Right
 };
 
+enum class MeasurementRunMode {
+    Room,
+    Reference
+};
+
 struct AudioSettings {
     std::string backend = "windows";
     std::string driver = "ASIO driver";
@@ -22,6 +27,8 @@ struct AudioSettings {
     std::string windowsOutputDeviceId;
     std::string windowsOutputDeviceName;
     int micInputChannel = 1;
+    bool loopbackEnabled = false;
+    int loopbackInputChannel = 1;
     int leftOutputChannel = 1;
     int rightOutputChannel = 2;
     double outputVolumeDb = -30.0;
@@ -52,6 +59,9 @@ struct UiSettings {
     double measurementGraphVisibleMaxFrequencyHz = 20000.0;
     std::string measurementPlotMode = "magnitude";
     std::string measurementWaterfallChannel = "left";
+    bool measurementShowRoomLeft = true;
+    bool measurementShowRoomRight = true;
+    bool measurementShowReference = true;
     bool measurementMetadataCollapsed = true;
     double smoothingGraphExtraRangeDb = 0.0;
     double smoothingGraphVerticalOffsetDb = 0.0;
@@ -132,11 +142,17 @@ struct MeasurementChannelMetrics {
 
 struct MeasurementAnalysis {
     std::string analyzerVersion = "ir-v2";
+    std::string measurementKind = "room";
     std::string measurementTimestampUtc;
     std::string backendName;
     std::string backendInputDevice;
     std::string backendOutputDevice;
+    std::string requestedBackend;
     std::string requestedDriver;
+    std::string requestedWindowsInputDeviceId;
+    std::string requestedWindowsInputDeviceName;
+    std::string requestedWindowsOutputDeviceId;
+    std::string requestedWindowsOutputDeviceName;
     int requestedMicInputChannel = 0;
     int requestedLeftOutputChannel = 0;
     int requestedRightOutputChannel = 0;
@@ -320,6 +336,7 @@ struct WorkspaceState {
     FilterDesignSettings filters;
     UiSettings ui;
     MeasurementResult result;
+    MeasurementResult referenceResult;
     SmoothedResponse smoothedResponse;
     FilterDesignResult filterResult;
 };
@@ -330,6 +347,7 @@ struct AppState {
 };
 
 struct MeasurementStatus {
+    MeasurementRunMode runMode = MeasurementRunMode::Room;
     bool running = false;
     bool finished = false;
     double progress = 0.0;

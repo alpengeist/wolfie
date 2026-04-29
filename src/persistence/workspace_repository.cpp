@@ -192,6 +192,15 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonString(content, "measurementWaterfallChannel")) {
         ui.measurementWaterfallChannel = *value;
     }
+    if (const auto value = findJsonBool(content, "measurementShowRoomLeft")) {
+        ui.measurementShowRoomLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "measurementShowRoomRight")) {
+        ui.measurementShowRoomRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "measurementShowReference")) {
+        ui.measurementShowReference = *value;
+    }
     if (const auto value = findJsonBool(content, "measurementMetadataCollapsed")) {
         ui.measurementMetadataCollapsed = *value;
     }
@@ -315,6 +324,14 @@ std::filesystem::path measurementResultFilePath(const std::filesystem::path& roo
 
 std::filesystem::path measurementAnalysisFilePath(const std::filesystem::path& rootPath) {
     return rootPath / "measurement" / "analysis.json";
+}
+
+std::filesystem::path referenceResultFilePath(const std::filesystem::path& rootPath) {
+    return rootPath / "measurement" / "reference-result-values.txt";
+}
+
+std::filesystem::path referenceAnalysisFilePath(const std::filesystem::path& rootPath) {
+    return rootPath / "measurement" / "reference-analysis.json";
 }
 
 bool hasSuffix(std::string_view value, std::string_view suffix) {
@@ -500,13 +517,13 @@ void appendMeasurementValueSetIfValid(MeasurementResult& result, MeasurementValu
     valueSet = {};
 }
 
-void loadMeasurementResultFile(WorkspaceState& workspace) {
-    workspace.result = {};
-    if (workspace.rootPath.empty()) {
+void loadResultFile(const std::filesystem::path& path, MeasurementResult& result) {
+    result = {};
+    if (path.empty()) {
         return;
     }
 
-    const auto content = readTextFile(measurementResultFilePath(workspace.rootPath));
+    const auto content = readTextFile(path);
     if (!content) {
         return;
     }
@@ -549,7 +566,7 @@ void loadMeasurementResultFile(WorkspaceState& workspace) {
         }
 
         if (trimmed.starts_with("[series ") && trimmed.ends_with(']')) {
-            appendMeasurementValueSetIfValid(workspace.result, currentValueSet);
+            appendMeasurementValueSetIfValid(result, currentValueSet);
             currentValueSet = {};
             currentValueSet.key = trimAscii(trimmed.substr(8, trimmed.size() - 9));
             inSeries = !currentValueSet.key.empty();
@@ -557,7 +574,7 @@ void loadMeasurementResultFile(WorkspaceState& workspace) {
         }
 
         if (trimmed == "[/series]") {
-            appendMeasurementValueSetIfValid(workspace.result, currentValueSet);
+            appendMeasurementValueSetIfValid(result, currentValueSet);
             inSeries = false;
             inData = false;
             continue;
@@ -590,7 +607,15 @@ void loadMeasurementResultFile(WorkspaceState& workspace) {
         }
     }
 
-    appendMeasurementValueSetIfValid(workspace.result, currentValueSet);
+    appendMeasurementValueSetIfValid(result, currentValueSet);
+}
+
+void loadMeasurementResultFile(WorkspaceState& workspace) {
+    loadResultFile(measurementResultFilePath(workspace.rootPath), workspace.result);
+}
+
+void loadReferenceResultFile(WorkspaceState& workspace) {
+    loadResultFile(referenceResultFilePath(workspace.rootPath), workspace.referenceResult);
 }
 
 void loadMeasurementArtifact(const std::string& content,
@@ -605,20 +630,22 @@ void loadMeasurementArtifact(const std::string& content,
     }
 }
 
-void loadMeasurementAnalysisFile(WorkspaceState& workspace) {
-    workspace.result.analysis = {};
-    if (workspace.rootPath.empty()) {
+void loadAnalysisFile(const std::filesystem::path& path, MeasurementAnalysis& analysis) {
+    analysis = {};
+    if (path.empty()) {
         return;
     }
 
-    const auto content = readTextFile(measurementAnalysisFilePath(workspace.rootPath));
+    const auto content = readTextFile(path);
     if (!content) {
         return;
     }
 
-    MeasurementAnalysis& analysis = workspace.result.analysis;
     if (const auto value = findJsonString(*content, "analyzerVersion")) {
         analysis.analyzerVersion = *value;
+    }
+    if (const auto value = findJsonString(*content, "measurementKind")) {
+        analysis.measurementKind = *value;
     }
     if (const auto value = findJsonString(*content, "measurementTimestampUtc")) {
         analysis.measurementTimestampUtc = *value;
@@ -632,8 +659,23 @@ void loadMeasurementAnalysisFile(WorkspaceState& workspace) {
     if (const auto value = findJsonString(*content, "backendOutputDevice")) {
         analysis.backendOutputDevice = *value;
     }
+    if (const auto value = findJsonString(*content, "requestedBackend")) {
+        analysis.requestedBackend = *value;
+    }
     if (const auto value = findJsonString(*content, "requestedDriver")) {
         analysis.requestedDriver = *value;
+    }
+    if (const auto value = findJsonString(*content, "requestedWindowsInputDeviceId")) {
+        analysis.requestedWindowsInputDeviceId = *value;
+    }
+    if (const auto value = findJsonString(*content, "requestedWindowsInputDeviceName")) {
+        analysis.requestedWindowsInputDeviceName = *value;
+    }
+    if (const auto value = findJsonString(*content, "requestedWindowsOutputDeviceId")) {
+        analysis.requestedWindowsOutputDeviceId = *value;
+    }
+    if (const auto value = findJsonString(*content, "requestedWindowsOutputDeviceName")) {
+        analysis.requestedWindowsOutputDeviceName = *value;
     }
     if (const auto value = findJsonNumber(*content, "requestedMicInputChannel")) {
         analysis.requestedMicInputChannel = static_cast<int>(*value);
@@ -786,6 +828,14 @@ void loadMeasurementAnalysisFile(WorkspaceState& workspace) {
     loadMeasurementArtifact(*content, analysis, "artifactAnalysisJson", "analysis_json");
 }
 
+void loadMeasurementAnalysisFile(WorkspaceState& workspace) {
+    loadAnalysisFile(measurementAnalysisFilePath(workspace.rootPath), workspace.result.analysis);
+}
+
+void loadReferenceAnalysisFile(WorkspaceState& workspace) {
+    loadAnalysisFile(referenceAnalysisFilePath(workspace.rootPath), workspace.referenceResult.analysis);
+}
+
 void loadTargetCurveBandsFile(WorkspaceState& workspace) {
     workspace.targetCurve.eqBands.clear();
     if (workspace.rootPath.empty()) {
@@ -873,15 +923,15 @@ void loadTargetCurveProfiles(WorkspaceState& workspace) {
     workspace.targetCurve = selected->curve;
 }
 
-void saveMeasurementResultFile(const WorkspaceState& workspace) {
-    if (workspace.rootPath.empty()) {
+void saveResultFile(const std::filesystem::path& path, const MeasurementResult& result) {
+    if (path.empty()) {
         return;
     }
 
-    std::filesystem::create_directories(workspace.rootPath / "measurement");
+    std::filesystem::create_directories(path.parent_path());
     std::ostringstream out;
     out << kMeasurementResultFileMagic << '\n';
-    for (const MeasurementValueSet& valueSet : workspace.result.valueSets) {
+    for (const MeasurementValueSet& valueSet : result.valueSets) {
         if (!valueSet.valid() || valueSet.key.empty()) {
             continue;
         }
@@ -901,20 +951,35 @@ void saveMeasurementResultFile(const WorkspaceState& workspace) {
         out << "data_end\n";
         out << "[/series]\n";
     }
-    writeTextFile(measurementResultFilePath(workspace.rootPath), out.str());
+    writeTextFile(path, out.str());
+}
+
+void saveMeasurementResultFile(const WorkspaceState& workspace) {
+    saveResultFile(measurementResultFilePath(workspace.rootPath), workspace.result);
     std::filesystem::remove(workspace.rootPath / "measurement" / "response.csv");
 }
 
-void saveMeasurementAnalysisFile(const WorkspaceState& workspace) {
-    if (workspace.rootPath.empty()) {
+void saveReferenceResultFile(const WorkspaceState& workspace) {
+    const MeasurementAnalysis& analysis = workspace.referenceResult.analysis;
+    if (!workspace.referenceResult.hasAnyValues() &&
+        analysis.measurementTimestampUtc.empty() &&
+        analysis.artifacts.empty()) {
+        std::filesystem::remove(referenceResultFilePath(workspace.rootPath));
+        return;
+    }
+    saveResultFile(referenceResultFilePath(workspace.rootPath), workspace.referenceResult);
+}
+
+void saveAnalysisFile(const std::filesystem::path& path, const MeasurementResult& result) {
+    if (path.empty()) {
         return;
     }
 
-    const MeasurementAnalysis& analysis = workspace.result.analysis;
-    if (!workspace.result.hasAnyValues() &&
+    const MeasurementAnalysis& analysis = result.analysis;
+    if (!result.hasAnyValues() &&
         analysis.measurementTimestampUtc.empty() &&
         analysis.artifacts.empty()) {
-        std::filesystem::remove(measurementAnalysisFilePath(workspace.rootPath));
+        std::filesystem::remove(path);
         return;
     }
 
@@ -950,11 +1015,17 @@ void saveMeasurementAnalysisFile(const WorkspaceState& workspace) {
     std::ostringstream out;
     out << "{\n"
         << "  \"analyzerVersion\": \"" << escapeJson(analysis.analyzerVersion) << "\",\n"
+        << "  \"measurementKind\": \"" << escapeJson(analysis.measurementKind) << "\",\n"
         << "  \"measurementTimestampUtc\": \"" << escapeJson(analysis.measurementTimestampUtc) << "\",\n"
         << "  \"backendName\": \"" << escapeJson(analysis.backendName) << "\",\n"
         << "  \"backendInputDevice\": \"" << escapeJson(analysis.backendInputDevice) << "\",\n"
         << "  \"backendOutputDevice\": \"" << escapeJson(analysis.backendOutputDevice) << "\",\n"
+        << "  \"requestedBackend\": \"" << escapeJson(analysis.requestedBackend) << "\",\n"
         << "  \"requestedDriver\": \"" << escapeJson(analysis.requestedDriver) << "\",\n"
+        << "  \"requestedWindowsInputDeviceId\": \"" << escapeJson(analysis.requestedWindowsInputDeviceId) << "\",\n"
+        << "  \"requestedWindowsInputDeviceName\": \"" << escapeJson(analysis.requestedWindowsInputDeviceName) << "\",\n"
+        << "  \"requestedWindowsOutputDeviceId\": \"" << escapeJson(analysis.requestedWindowsOutputDeviceId) << "\",\n"
+        << "  \"requestedWindowsOutputDeviceName\": \"" << escapeJson(analysis.requestedWindowsOutputDeviceName) << "\",\n"
         << "  \"requestedMicInputChannel\": " << analysis.requestedMicInputChannel << ",\n"
         << "  \"requestedLeftOutputChannel\": " << analysis.requestedLeftOutputChannel << ",\n"
         << "  \"requestedRightOutputChannel\": " << analysis.requestedRightOutputChannel << ",\n"
@@ -990,7 +1061,15 @@ void saveMeasurementAnalysisFile(const WorkspaceState& workspace) {
         << "  \"artifactResultValuesTxt\": \"" << escapeJson(artifactPath("result_values_txt")) << "\",\n"
         << "  \"artifactAnalysisJson\": \"" << escapeJson(artifactPath("analysis_json")) << "\"\n"
         << "}\n";
-    writeTextFile(measurementAnalysisFilePath(workspace.rootPath), out.str());
+    writeTextFile(path, out.str());
+}
+
+void saveMeasurementAnalysisFile(const WorkspaceState& workspace) {
+    saveAnalysisFile(measurementAnalysisFilePath(workspace.rootPath), workspace.result);
+}
+
+void saveReferenceAnalysisFile(const WorkspaceState& workspace) {
+    saveAnalysisFile(referenceAnalysisFilePath(workspace.rootPath), workspace.referenceResult);
 }
 
 void saveTargetCurveBandsFile(const WorkspaceState& workspace) {
@@ -1097,6 +1176,12 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         }
         if (const auto value = findJsonNumber(*content, "micInputChannel")) {
             workspace.audio.micInputChannel = static_cast<int>(*value);
+        }
+        if (const auto value = findJsonBool(*content, "loopbackEnabled")) {
+            workspace.audio.loopbackEnabled = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "loopbackInputChannel")) {
+            workspace.audio.loopbackInputChannel = static_cast<int>(*value);
         }
         if (const auto value = findJsonNumber(*content, "leftOutputChannel")) {
             workspace.audio.leftOutputChannel = static_cast<int>(*value);
@@ -1221,6 +1306,8 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
     loadMicrophoneCalibration(workspace.audio, calibrationError);
     loadMeasurementResultFile(workspace);
     loadMeasurementAnalysisFile(workspace);
+    loadReferenceResultFile(workspace);
+    loadReferenceAnalysisFile(workspace);
     loadTargetCurveProfiles(workspace);
     const auto targetPlot = measurement::buildTargetCurvePlotData(workspace.smoothedResponse,
                                                                   workspace.measurement,
@@ -1255,6 +1342,8 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"windowsOutputDeviceId\": \"" << escapeJson(workspace.audio.windowsOutputDeviceId) << "\",\n"
                   << "    \"windowsOutputDeviceName\": \"" << escapeJson(workspace.audio.windowsOutputDeviceName) << "\",\n"
                   << "    \"micInputChannel\": " << workspace.audio.micInputChannel << ",\n"
+                  << "    \"loopbackEnabled\": " << (workspace.audio.loopbackEnabled ? "true" : "false") << ",\n"
+                  << "    \"loopbackInputChannel\": " << workspace.audio.loopbackInputChannel << ",\n"
                   << "    \"leftOutputChannel\": " << workspace.audio.leftOutputChannel << ",\n"
                   << "    \"rightOutputChannel\": " << workspace.audio.rightOutputChannel << ",\n"
                   << "    \"outputVolumeDb\": " << workspace.audio.outputVolumeDb << ",\n"
@@ -1315,6 +1404,9 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
                   << "    \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
                   << "\",\n"
+                  << "    \"measurementShowRoomLeft\": " << (workspace.ui.measurementShowRoomLeft ? "true" : "false") << ",\n"
+                  << "    \"measurementShowRoomRight\": " << (workspace.ui.measurementShowRoomRight ? "true" : "false") << ",\n"
+                  << "    \"measurementShowReference\": " << (workspace.ui.measurementShowReference ? "true" : "false") << ",\n"
                   << "    \"measurementMetadataCollapsed\": "
                   << (workspace.ui.measurementMetadataCollapsed ? "true" : "false") << ",\n"
                   << "    \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
@@ -1384,6 +1476,9 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << "  \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
            << "  \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
            << "\",\n"
+           << "  \"measurementShowRoomLeft\": " << (workspace.ui.measurementShowRoomLeft ? "true" : "false") << ",\n"
+           << "  \"measurementShowRoomRight\": " << (workspace.ui.measurementShowRoomRight ? "true" : "false") << ",\n"
+           << "  \"measurementShowReference\": " << (workspace.ui.measurementShowReference ? "true" : "false") << ",\n"
            << "  \"measurementMetadataCollapsed\": "
            << (workspace.ui.measurementMetadataCollapsed ? "true" : "false") << ",\n"
            << "  \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
@@ -1438,6 +1533,8 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
 
     saveMeasurementResultFile(workspace);
     saveMeasurementAnalysisFile(workspace);
+    saveReferenceResultFile(workspace);
+    saveReferenceAnalysisFile(workspace);
     saveTargetCurveProfiles(workspace);
 }
 

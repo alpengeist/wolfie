@@ -21,12 +21,14 @@ constexpr int kWindowsInputControlId = 2;
 constexpr int kWindowsOutputControlId = 3;
 constexpr int kDriverControlId = 4;
 constexpr int kMicControlId = 5;
-constexpr int kLeftControlId = 6;
-constexpr int kRightControlId = 7;
-constexpr int kMicCalibrationBrowseId = 8;
-constexpr int kMicCalibrationClearId = 9;
-constexpr int kOpenControlPanelId = 10;
-constexpr int kCloseControlId = 11;
+constexpr int kLoopbackEnabledControlId = 6;
+constexpr int kLoopbackControlId = 7;
+constexpr int kLeftControlId = 8;
+constexpr int kRightControlId = 9;
+constexpr int kMicCalibrationBrowseId = 10;
+constexpr int kMicCalibrationClearId = 11;
+constexpr int kOpenControlPanelId = 12;
+constexpr int kCloseControlId = 13;
 
 void registerSettingsWindowClass(HINSTANCE instance) {
     WNDCLASSW settingsClass{};
@@ -159,7 +161,7 @@ void SettingsDialog::show(HINSTANCE instance,
     auto* dialog = new SettingsDialog(instance, owner, settings, wasapiService, asioService, std::move(onSave));
     dialog->window_ = CreateWindowExW(WS_EX_DLGMODALFRAME, kWindowClassName, L"Measurement Settings",
                                       WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                                      CW_USEDEFAULT, CW_USEDEFAULT, 700, 412,
+                                      CW_USEDEFAULT, CW_USEDEFAULT, 700, 452,
                                       owner, nullptr, instance, dialog);
     if (dialog->window_ == nullptr) {
         delete dialog;
@@ -227,7 +229,13 @@ LRESULT CALLBACK SettingsDialog::WindowProc(HWND window, UINT message, WPARAM wP
             dialog->applyAndNotify();
             return 0;
         }
-        if ((commandId == kMicControlId || commandId == kLeftControlId || commandId == kRightControlId) &&
+        if (commandId == kLoopbackEnabledControlId && notificationCode == BN_CLICKED) {
+            dialog->refreshControlStates();
+            dialog->applyAndNotify();
+            return 0;
+        }
+        if ((commandId == kMicControlId || commandId == kLoopbackControlId ||
+             commandId == kLeftControlId || commandId == kRightControlId) &&
             notificationCode == CBN_SELCHANGE) {
             dialog->applyAndNotify();
             return 0;
@@ -283,27 +291,36 @@ std::wstring SettingsDialog::getWindowTextValue(HWND control) {
 }
 
 void SettingsDialog::createControls() {
-    CreateWindowW(L"STATIC", L"Audio backend", WS_CHILD | WS_VISIBLE, 20, 20, 140, 20, window_, nullptr, nullptr, nullptr);
+    constexpr int kLabelLeft = 20;
+    constexpr int kLabelWidth = 190;
+    constexpr int kControlLeft = 220;
+    constexpr int kComboSmallWidth = 240;
+    constexpr int kComboMediumWidth = 320;
+    constexpr int kComboWideWidth = 420;
+    constexpr int kBrowseLeft = 520;
+    constexpr int kClearLeft = 602;
+
+    CreateWindowW(L"STATIC", L"Audio backend", WS_CHILD | WS_VISIBLE, kLabelLeft, 20, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     backend_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                             170, 16, 240, 120, window_, reinterpret_cast<HMENU>(kBackendControlId), nullptr, nullptr);
+                             kControlLeft, 16, kComboSmallWidth, 120, window_, reinterpret_cast<HMENU>(kBackendControlId), nullptr, nullptr);
     SendMessageW(backend_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Windows Audio (WASAPI)"));
     SendMessageW(backend_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"ASIO"));
     selectComboBoxString(backend_, settings_.backend == "asio" ? L"ASIO" : L"Windows Audio (WASAPI)");
 
-    CreateWindowW(L"STATIC", L"Windows input device", WS_CHILD | WS_VISIBLE, 20, 56, 140, 20, window_, nullptr, nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Windows input device", WS_CHILD | WS_VISIBLE, kLabelLeft, 56, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     windowsInput_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                                  170, 52, 420, 240, window_, reinterpret_cast<HMENU>(kWindowsInputControlId), nullptr, nullptr);
-    CreateWindowW(L"STATIC", L"Windows output device", WS_CHILD | WS_VISIBLE, 20, 92, 140, 20, window_, nullptr, nullptr, nullptr);
+                                  kControlLeft, 52, kComboWideWidth, 240, window_, reinterpret_cast<HMENU>(kWindowsInputControlId), nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Windows output device", WS_CHILD | WS_VISIBLE, kLabelLeft, 92, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     windowsOutput_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                                   170, 88, 420, 240, window_, reinterpret_cast<HMENU>(kWindowsOutputControlId), nullptr, nullptr);
+                                   kControlLeft, 88, kComboWideWidth, 240, window_, reinterpret_cast<HMENU>(kWindowsOutputControlId), nullptr, nullptr);
     SendMessageW(windowsInput_, CB_SETDROPPEDWIDTH, 520, 0);
     SendMessageW(windowsOutput_, CB_SETDROPPEDWIDTH, 520, 0);
     populateWindowsDeviceCombos();
 
     const auto drivers = asioService_.enumerateDrivers();
-    CreateWindowW(L"STATIC", L"ASIO device", WS_CHILD | WS_VISIBLE, 20, 136, 140, 20, window_, nullptr, nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"ASIO device", WS_CHILD | WS_VISIBLE, kLabelLeft, 136, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     driver_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                            170, 132, 320, 240, window_, reinterpret_cast<HMENU>(kDriverControlId), nullptr, nullptr);
+                            kControlLeft, 132, kComboMediumWidth, 240, window_, reinterpret_cast<HMENU>(kDriverControlId), nullptr, nullptr);
     for (const auto& driverName : drivers) {
         SendMessageW(driver_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(driverName.c_str()));
     }
@@ -313,33 +330,49 @@ void SettingsDialog::createControls() {
     selectComboBoxString(driver_, toWide(settings_.driver));
     SendMessageW(driver_, CB_SETDROPPEDWIDTH, 420, 0);
 
-    CreateWindowW(L"STATIC", L"Mic input channel", WS_CHILD | WS_VISIBLE, 20, 172, 140, 20, window_, nullptr, nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Mic input channel", WS_CHILD | WS_VISIBLE, kLabelLeft, 172, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     mic_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                         170, 168, 240, 220, window_, reinterpret_cast<HMENU>(kMicControlId), nullptr, nullptr);
-    CreateWindowW(L"STATIC", L"Left output channel", WS_CHILD | WS_VISIBLE, 20, 208, 140, 20, window_, nullptr, nullptr, nullptr);
+                         kControlLeft, 168, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kMicControlId), nullptr, nullptr);
+    loopbackEnabled_ = CreateWindowW(L"BUTTON",
+                                     L"Enable reference loopback",
+                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                     kLabelLeft,
+                                     204,
+                                     kLabelWidth,
+                                     20,
+                                     window_,
+                                     reinterpret_cast<HMENU>(kLoopbackEnabledControlId),
+                                     nullptr,
+                                     nullptr);
+    CreateWindowW(L"STATIC", L"Reference input channel", WS_CHILD | WS_VISIBLE, kLabelLeft, 232, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
+    loopback_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                              kControlLeft, 228, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kLoopbackControlId), nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Left output channel", WS_CHILD | WS_VISIBLE, kLabelLeft, 268, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     left_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                          170, 204, 240, 220, window_, reinterpret_cast<HMENU>(kLeftControlId), nullptr, nullptr);
-    CreateWindowW(L"STATIC", L"Right output channel", WS_CHILD | WS_VISIBLE, 20, 244, 140, 20, window_, nullptr, nullptr, nullptr);
+                          kControlLeft, 264, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kLeftControlId), nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Right output channel", WS_CHILD | WS_VISIBLE, kLabelLeft, 304, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     right_ = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                           170, 240, 240, 220, window_, reinterpret_cast<HMENU>(kRightControlId), nullptr, nullptr);
+                           kControlLeft, 300, kComboSmallWidth, 220, window_, reinterpret_cast<HMENU>(kRightControlId), nullptr, nullptr);
     SendMessageW(mic_, CB_SETDROPPEDWIDTH, 320, 0);
+    SendMessageW(loopback_, CB_SETDROPPEDWIDTH, 320, 0);
     SendMessageW(left_, CB_SETDROPPEDWIDTH, 320, 0);
     SendMessageW(right_, CB_SETDROPPEDWIDTH, 320, 0);
     populateChannelCombos();
+    SendMessageW(loopbackEnabled_, BM_SETCHECK, settings_.loopbackEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
 
-    CreateWindowW(L"STATIC", L"Mic calibration file", WS_CHILD | WS_VISIBLE, 20, 280, 140, 20, window_, nullptr, nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"Mic calibration file", WS_CHILD | WS_VISIBLE, kLabelLeft, 344, kLabelWidth, 20, window_, nullptr, nullptr, nullptr);
     micCalibrationPath_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
                                           WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_READONLY,
-                                          170, 276, 340, 24, window_, nullptr, nullptr, nullptr);
+                                          kControlLeft, 340, 340, 24, window_, nullptr, nullptr, nullptr);
     SetWindowTextW(micCalibrationPath_, settings_.microphoneCalibrationPath.wstring().c_str());
-    CreateWindowW(L"BUTTON", L"Browse...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 520, 274, 74, 28, window_,
+    CreateWindowW(L"BUTTON", L"Browse...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, kBrowseLeft, 338, 74, 28, window_,
                   reinterpret_cast<HMENU>(kMicCalibrationBrowseId), nullptr, nullptr);
-    CreateWindowW(L"BUTTON", L"Clear", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 602, 274, 58, 28, window_,
+    CreateWindowW(L"BUTTON", L"Clear", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, kClearLeft, 338, 58, 28, window_,
                   reinterpret_cast<HMENU>(kMicCalibrationClearId), nullptr, nullptr);
 
-    CreateWindowW(L"BUTTON", L"Open ASIO Control Panel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 328, 180, 28, window_,
+    CreateWindowW(L"BUTTON", L"Open ASIO Control Panel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 390, 180, 28, window_,
                   reinterpret_cast<HMENU>(kOpenControlPanelId), nullptr, nullptr);
-    CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 580, 328, 80, 28, window_,
+    CreateWindowW(L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 580, 390, 80, 28, window_,
                   reinterpret_cast<HMENU>(kCloseControlId), nullptr, nullptr);
 
     refreshControlStates();
@@ -380,6 +413,7 @@ void SettingsDialog::populateChannelCombos() {
 
     const std::wstring driverText = getWindowTextValue(driver_);
     SendMessageW(mic_, CB_RESETCONTENT, 0, 0);
+    SendMessageW(loopback_, CB_RESETCONTENT, 0, 0);
     SendMessageW(left_, CB_RESETCONTENT, 0, 0);
     SendMessageW(right_, CB_RESETCONTENT, 0, 0);
 
@@ -399,12 +433,14 @@ void SettingsDialog::populateChannelCombos() {
     };
 
     populateCombo(mic_, channels.inputs, settings_.micInputChannel);
+    populateCombo(loopback_, channels.inputs, settings_.loopbackInputChannel);
     populateCombo(left_, channels.outputs, settings_.leftOutputChannel);
     populateCombo(right_, channels.outputs, settings_.rightOutputChannel);
 }
 
 void SettingsDialog::populateWasapiChannelCombos() {
     SendMessageW(mic_, CB_RESETCONTENT, 0, 0);
+    SendMessageW(loopback_, CB_RESETCONTENT, 0, 0);
     SendMessageW(left_, CB_RESETCONTENT, 0, 0);
     SendMessageW(right_, CB_RESETCONTENT, 0, 0);
 
@@ -422,6 +458,7 @@ void SettingsDialog::populateWasapiChannelCombos() {
     const audio::WasapiDevice* inputDevice = selectedWasapiDevice(windowsInput_, windowsInputs_);
     const audio::WasapiDevice* outputDevice = selectedWasapiDevice(windowsOutput_, windowsOutputs_);
     populateCombo(mic_, inputDevice != nullptr ? inputDevice->channelCount : 0, settings_.micInputChannel);
+    populateCombo(loopback_, inputDevice != nullptr ? inputDevice->channelCount : 0, settings_.loopbackInputChannel);
     populateCombo(left_, outputDevice != nullptr ? outputDevice->channelCount : 0, settings_.leftOutputChannel);
     populateCombo(right_, outputDevice != nullptr ? outputDevice->channelCount : 0, settings_.rightOutputChannel);
 }
@@ -436,6 +473,7 @@ void SettingsDialog::refreshControlStates() {
     EnableWindow(windowsOutput_, useAsio ? FALSE : TRUE);
     EnableWindow(driver_, useAsio ? TRUE : FALSE);
     EnableWindow(mic_, TRUE);
+    EnableWindow(loopback_, SendMessageW(loopbackEnabled_, BM_GETCHECK, 0, 0) == BST_CHECKED ? TRUE : FALSE);
     EnableWindow(left_, TRUE);
     EnableWindow(right_, TRUE);
     EnableWindow(GetDlgItem(window_, kOpenControlPanelId), useAsio ? TRUE : FALSE);
@@ -470,6 +508,8 @@ void SettingsDialog::applyAndNotify() {
     }
 
     settings_.micInputChannel = selectedChannelNumber(mic_, settings_.micInputChannel);
+    settings_.loopbackEnabled = SendMessageW(loopbackEnabled_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    settings_.loopbackInputChannel = selectedChannelNumber(loopback_, settings_.loopbackInputChannel);
     settings_.leftOutputChannel = selectedChannelNumber(left_, settings_.leftOutputChannel);
     settings_.rightOutputChannel = selectedChannelNumber(right_, settings_.rightOutputChannel);
     settings_.microphoneCalibrationPath = std::filesystem::path(getWindowTextValue(micCalibrationPath_));

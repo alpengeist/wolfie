@@ -561,17 +561,15 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                     const AudioSettings& audioSettings,
                                                     const MeasurementSettings& settings) {
     MeasurementResult result;
-    if (audioSettings.backend == "asio") {
-        result.analysis.requestedDriver = audioSettings.driver;
-        result.analysis.requestedMicInputChannel = audioSettings.micInputChannel;
-        result.analysis.requestedLeftOutputChannel = audioSettings.leftOutputChannel;
-        result.analysis.requestedRightOutputChannel = audioSettings.rightOutputChannel;
-    } else {
-        result.analysis.requestedDriver = "Windows Audio (WASAPI)";
-        result.analysis.requestedMicInputChannel = 0;
-        result.analysis.requestedLeftOutputChannel = 0;
-        result.analysis.requestedRightOutputChannel = 0;
-    }
+    result.analysis.requestedBackend = audioSettings.backend;
+    result.analysis.requestedDriver = audioSettings.backend == "asio" ? audioSettings.driver : "Windows Audio (WASAPI)";
+    result.analysis.requestedWindowsInputDeviceId = audioSettings.windowsInputDeviceId;
+    result.analysis.requestedWindowsInputDeviceName = audioSettings.windowsInputDeviceName;
+    result.analysis.requestedWindowsOutputDeviceId = audioSettings.windowsOutputDeviceId;
+    result.analysis.requestedWindowsOutputDeviceName = audioSettings.windowsOutputDeviceName;
+    result.analysis.requestedMicInputChannel = audioSettings.micInputChannel;
+    result.analysis.requestedLeftOutputChannel = audioSettings.leftOutputChannel;
+    result.analysis.requestedRightOutputChannel = audioSettings.rightOutputChannel;
     result.analysis.sampleRate = sampleRate;
     result.analysis.sweepDurationSeconds = settings.durationSeconds;
     result.analysis.fadeInSeconds = settings.fadeInSeconds;
@@ -618,13 +616,18 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                        inverseFilter,
                                                        sampleRate,
                                                        settings);
-    ChannelAnalysis rightAnalysis = analyzeSweepSegment(capturedSamples,
-                                                        playbackPlan.segmentFrames,
-                                                        playbackPlan,
-                                                        alignmentSearchFrames,
-                                                        inverseFilter,
-                                                        sampleRate,
-                                                        settings);
+    ChannelAnalysis rightAnalysis;
+    if (playbackPlan.channelSweepCount >= 2) {
+        rightAnalysis = analyzeSweepSegment(capturedSamples,
+                                            playbackPlan.segmentFrames,
+                                            playbackPlan,
+                                            alignmentSearchFrames,
+                                            inverseFilter,
+                                            sampleRate,
+                                            settings);
+    } else {
+        rightAnalysis = leftAnalysis;
+    }
     if (leftAnalysis.impulseResponse.empty() || rightAnalysis.impulseResponse.empty()) {
         return result;
     }

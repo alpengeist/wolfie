@@ -254,8 +254,8 @@ ResponseGraphData SmoothingPage::buildGraphData(const SmoothedResponse& response
     ResponseGraphData data;
     data.frequencyAxisHz = response.frequencyAxisHz;
     if (!response.frequencyAxisHz.empty()) {
-        data.series.push_back({L"Left", ui_theme::kGreen, response.leftChannelDb});
-        data.series.push_back({L"Right", ui_theme::kRed, response.rightChannelDb});
+        data.series.push_back({L"Left", ui_theme::kGreen, false, response.leftChannelDb});
+        data.series.push_back({L"Right", ui_theme::kRed, false, response.rightChannelDb});
     }
     return data;
 }
