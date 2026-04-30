@@ -326,6 +326,7 @@ void WolfieApp::createMainWindow() {
     ui::TargetCurveGraph::registerWindowClass(instance_);
     ui::PlotGraph::registerWindowClass(instance_);
     ui::MeasurementPage::registerPageWindowClass(instance_);
+    ui::AnalysisPage::registerPageWindowClass(instance_);
     ui::SmoothingPage::registerPageWindowClass(instance_);
     ui::TargetCurvePage::registerPageWindowClass(instance_);
     ui::FiltersPage::registerPageWindowClass(instance_);
@@ -366,19 +367,23 @@ void WolfieApp::createLayout() {
     item.mask = TCIF_TEXT;
     item.pszText = const_cast<LPWSTR>(L"Measurement");
     TabCtrl_InsertItem(tabControl_, 0, &item);
-    item.pszText = const_cast<LPWSTR>(L"Smoothing");
+    item.pszText = const_cast<LPWSTR>(L"Analysis");
     TabCtrl_InsertItem(tabControl_, 1, &item);
-    item.pszText = const_cast<LPWSTR>(L"Target Curve");
+    item.pszText = const_cast<LPWSTR>(L"Smoothing");
     TabCtrl_InsertItem(tabControl_, 2, &item);
-    item.pszText = const_cast<LPWSTR>(L"Filters");
+    item.pszText = const_cast<LPWSTR>(L"Target Curve");
     TabCtrl_InsertItem(tabControl_, 3, &item);
-    item.pszText = const_cast<LPWSTR>(L"Export");
+    item.pszText = const_cast<LPWSTR>(L"Filters");
     TabCtrl_InsertItem(tabControl_, 4, &item);
+    item.pszText = const_cast<LPWSTR>(L"Export");
+    TabCtrl_InsertItem(tabControl_, 5, &item);
 
     measurementPage_.create(tabControl_, instance_);
+    analysisPage_.create(tabControl_, instance_);
     smoothingPage_.create(tabControl_, instance_);
     targetCurvePage_.create(tabControl_, instance_);
     filtersPage_.create(tabControl_, instance_);
+    pageAnalysis_ = analysisPage_.window();
     pageSmoothing_ = smoothingPage_.window();
     pageTargetCurve_ = targetCurvePage_.window();
     pageExport_ = CreateWindowExW(0, ui::MeasurementPage::pageWindowClassName(), nullptr, WS_CHILD | WS_CLIPCHILDREN,
@@ -531,6 +536,7 @@ void WolfieApp::layoutMainWindow() {
     const int pageWidth = std::max(320L, tabRect.right - tabRect.left);
     const int pageHeight = std::max(240L, tabRect.bottom - tabRect.top);
     MoveWindow(measurementPage_.window(), tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
+    MoveWindow(pageAnalysis_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     MoveWindow(pageSmoothing_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     MoveWindow(pageTargetCurve_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     MoveWindow(filtersPage_.window(), tabRect.left, tabRect.top + 10, pageWidth, std::max(240, pageHeight - 10), TRUE);
@@ -620,6 +626,7 @@ void WolfieApp::layoutContent() {
     MoveWindow(exportProgress_, 24, buttonTop, exportWidth, 28, TRUE);
     MoveWindow(exportStatus_, 24, buttonTop + 44, exportWidth, 48, TRUE);
     measurementPage_.layout();
+    analysisPage_.layout();
     smoothingPage_.layout();
     targetCurvePage_.layout();
     filtersPage_.layout();
@@ -720,6 +727,7 @@ void WolfieApp::populateControlsFromState() {
     if (!roomSimulationDialog_.isOpen()) {
         roomSimulationDialog_.populate(workspace_);
     }
+    analysisPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
     filtersPage_.populate(workspace_);
@@ -731,6 +739,7 @@ void WolfieApp::populateControlsFromState() {
 
 void WolfieApp::syncStateFromControls() {
     measurementPage_.syncToWorkspace(workspace_);
+    analysisPage_.syncToWorkspace(workspace_);
     smoothingPage_.syncToWorkspace(workspace_);
     targetCurvePage_.syncToWorkspace(workspace_);
     filtersPage_.syncToWorkspace(workspace_);
@@ -913,6 +922,7 @@ void WolfieApp::finishCalibrationReanalysis() {
         measurementPage_.setCalibrationRefreshInProgress(false);
         appendMeasurementLog(taskResult.errorMessage, LogSeverity::Error);
         measurementPage_.setWorkspaceView(workspace_);
+        analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
         targetCurvePage_.populate(workspace_);
         filtersPage_.populate(workspace_);
@@ -925,6 +935,7 @@ void WolfieApp::finishCalibrationReanalysis() {
     invalidateFilterDesign();
     ensureSmoothedResponseReady();
     measurementPage_.setWorkspaceView(workspace_);
+    analysisPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
     filtersPage_.populate(workspace_);
@@ -1234,11 +1245,12 @@ void WolfieApp::generateRoomSimulationMeasurement(const std::string& name,
     invalidateFilterDesign();
 
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
-    if (selected == 1 || selected == 2 || selected == 3) {
+    if (selected == 2 || selected == 3 || selected == 4) {
         ensureSmoothedResponseReady();
     }
 
     measurementPage_.setWorkspaceView(workspace_);
+    analysisPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
     filtersPage_.populate(workspace_);
@@ -1292,6 +1304,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             }
 
             measurementPage_.setWorkspaceView(workspace_);
+            analysisPage_.populate(workspace_);
             smoothingPage_.populate(workspace_);
             targetCurvePage_.populate(workspace_);
             filtersPage_.populate(workspace_);
@@ -1337,6 +1350,14 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             filtersPage_.populate(workspace_);
             syncStateFromControls();
             workspaceRepository_.save(workspace_);
+        }
+        return;
+    }
+
+    bool analysisViewSettingsChanged = false;
+    if (analysisPage_.handleCommand(commandId, notificationCode, workspace_, analysisViewSettingsChanged)) {
+        if (analysisViewSettingsChanged) {
+            workspaceRepository_.saveUiSettings(workspace_);
         }
         return;
     }
@@ -1497,7 +1518,7 @@ void WolfieApp::onNotify(LPARAM lParam) {
     const auto* header = reinterpret_cast<const NMHDR*>(lParam);
     if (header != nullptr && header->hwndFrom == tabControl_ && header->code == TCN_SELCHANGE) {
         const int selected = TabCtrl_GetCurSel(tabControl_);
-        if (activeTabIndex_ == 2 && selected != 2) {
+        if (activeTabIndex_ == 3 && selected != 3) {
             persistTargetCurveStateIfPending();
         }
         updateVisibleTab();
@@ -1562,24 +1583,28 @@ void WolfieApp::onResize() {
 
 void WolfieApp::updateVisibleTab() {
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
-    if (selected == 1 || selected == 2 || selected == 3 || selected == 4) {
+    if (selected == 2 || selected == 3 || selected == 4 || selected == 5) {
         ensureSmoothedResponseReady();
-        if (selected == 1) {
+        if (selected == 2) {
             smoothingPage_.populate(workspace_);
-        } else if (selected == 2) {
-            targetCurvePage_.populate(workspace_);
         } else if (selected == 3) {
+            targetCurvePage_.populate(workspace_);
+        } else if (selected == 4) {
             filtersPage_.populate(workspace_);
         } else {
             updateExportControls();
         }
     }
+    if (selected == 1) {
+        analysisPage_.populate(workspace_);
+    }
 
     measurementPage_.setVisible(selected == 0);
-    smoothingPage_.setVisible(selected == 1);
-    targetCurvePage_.setVisible(selected == 2);
-    filtersPage_.setVisible(selected == 3);
-    ShowWindow(pageExport_, selected == 4 ? SW_SHOW : SW_HIDE);
+    analysisPage_.setVisible(selected == 1);
+    smoothingPage_.setVisible(selected == 2);
+    targetCurvePage_.setVisible(selected == 3);
+    filtersPage_.setVisible(selected == 4);
+    ShowWindow(pageExport_, selected == 5 ? SW_SHOW : SW_HIDE);
     activeTabIndex_ = selected;
 }
 
@@ -1723,6 +1748,7 @@ void WolfieApp::startMeasurement(MeasurementRunMode runMode) {
         workspace_.result = {};
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
+        analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
         targetCurvePage_.populate(workspace_);
         filtersPage_.populate(workspace_);
@@ -1750,6 +1776,7 @@ void WolfieApp::stopMeasurement() {
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
         measurementPage_.setWorkspaceView(workspace_);
+        analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
         targetCurvePage_.populate(workspace_);
         filtersPage_.populate(workspace_);
@@ -1767,11 +1794,12 @@ void WolfieApp::finalizeMeasurement() {
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
         const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
-        if (selected == 1 || selected == 2 || selected == 3) {
+        if (selected == 2 || selected == 3 || selected == 4) {
             ensureSmoothedResponseReady();
         }
     }
     measurementPage_.setWorkspaceView(workspace_);
+    analysisPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
     filtersPage_.populate(workspace_);

@@ -189,21 +189,6 @@ Assessment:
 - This is a gap, not a fatal flaw for the current minimum-phase path.
 - It becomes important once Wolfie wants to claim reliable mixed-phase correction.
 
-### 2.3 No repeatability metrics
-
-Wolfie measures once and designs immediately.
-
-Assessment:
-
-- For full-range room phase work, that is too optimistic.
-- The report is clear that stable, repeatable structure should be favored over single-shot phase traces.
-
-Recommended direction:
-
-- add repeated sweeps at one seat
-- compute phase spread or excess-phase spread per frequency
-- down-weight or mask unstable regions before correction
-
 ## 3. Magnitude Path vs Phase Path
 
 This is the most important finding in the entire review.

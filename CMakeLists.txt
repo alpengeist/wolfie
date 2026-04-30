@@ -38,6 +38,8 @@ add_executable(wolfie WIN32
     src/measurement/response_analyzer.h
     src/measurement/response_smoother.cpp
     src/measurement/response_smoother.h
+    src/measurement/stereo_diagnostics.cpp
+    src/measurement/stereo_diagnostics.h
     src/measurement/sweep_generator.cpp
     src/measurement/sweep_generator.h
     src/measurement/target_curve_designer.cpp
@@ -56,6 +58,8 @@ add_executable(wolfie WIN32
     src/persistence/workspace_repository.h
     src/ui/measurement_page.cpp
     src/ui/measurement_page.h
+    src/ui/analysis_page.cpp
+    src/ui/analysis_page.h
     src/ui/filters_page.cpp
     src/ui/filters_page.h
     src/ui/help_bubble.cpp
@@ -103,6 +107,8 @@ if(WOLFIE_BUILD_TESTS)
         src/measurement/response_analyzer.h
         src/measurement/response_smoother.cpp
         src/measurement/response_smoother.h
+        src/measurement/stereo_diagnostics.cpp
+        src/measurement/stereo_diagnostics.h
         src/measurement/waterfall_builder.cpp
         src/measurement/waterfall_builder.h
         src/measurement/sweep_generator.cpp

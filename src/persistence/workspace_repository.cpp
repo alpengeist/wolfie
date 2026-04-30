@@ -263,6 +263,18 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonBool(content, "measurementMetadataCollapsed")) {
         ui.measurementMetadataCollapsed = *value;
     }
+    if (const auto value = findJsonString(content, "analysisWindow")) {
+        ui.analysisWindow = *value;
+    }
+    if (const auto value = findJsonBool(content, "analysisGraphHasCustomFrequencyRange")) {
+        ui.analysisGraphHasCustomFrequencyRange = *value;
+    }
+    if (const auto value = findJsonNumber(content, "analysisGraphVisibleMinFrequencyHz")) {
+        ui.analysisGraphVisibleMinFrequencyHz = *value;
+    }
+    if (const auto value = findJsonNumber(content, "analysisGraphVisibleMaxFrequencyHz")) {
+        ui.analysisGraphVisibleMaxFrequencyHz = *value;
+    }
     if (const auto value = findJsonNumber(content, "smoothingGraphExtraRangeDb")) {
         ui.smoothingGraphExtraRangeDb = *value;
     }
@@ -1478,6 +1490,11 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"measurementShowReference\": " << (workspace.ui.measurementShowReference ? "true" : "false") << ",\n"
                   << "    \"measurementMetadataCollapsed\": "
                   << (workspace.ui.measurementMetadataCollapsed ? "true" : "false") << ",\n"
+                  << "    \"analysisWindow\": \"" << escapeJson(workspace.ui.analysisWindow) << "\",\n"
+                  << "    \"analysisGraphHasCustomFrequencyRange\": "
+                  << (workspace.ui.analysisGraphHasCustomFrequencyRange ? "true" : "false") << ",\n"
+                  << "    \"analysisGraphVisibleMinFrequencyHz\": " << workspace.ui.analysisGraphVisibleMinFrequencyHz << ",\n"
+                  << "    \"analysisGraphVisibleMaxFrequencyHz\": " << workspace.ui.analysisGraphVisibleMaxFrequencyHz << ",\n"
                   << "    \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
                   << "    \"smoothingGraphVerticalOffsetDb\": " << workspace.ui.smoothingGraphVerticalOffsetDb << ",\n"
                   << "    \"smoothingGraphHasCustomFrequencyRange\": "
@@ -1552,6 +1569,11 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << "  \"measurementShowReference\": " << (workspace.ui.measurementShowReference ? "true" : "false") << ",\n"
            << "  \"measurementMetadataCollapsed\": "
            << (workspace.ui.measurementMetadataCollapsed ? "true" : "false") << ",\n"
+           << "  \"analysisWindow\": \"" << escapeJson(workspace.ui.analysisWindow) << "\",\n"
+           << "  \"analysisGraphHasCustomFrequencyRange\": "
+           << (workspace.ui.analysisGraphHasCustomFrequencyRange ? "true" : "false") << ",\n"
+           << "  \"analysisGraphVisibleMinFrequencyHz\": " << workspace.ui.analysisGraphVisibleMinFrequencyHz << ",\n"
+           << "  \"analysisGraphVisibleMaxFrequencyHz\": " << workspace.ui.analysisGraphVisibleMaxFrequencyHz << ",\n"
            << "  \"smoothingGraphExtraRangeDb\": " << workspace.ui.smoothingGraphExtraRangeDb << ",\n"
            << "  \"smoothingGraphVerticalOffsetDb\": " << workspace.ui.smoothingGraphVerticalOffsetDb << ",\n"
            << "  \"smoothingGraphHasCustomFrequencyRange\": "

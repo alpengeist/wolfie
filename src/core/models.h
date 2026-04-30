@@ -70,6 +70,10 @@ struct UiSettings {
     bool measurementShowRoomRight = true;
     bool measurementShowReference = true;
     bool measurementMetadataCollapsed = true;
+    std::string analysisWindow = "direct";
+    bool analysisGraphHasCustomFrequencyRange = false;
+    double analysisGraphVisibleMinFrequencyHz = 20.0;
+    double analysisGraphVisibleMaxFrequencyHz = 20000.0;
     double smoothingGraphExtraRangeDb = 0.0;
     double smoothingGraphVerticalOffsetDb = 0.0;
     bool smoothingGraphHasCustomFrequencyRange = false;
@@ -315,6 +319,29 @@ struct RoomSimulationSettings {
 struct RoomSimulationDefinition {
     std::string name;
     RoomSimulationSettings settings;
+};
+
+struct StereoDiagnosticsSummary {
+    bool available = false;
+    double delayMismatchMs = 0.0;
+    double directImpulseCorrelation = 0.0;
+    double lowBandPhaseRmsDegrees = 0.0;
+    double midBandPhaseRmsDegrees = 0.0;
+    double lowBandMagnitudeRmsDb = 0.0;
+    double phaseSimilarity = 0.0;
+    double iacc10 = 0.0;
+    double iacc20 = 0.0;
+    double iacc80 = 0.0;
+    double iaccLate = 0.0;
+};
+
+struct StereoDiagnosticsResult {
+    bool available = false;
+    std::string window = "direct";
+    StereoDiagnosticsSummary summary;
+    std::vector<double> frequencyAxisHz;
+    std::vector<double> phaseDeltaDegrees;
+    std::vector<double> magnitudeDeltaDb;
 };
 
 struct FilterDesignSettings {

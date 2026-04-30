@@ -22,6 +22,7 @@
 #include "persistence/app_state_repository.h"
 #include "persistence/room_simulation_repository.h"
 #include "persistence/workspace_repository.h"
+#include "ui/analysis_page.h"
 #include "ui/filters_page.h"
 #include "ui/measurement_page.h"
 #include "ui/room_simulation_dialog.h"
@@ -118,6 +119,7 @@ private:
     HWND mainWindow_ = nullptr;
     HACCEL acceleratorTable_ = nullptr;
     HWND tabControl_ = nullptr;
+    HWND pageAnalysis_ = nullptr;
     HWND pageSmoothing_ = nullptr;
     HWND pageTargetCurve_ = nullptr;
     HWND pageExport_ = nullptr;
@@ -139,6 +141,7 @@ private:
     WorkspaceState workspace_;
     AppState appState_;
     ui::MeasurementPage measurementPage_;
+    ui::AnalysisPage analysisPage_;
     ui::RoomSimulationDialog roomSimulationDialog_;
     ui::SmoothingPage smoothingPage_;
     ui::TargetCurvePage targetCurvePage_;

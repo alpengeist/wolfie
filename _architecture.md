@@ -57,6 +57,7 @@ Files:
 - `measurement_controller.h/.cpp`
 - `target_curve_designer.h/.cpp`
 - `filter_designer.h/.cpp`
+- `stereo_diagnostics.h/.cpp`
 - `waterfall_builder.h/.cpp`
 
 Responsibilities:
@@ -67,6 +68,7 @@ Responsibilities:
 - `measurement_controller` orchestrates a measurement run through an audio backend.
 - `target_curve_designer` computes target-curve view data without UI dependencies.
 - `filter_designer` computes correction curves, minimum-phase FIR filters, simulated responses, phase-derived diagnostics, and filter-design view data without UI dependencies.
+- `stereo_diagnostics` computes left/right comparison diagnostics and analysis-plot data from measured transfer functions without UI dependencies.
 - `waterfall_builder` derives waterfall data from measured impulse responses.
 
 Reasoning:
@@ -128,6 +130,7 @@ Files:
 - `response_graph.h/.cpp`
 - `plot_graph.h/.cpp`
 - `measurement_page.h/.cpp`
+- `analysis_page.h/.cpp`
 - `room_simulation_dialog.h/.cpp`
 - `target_curve_graph.h/.cpp`
 - `target_curve_page.h/.cpp`
@@ -140,7 +143,8 @@ Responsibilities:
 - `ui_theme` defines shared colors and visual constants.
 - `response_graph` renders reusable response displays for measurement workflows.
 - `plot_graph` renders reusable non-interactive plots for filter-design workflows.
-- `measurement_page`, `target_curve_page`, and `filters_page` own their controls, layout, legend state, and graph synchronization.
+- `measurement_page`, `analysis_page`, `target_curve_page`, and `filters_page` own their controls, layout, legend state, and graph synchronization.
+- `analysis_page` presents left/right comparison diagnostics such as delay mismatch, impulse correlation, phase delta, and magnitude delta using prepared measurement data.
 - `room_simulation_dialog` owns the non-modal synthetic-room editor and delegates generation/persistence outward.
 - `target_curve_graph` and `waterfall_graph` implement specialized graph behavior for their workflows.
 - `settings_dialog` owns settings-window behavior and delegates ASIO-specific work outward.
@@ -225,6 +229,12 @@ Practical examples:
 4. `response_analyzer` produces `MeasurementResult`.
 5. `WorkspaceRepository` persists the result.
 6. `WolfieApp` can derive `SmoothedResponse` from the result when later workflows need it.
+
+### Analysis
+
+1. `WolfieApp` populates `AnalysisPage` from the current `MeasurementResult`.
+2. `AnalysisPage` requests left/right comparison data from `measurement::stereo_diagnostics`.
+3. `stereo_diagnostics` derives summary metrics and plot curves from direct or room spectra, optionally using reference-compensated data when available.
 
 ### Filter Design
 
