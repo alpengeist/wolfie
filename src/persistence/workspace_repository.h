@@ -10,6 +10,7 @@ class WorkspaceRepository {
 public:
     WorkspaceState load(const std::filesystem::path& path) const;
     void save(const WorkspaceState& workspace) const;
+    void saveSettings(const WorkspaceState& workspace) const;
     void saveUiSettings(const WorkspaceState& workspace) const;
 };
 

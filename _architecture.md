@@ -212,6 +212,23 @@ Practical examples:
 - `measurement_controller` does not know how pages are drawn.
 - `filter_designer` does not call Win32 APIs.
 
+## Persistence Timing
+
+`WorkspaceRepository::save()` is the heavy full-workspace persistence path.
+
+Rules:
+
+- do not call `WorkspaceRepository::save()` from interactive UI paths such as sliders, graph zoom handlers, hover updates, or live recalculation feedback
+- automatic full-workspace writes belong at app exit and workspace switch boundaries
+- explicit user-driven save remains a separate action
+- narrower persistence helpers such as settings-only or UI-only saves should be used for interactive edits that need persistence without rewriting measurement payloads
+
+Reasoning:
+
+- full workspace writes include much more than lightweight UI state
+- calling the full save path from smoothing or filter controls causes avoidable stalls and regression-prone behavior
+- this regression has happened repeatedly, so the timing boundary needs to stay explicit in the architecture document
+
 ## Runtime Flow
 
 ### Startup
@@ -291,20 +308,41 @@ That last point is intentional and currently visible in the data model:
 
 ### Phase And Group-Delay Inputs
 
-Filter-design phase diagnostics must be derived from the dense measured phase spectrum, not from an already-downsampled display response.
+The measurement layer publishes two transfer-function product families for each source window such as `raw`, `room`, `direct`, and `reference_compensated_direct`:
 
-Current decisions:
+- `_spectrum` pairs such as `measurement.direct_magnitude_spectrum` and `measurement.direct_phase_spectrum`
+- `_response` pairs such as `measurement.direct_magnitude_response` and `measurement.direct_phase_response`
 
-- `filter_designer` prefers `measurement.raw_phase_spectrum` from `MeasurementResult`
-- phase is unwrapped before it is resampled to the filter-design display axis
-- the measured impulse pre-roll delay is removed before excess-phase diagnostics are derived
-- a residual best-fit linear phase slope is also removed so leftover pure delay does not dominate the excess-phase view
+These represent the same transfer function at different resolutions and for different purposes.
+
+`_spectrum` pairs:
+
+- are native positive-FFT-bin products on a linear frequency axis
+- preserve the highest available resolution from the analyzer
+- are the right source when an algorithm genuinely needs dense bin-level phase behavior
+
+`_response` pairs:
+
+- are derived by interpolating the complex spectrum onto the analyzer's smaller log-frequency display axis
+- are the right source for UI plots and for downstream paths that do not need native FFT-bin density
+- provide a much cheaper working set for smoothing and repeated recalculation
+
+Current filter-design and phase-preparation decisions:
+
+- excess-phase preparation must use matched magnitude and phase products from the same source window
+- phase-preparation source selection prefers matched `_response` pairs first, then matched `_spectrum` pairs as fallback
+- direct-window products are preferred over room-window products, and room-window products are preferred over raw products
+- bulk delay is removed before minimum-phase reconstruction and excess-phase derivation
+- group-delay publication is derived from the prepared phase data, then resampled for display
+- minimum-phase magnitude correction still operates from `SmoothedResponse`
 
 Reasoning:
 
-- using a sparse display-axis phase response for unwrap is unstable at high frequency
+- matched magnitude and phase inputs matter more than reusing unrelated display products
+- direct-window transfer products are the better default for excess-phase meaning and bulk-delay estimation
 - pure delay appears as a large linear phase ramp and should be separated from excess phase
 - group delay is the more trustworthy chart for timing trend; excess phase is a phase-shape diagnostic
+- `_spectrum` remains the higher-fidelity representation, but `_response` is currently the preferred preparation input because it keeps interactive recalculation costs acceptable
 
 Implementation note:
 

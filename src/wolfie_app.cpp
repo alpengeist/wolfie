@@ -1349,7 +1349,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             smoothingPage_.populate(workspace_);
             filtersPage_.populate(workspace_);
             syncStateFromControls();
-            workspaceRepository_.save(workspace_);
+            workspaceRepository_.saveSettings(workspace_);
         }
         return;
     }
@@ -1398,7 +1398,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             invalidateFilterDesign();
             filtersPage_.populate(workspace_);
             syncStateFromControls();
-            workspaceRepository_.save(workspace_);
+            workspaceRepository_.saveSettings(workspace_);
         }
         if (filtersRecalculateRequested) {
             invalidateFilterDesign();
@@ -1407,7 +1407,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             filtersPage_.populate(workspace_);
             filtersPage_.setRecalculateInProgress(false);
             syncStateFromControls();
-            workspaceRepository_.save(workspace_);
+            workspaceRepository_.saveSettings(workspace_);
         }
         if (filterViewSettingsChanged) {
             workspaceRepository_.saveUiSettings(workspace_);
@@ -1479,7 +1479,7 @@ void WolfieApp::onHScroll(HWND source) {
 
     if (measurementPage_.handleHScroll(source, workspace_)) {
         syncStateFromControls();
-        workspaceRepository_.save(workspace_);
+        workspaceRepository_.saveSettings(workspace_);
         return;
     }
 
@@ -1493,7 +1493,7 @@ void WolfieApp::onHScroll(HWND source) {
             targetCurvePage_.populate(workspace_);
             filtersPage_.populate(workspace_);
             syncStateFromControls();
-            workspaceRepository_.save(workspace_);
+            workspaceRepository_.saveSettings(workspace_);
         }
         return;
     }
