@@ -5,9 +5,11 @@
 #include <cmath>
 #include <complex>
 #include <numbers>
+#include <string_view>
 #include <vector>
 
 #include "measurement/dsp_utils.h"
+#include "measurement/phase_preparation.h"
 #include "measurement/target_curve_designer.h"
 
 namespace wolfie::measurement {
@@ -880,8 +882,11 @@ std::vector<double> buildMixedPhaseImpulse(const std::vector<double>& positiveMa
 }
 
 struct RealizedFilterAnalysis {
+    std::vector<double> binFrequencyAxisHz;
+    std::vector<double> binMagnitudeDb;
     std::vector<double> filterResponseDb;
     std::vector<double> filterPhaseRadians;
+    std::vector<double> binPhaseRadians;
     std::vector<double> groupDelayMs;
     std::vector<double> correctedResponseDb;
 };
@@ -897,6 +902,9 @@ RealizedFilterAnalysis analyzeRealizedFilter(const std::vector<double>& filterTa
     const std::vector<double> binMagnitudeDb = buildMagnitudeDbSeries(spectrum);
     const std::vector<double> binPhaseRadians = buildPhaseSeries(spectrum);
 
+    analysis.binFrequencyAxisHz = binFrequencyAxisHz;
+    analysis.binMagnitudeDb = binMagnitudeDb;
+    analysis.binPhaseRadians = binPhaseRadians;
     analysis.filterResponseDb =
         resampleLogFrequency(binFrequencyAxisHz, binMagnitudeDb, displayFrequencyAxisHz);
     analysis.filterPhaseRadians =
@@ -911,40 +919,50 @@ RealizedFilterAnalysis analyzeRealizedFilter(const std::vector<double>& filterTa
     return analysis;
 }
 
-struct ExcessPhaseSeries {
-    std::vector<double> wrappedDegrees;
-    std::vector<double> continuousDegrees;
-};
-
-ExcessPhaseSeries buildPredictedExcessPhaseSeries(int sampleRate,
-                                                  int fftSize,
-                                                  const std::vector<double>& displayFrequencyAxisHz,
-                                                  const std::vector<double>& predictedMagnitudeDb,
-                                                  const std::vector<double>& predictedPhaseRadians) {
-    ExcessPhaseSeries result;
-    if (predictedMagnitudeDb.size() != displayFrequencyAxisHz.size() ||
-        predictedPhaseRadians.size() != displayFrequencyAxisHz.size()) {
-        return result;
+PreparedPhaseView buildPredictedPhaseView(const PreparedPhaseChannel& inputChannel,
+                                          const std::vector<double>& addedFrequencyAxisHz,
+                                          const std::vector<double>& displayFrequencyAxisHz,
+                                          const ResponseSmoothingSettings& smoothingSettings,
+                                          int sampleRate,
+                                          int fftSize,
+                                          const std::vector<double>& addedMagnitudeDb,
+                                          const std::vector<double>& addedPhaseRadians,
+                                          std::string_view sourceSuffix) {
+    if (!inputChannel.valid() ||
+        addedMagnitudeDb.size() != addedPhaseRadians.size()) {
+        return {};
     }
 
-    const std::vector<double> minimumPhaseDegrees =
-        buildMinimumPhaseDegrees(sampleRate, fftSize, displayFrequencyAxisHz, predictedMagnitudeDb);
-    const std::vector<double> minimumPhaseRadians = degreesToRadians(minimumPhaseDegrees);
-    std::vector<double> adjustedPhaseRadians = predictedPhaseRadians;
-    std::vector<double> residualExcessRadians;
-    residualExcessRadians.reserve(predictedPhaseRadians.size());
-    for (size_t index = 0; index < predictedPhaseRadians.size(); ++index) {
-        residualExcessRadians.push_back(predictedPhaseRadians[index] - minimumPhaseRadians[index]);
+    const std::vector<double> nativeAddedMagnitudeDb =
+        resampleLogFrequency(addedFrequencyAxisHz,
+                             addedMagnitudeDb,
+                             inputChannel.nativeFrequencyAxisHz);
+    const std::vector<double> nativeAddedPhaseRadians =
+        resampleLogFrequency(addedFrequencyAxisHz,
+                             addedPhaseRadians,
+                             inputChannel.nativeFrequencyAxisHz);
+
+    std::vector<double> predictedMagnitudeDb = inputChannel.measuredMagnitudeDb;
+    std::vector<double> predictedPhaseRadians = inputChannel.delayCorrectedPhaseRadians;
+    for (size_t index = 0; index < predictedMagnitudeDb.size() &&
+                           index < nativeAddedMagnitudeDb.size(); ++index) {
+        predictedMagnitudeDb[index] += nativeAddedMagnitudeDb[index];
+    }
+    for (size_t index = 0; index < predictedPhaseRadians.size() &&
+                           index < nativeAddedPhaseRadians.size(); ++index) {
+        predictedPhaseRadians[index] += nativeAddedPhaseRadians[index];
     }
 
-    const double residualDelaySeconds =
-        estimateLinearDelaySeconds(displayFrequencyAxisHz, residualExcessRadians);
-    removeLinearDelay(adjustedPhaseRadians, displayFrequencyAxisHz, residualDelaySeconds);
-    result.wrappedDegrees = wrappedPhaseDifferenceDegrees(adjustedPhaseRadians, minimumPhaseRadians);
-    result.continuousDegrees =
-        radiansToDegrees(unwrapPhaseRadians(principalPhaseDifferenceRadians(adjustedPhaseRadians,
-                                                                            minimumPhaseRadians)));
-    return result;
+    const PreparedPhaseChannel predicted =
+        prepareMatchedPhaseChannel(inputChannel.nativeFrequencyAxisHz,
+                                   predictedMagnitudeDb,
+                                   predictedPhaseRadians,
+                                   0.0,
+                                   smoothingSettings,
+                                   sampleRate,
+                                   fftSize,
+                                   inputChannel.sourceKey + std::string(sourceSuffix));
+    return resamplePreparedPhaseChannel(predicted, displayFrequencyAxisHz);
 }
 
 size_t maxAbsIndex(const std::vector<double>& values) {
@@ -996,7 +1014,9 @@ struct DesignedChannel {
 
 void refreshMixedPhaseChannel(DesignedChannel& channel,
                               const std::vector<double>& sourceCurveDb,
-                              const std::vector<double>& sourcePhaseDegrees,
+                              const PreparedPhaseChannel* preparedInput,
+                              const PreparedPhaseView* inputPhaseView,
+                              const ResponseSmoothingSettings& smoothingSettings,
                               const std::vector<double>& displayFrequencyAxisHz,
                               int sampleRate,
                               int fftSize) {
@@ -1016,49 +1036,46 @@ void refreshMixedPhaseChannel(DesignedChannel& channel,
     channel.correctedResponseDb = realized.correctedResponseDb;
     channel.groupDelayMs = realized.groupDelayMs;
 
-    if (sourcePhaseDegrees.size() != displayFrequencyAxisHz.size()) {
+    if (preparedInput == nullptr || inputPhaseView == nullptr || !inputPhaseView->valid()) {
         return;
     }
 
-    const PhaseDiagnostics phaseDiagnostics =
-        buildPhaseDiagnostics(sampleRate, fftSize, displayFrequencyAxisHz, sourceCurveDb, sourcePhaseDegrees);
-    channel.inputGroupDelayMs = phaseDiagnostics.inputGroupDelayMs;
-    channel.inputExcessPhaseDegrees = phaseDiagnostics.inputExcessPhaseDegrees;
-    channel.inputExcessPhaseContinuousDegrees = phaseDiagnostics.inputExcessPhaseContinuousDegrees;
+    channel.inputGroupDelayMs = inputPhaseView->groupDelayMs;
+    channel.inputExcessPhaseDegrees = inputPhaseView->wrappedExcessPhaseDegrees;
+    channel.inputExcessPhaseContinuousDegrees = inputPhaseView->continuousExcessPhaseDegrees;
 
-    std::vector<double> predictedPhaseRadians = phaseDiagnostics.sourcePhaseRadians;
-    for (size_t index = 0; index < predictedPhaseRadians.size() &&
-                           index < realized.filterPhaseRadians.size(); ++index) {
-        predictedPhaseRadians[index] += realized.filterPhaseRadians[index];
-    }
-    const ExcessPhaseSeries predictedExcessPhase =
-        buildPredictedExcessPhaseSeries(sampleRate,
-                                        fftSize,
-                                        displayFrequencyAxisHz,
-                                        channel.correctedResponseDb,
-                                        predictedPhaseRadians);
-    channel.predictedExcessPhaseDegrees = predictedExcessPhase.wrappedDegrees;
-    channel.predictedExcessPhaseContinuousDegrees = predictedExcessPhase.continuousDegrees;
-    channel.predictedGroupDelayMs =
-        buildGroupDelayMs(displayFrequencyAxisHz, predictedPhaseRadians);
+    const PreparedPhaseView predictedView =
+        buildPredictedPhaseView(*preparedInput,
+                                realized.binFrequencyAxisHz,
+                                displayFrequencyAxisHz,
+                                smoothingSettings,
+                                sampleRate,
+                                fftSize,
+                                realized.binMagnitudeDb,
+                                realized.binPhaseRadians,
+                                ".predicted");
+    channel.predictedExcessPhaseDegrees = predictedView.wrappedExcessPhaseDegrees;
+    channel.predictedExcessPhaseContinuousDegrees = predictedView.continuousExcessPhaseDegrees;
+    channel.predictedGroupDelayMs = predictedView.groupDelayMs;
 }
 
 DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
                               const std::vector<double>& targetCurveDb,
                               const std::vector<double>& sourceCurveDb,
-                              const std::vector<double>& sourcePhaseDegrees,
+                              const PreparedPhaseChannel* preparedInput,
+                              const PreparedPhaseView* inputPhaseView,
+                              const ResponseSmoothingSettings& smoothingSettings,
                               const FilterDesignSettings& settings,
                               NormalizedPhaseMode phaseMode,
                               const std::vector<double>* sharedMixedCorrectionDegrees,
                               int sampleRate,
                               int fftSize) {
     DesignedChannel channel;
-    const bool hasSourcePhase = sourcePhaseDegrees.size() == displayFrequencyAxisHz.size();
+    const bool hasSourcePhase = preparedInput != nullptr &&
+                                inputPhaseView != nullptr &&
+                                inputPhaseView->valid();
     const bool useExcessPreview = phaseMode == NormalizedPhaseMode::ExcessLf;
     const bool useMixedMode = phaseMode == NormalizedPhaseMode::Mixed && hasSourcePhase;
-    const PhaseDiagnostics phaseDiagnostics =
-        hasSourcePhase ? buildPhaseDiagnostics(sampleRate, fftSize, displayFrequencyAxisHz, sourceCurveDb, sourcePhaseDegrees)
-                       : PhaseDiagnostics{};
 
     if (phaseMode == NormalizedPhaseMode::ExcessLf) {
         channel.correctionDb.assign(displayFrequencyAxisHz.size(), 0.0);
@@ -1078,7 +1095,7 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
                         sharedMixedCorrectionDegrees->size() == displayFrequencyAxisHz.size()
                     ? *sharedMixedCorrectionDegrees
                     : buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
-                                                        phaseDiagnostics.inputExcessPhaseRadians,
+                                                        inputPhaseView->excessPhaseRadians,
                                                         settings,
                                                         sampleRate);
             const std::vector<double> positivePhaseCorrectionRadians =
@@ -1109,61 +1126,57 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
         channel.groupDelayMs = realized.groupDelayMs;
 
         if (useMixedMode) {
-            std::vector<double> predictedPhaseRadians = phaseDiagnostics.sourcePhaseRadians;
-            for (size_t index = 0; index < predictedPhaseRadians.size() &&
-                                   index < realized.filterPhaseRadians.size(); ++index) {
-                predictedPhaseRadians[index] += realized.filterPhaseRadians[index];
-            }
-            const ExcessPhaseSeries predictedExcessPhase =
-                buildPredictedExcessPhaseSeries(sampleRate,
-                                                fftSize,
-                                                displayFrequencyAxisHz,
-                                                channel.correctedResponseDb,
-                                                predictedPhaseRadians);
-            channel.predictedExcessPhaseDegrees = predictedExcessPhase.wrappedDegrees;
-            channel.predictedExcessPhaseContinuousDegrees = predictedExcessPhase.continuousDegrees;
-            channel.predictedGroupDelayMs =
-                buildGroupDelayMs(displayFrequencyAxisHz, predictedPhaseRadians);
+            const PreparedPhaseView predictedView =
+                buildPredictedPhaseView(*preparedInput,
+                                        realized.binFrequencyAxisHz,
+                                        displayFrequencyAxisHz,
+                                        smoothingSettings,
+                                        sampleRate,
+                                        fftSize,
+                                        realized.binMagnitudeDb,
+                                        realized.binPhaseRadians,
+                                        ".predicted");
+            channel.predictedExcessPhaseDegrees = predictedView.wrappedExcessPhaseDegrees;
+            channel.predictedExcessPhaseContinuousDegrees = predictedView.continuousExcessPhaseDegrees;
+            channel.predictedGroupDelayMs = predictedView.groupDelayMs;
         }
     }
 
     if (hasSourcePhase) {
-        channel.inputGroupDelayMs = phaseDiagnostics.inputGroupDelayMs;
-        channel.inputExcessPhaseDegrees = phaseDiagnostics.inputExcessPhaseDegrees;
-        channel.inputExcessPhaseContinuousDegrees = phaseDiagnostics.inputExcessPhaseContinuousDegrees;
+        channel.inputGroupDelayMs = inputPhaseView->groupDelayMs;
+        channel.inputExcessPhaseDegrees = inputPhaseView->wrappedExcessPhaseDegrees;
+        channel.inputExcessPhaseContinuousDegrees = inputPhaseView->continuousExcessPhaseDegrees;
 
         if (useExcessPreview) {
             const std::vector<double> correctionPhaseDegrees =
                 buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
-                                                  phaseDiagnostics.inputExcessPhaseRadians,
+                                                  inputPhaseView->excessPhaseRadians,
                                                   settings,
                                                   sampleRate);
             const std::vector<double> correctionPhaseRadians = degreesToRadians(correctionPhaseDegrees);
-            std::vector<double> predictedPhaseRadians = phaseDiagnostics.sourcePhaseRadians;
-            for (size_t index = 0; index < predictedPhaseRadians.size() &&
-                                   index < correctionPhaseRadians.size(); ++index) {
-                predictedPhaseRadians[index] += correctionPhaseRadians[index];
-            }
 
             channel.groupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, correctionPhaseRadians);
-            const ExcessPhaseSeries predictedExcessPhase =
-                buildPredictedExcessPhaseSeries(sampleRate,
-                                                fftSize,
-                                                displayFrequencyAxisHz,
-                                                channel.correctedResponseDb,
-                                                predictedPhaseRadians);
-            channel.predictedExcessPhaseDegrees = predictedExcessPhase.wrappedDegrees;
+            const PreparedPhaseView predictedView =
+                buildPredictedPhaseView(*preparedInput,
+                                        displayFrequencyAxisHz,
+                                        displayFrequencyAxisHz,
+                                        smoothingSettings,
+                                        sampleRate,
+                                        fftSize,
+                                        channel.filterResponseDb,
+                                        correctionPhaseRadians,
+                                        ".preview");
+            channel.predictedExcessPhaseDegrees = predictedView.wrappedExcessPhaseDegrees;
             channel.predictedExcessPhaseContinuousDegrees =
-                predictedExcessPhase.continuousDegrees;
-            channel.predictedGroupDelayMs =
-                buildGroupDelayMs(displayFrequencyAxisHz, predictedPhaseRadians);
+                predictedView.continuousExcessPhaseDegrees;
+            channel.predictedGroupDelayMs = predictedView.groupDelayMs;
         } else {
             // Minimum-phase filters alter the minimum-phase component only, so excess phase is unchanged.
             if (!useMixedMode) {
                 channel.predictedExcessPhaseDegrees = channel.inputExcessPhaseDegrees;
                 channel.predictedExcessPhaseContinuousDegrees = channel.inputExcessPhaseContinuousDegrees;
                 channel.predictedGroupDelayMs =
-                    addSeries(phaseDiagnostics.inputGroupDelayMs, channel.groupDelayMs);
+                    addSeries(inputPhaseView->groupDelayMs, channel.groupDelayMs);
             }
         }
     }
@@ -1250,35 +1263,32 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     const std::vector<double> rightSourceDb =
         resampleLogFrequency(response.frequencyAxisHz, response.rightChannelDb, displayFrequencyAxisHz);
     const std::vector<double> targetCurveDb = rawTargetCurveDb;
-    const PhaseInput phaseInput = buildPhaseInput(sourceMeasurement, displayFrequencyAxisHz);
-
     const int fftSize = static_cast<int>(nextPowerOfTwo(static_cast<size_t>(settings.tapCount * 4)));
+    const PreparedPhaseData preparedPhase =
+        preparePhaseData(sourceMeasurement,
+                         response.smoothingSettings,
+                         exportMeasurement.sampleRate,
+                         fftSize);
+    const PreparedPhaseView leftPreparedView =
+        preparedPhase.valid ? resamplePreparedPhaseChannel(preparedPhase.left, displayFrequencyAxisHz)
+                            : PreparedPhaseView{};
+    const PreparedPhaseView rightPreparedView =
+        preparedPhase.valid ? resamplePreparedPhaseChannel(preparedPhase.right, displayFrequencyAxisHz)
+                            : PreparedPhaseView{};
     std::vector<double> sharedMixedCorrectionDegrees;
     if (phaseMode == NormalizedPhaseMode::Mixed &&
-        phaseInput.leftDegrees.size() == displayFrequencyAxisHz.size() &&
-        phaseInput.rightDegrees.size() == displayFrequencyAxisHz.size()) {
+        leftPreparedView.valid() &&
+        rightPreparedView.valid()) {
         // Keep the mixed-phase LF correction common to both stereo channels. Solving it
         // independently per side made bass content widen and become locatable off-center.
-        const PhaseDiagnostics leftPhaseDiagnostics =
-            buildPhaseDiagnostics(exportMeasurement.sampleRate,
-                                  fftSize,
-                                  displayFrequencyAxisHz,
-                                  leftSourceDb,
-                                  phaseInput.leftDegrees);
-        const PhaseDiagnostics rightPhaseDiagnostics =
-            buildPhaseDiagnostics(exportMeasurement.sampleRate,
-                                  fftSize,
-                                  displayFrequencyAxisHz,
-                                  rightSourceDb,
-                                  phaseInput.rightDegrees);
         const std::vector<double> leftCorrectionDegrees =
             buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
-                                              leftPhaseDiagnostics.inputExcessPhaseRadians,
+                                              leftPreparedView.excessPhaseRadians,
                                               settings,
                                               exportMeasurement.sampleRate);
         const std::vector<double> rightCorrectionDegrees =
             buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
-                                              rightPhaseDiagnostics.inputExcessPhaseRadians,
+                                              rightPreparedView.excessPhaseRadians,
                                               settings,
                                               exportMeasurement.sampleRate);
         sharedMixedCorrectionDegrees = averageSeries(leftCorrectionDegrees, rightCorrectionDegrees);
@@ -1286,7 +1296,9 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     DesignedChannel left = designChannel(displayFrequencyAxisHz,
                                          targetCurveDb,
                                          leftSourceDb,
-                                         phaseInput.leftDegrees,
+                                         preparedPhase.valid ? &preparedPhase.left : nullptr,
+                                         leftPreparedView.valid() ? &leftPreparedView : nullptr,
+                                         response.smoothingSettings,
                                          settings,
                                          phaseMode,
                                          sharedMixedCorrectionDegrees.empty() ? nullptr : &sharedMixedCorrectionDegrees,
@@ -1295,7 +1307,9 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     DesignedChannel right = designChannel(displayFrequencyAxisHz,
                                           targetCurveDb,
                                           rightSourceDb,
-                                          phaseInput.rightDegrees,
+                                          preparedPhase.valid ? &preparedPhase.right : nullptr,
+                                          rightPreparedView.valid() ? &rightPreparedView : nullptr,
+                                          response.smoothingSettings,
                                           settings,
                                           phaseMode,
                                           sharedMixedCorrectionDegrees.empty() ? nullptr : &sharedMixedCorrectionDegrees,
@@ -1314,13 +1328,17 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
         }
         refreshMixedPhaseChannel(left,
                                  leftSourceDb,
-                                 phaseInput.leftDegrees,
+                                 preparedPhase.valid ? &preparedPhase.left : nullptr,
+                                 leftPreparedView.valid() ? &leftPreparedView : nullptr,
+                                 response.smoothingSettings,
                                  displayFrequencyAxisHz,
                                  exportMeasurement.sampleRate,
                                  fftSize);
         refreshMixedPhaseChannel(right,
                                  rightSourceDb,
-                                 phaseInput.rightDegrees,
+                                 preparedPhase.valid ? &preparedPhase.right : nullptr,
+                                 rightPreparedView.valid() ? &rightPreparedView : nullptr,
+                                 response.smoothingSettings,
                                  displayFrequencyAxisHz,
                                  exportMeasurement.sampleRate,
                                  fftSize);

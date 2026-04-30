@@ -32,6 +32,8 @@ add_executable(wolfie WIN32
     src/measurement/filter_wav_export.h
     src/measurement/dsp_utils.cpp
     src/measurement/dsp_utils.h
+    src/measurement/phase_preparation.cpp
+    src/measurement/phase_preparation.h
     src/measurement/room_simulator.cpp
     src/measurement/room_simulator.h
     src/measurement/response_analyzer.cpp
@@ -103,6 +105,8 @@ if(WOLFIE_BUILD_TESTS)
         src/measurement/filter_wav_export.h
         src/measurement/dsp_utils.cpp
         src/measurement/dsp_utils.h
+        src/measurement/phase_preparation.cpp
+        src/measurement/phase_preparation.h
         src/measurement/response_analyzer.cpp
         src/measurement/response_analyzer.h
         src/measurement/response_smoother.cpp

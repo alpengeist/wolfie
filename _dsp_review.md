@@ -343,25 +343,6 @@ Assessment:
 - This is a pragmatic design.
 - It is not theoretically exotic, but it is sound enough for a production minimum-phase baseline.
 
-### 6.2 Target anchoring regression
-
-The existing test binary currently fails the target-level anchoring case.
-
-Relevant test:
-
-- `expectTargetCurveAnchorsToMeasuredLevel()` in `tests/filter_design_tests.cpp`
-
-Observed result:
-
-- the first failing message is `flat offset response still produced a non-trivial correction`
-
-Implication:
-
-- there is already a baseline mismatch between target semantics and filter design behavior
-- this should be fixed before making the mixed-phase path more sophisticated
-
-This is not a phase-theory issue, but it will contaminate objective validation if left unresolved.
-
 ## 7. Mixed-Phase / Excess-Phase Correction
 
 ### 7.1 What Wolfie currently does
@@ -397,10 +378,6 @@ These are all good instincts.
 ### 7.3 What is still missing
 
 The current mixed-phase design lacks several things that the report treats as essential:
-
-1. **confidence weighting**
-   - no coherence weighting
-   - no repeatability weighting
 
 2. **explicit time-domain control**
    - no early-energy penalty

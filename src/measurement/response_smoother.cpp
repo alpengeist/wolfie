@@ -219,6 +219,30 @@ int effectiveSlidingOctaveDenominator(const ResponseSmoothingSettings& settings)
     return std::max(1, static_cast<int>(std::lround(12.0 * smoothingResolutionFactor(settings))));
 }
 
+std::vector<double> smoothMagnitudeSeries(const std::vector<double>& frequencyAxisHz,
+                                          const std::vector<double>& sourceDb,
+                                          const ResponseSmoothingSettings& settings) {
+    ResponseSmoothingSettings normalizedSettings = settings;
+    normalizeResponseSmoothingSettings(normalizedSettings);
+
+    std::vector<double> smoothed;
+    if (normalizedSettings.psychoacousticModel == kOctaveSlidingWindowModelName) {
+        const double octaveDenominator = static_cast<double>(effectiveSlidingOctaveDenominator(normalizedSettings));
+        smoothed = smoothChannelTwelfthOctaveSlidingWindow(frequencyAxisHz,
+                                                           sourceDb,
+                                                           octaveDenominator);
+    } else {
+        smoothed = smoothChannel(frequencyAxisHz,
+                                 sourceDb,
+                                 static_cast<double>(effectiveLowWindowCycles(normalizedSettings)),
+                                 static_cast<double>(effectiveHighWindowCycles(normalizedSettings)));
+    }
+    flattenHighFrequencyTail(frequencyAxisHz,
+                             normalizedSettings.highFrequencySlopeCutoffHz,
+                             smoothed);
+    return smoothed;
+}
+
 SmoothedResponse buildSmoothedResponse(const MeasurementResult& result,
                                        const ResponseSmoothingSettings& settings) {
     SmoothedResponse smoothedResponse;
@@ -230,31 +254,14 @@ SmoothedResponse buildSmoothedResponse(const MeasurementResult& result,
     ResponseSmoothingSettings normalizedSettings = settings;
     normalizeResponseSmoothingSettings(normalizedSettings);
 
+    smoothedResponse.smoothingSettings = normalizedSettings;
     smoothedResponse.frequencyAxisHz = magnitudeResponse->xValues;
-    if (normalizedSettings.psychoacousticModel == kOctaveSlidingWindowModelName) {
-        const double octaveDenominator = static_cast<double>(effectiveSlidingOctaveDenominator(normalizedSettings));
-        smoothedResponse.leftChannelDb = smoothChannelTwelfthOctaveSlidingWindow(magnitudeResponse->xValues,
-                                                                                 magnitudeResponse->leftValues,
-                                                                                 octaveDenominator);
-        smoothedResponse.rightChannelDb = smoothChannelTwelfthOctaveSlidingWindow(magnitudeResponse->xValues,
-                                                                                  magnitudeResponse->rightValues,
-                                                                                  octaveDenominator);
-    } else {
-        smoothedResponse.leftChannelDb = smoothChannel(magnitudeResponse->xValues,
-                                                       magnitudeResponse->leftValues,
-                                                       static_cast<double>(effectiveLowWindowCycles(normalizedSettings)),
-                                                       static_cast<double>(effectiveHighWindowCycles(normalizedSettings)));
-        smoothedResponse.rightChannelDb = smoothChannel(magnitudeResponse->xValues,
-                                                        magnitudeResponse->rightValues,
-                                                        static_cast<double>(effectiveLowWindowCycles(normalizedSettings)),
-                                                        static_cast<double>(effectiveHighWindowCycles(normalizedSettings)));
-    }
-    flattenHighFrequencyTail(smoothedResponse.frequencyAxisHz,
-                             normalizedSettings.highFrequencySlopeCutoffHz,
-                             smoothedResponse.leftChannelDb);
-    flattenHighFrequencyTail(smoothedResponse.frequencyAxisHz,
-                             normalizedSettings.highFrequencySlopeCutoffHz,
-                             smoothedResponse.rightChannelDb);
+    smoothedResponse.leftChannelDb = smoothMagnitudeSeries(magnitudeResponse->xValues,
+                                                           magnitudeResponse->leftValues,
+                                                           normalizedSettings);
+    smoothedResponse.rightChannelDb = smoothMagnitudeSeries(magnitudeResponse->xValues,
+                                                            magnitudeResponse->rightValues,
+                                                            normalizedSettings);
     return smoothedResponse;
 }
 

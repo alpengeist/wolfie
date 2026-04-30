@@ -95,11 +95,12 @@ wolfie::MeasurementValueSet buildImpulseValueSet(double leadingTimeSeconds) {
 }
 
 wolfie::MeasurementValueSet buildWrappedPhaseSpectrum(const std::vector<double>& frequencyAxisHz,
+                                                      const std::string& key,
                                                       double delaySeconds,
                                                       double leftExcessScale,
                                                       double rightExcessScale) {
     wolfie::MeasurementValueSet valueSet;
-    valueSet.key = "measurement.raw_phase_spectrum";
+    valueSet.key = key;
     valueSet.xQuantity = "frequency";
     valueSet.xUnit = "Hz";
     valueSet.yQuantity = "phase";
@@ -115,6 +116,22 @@ wolfie::MeasurementValueSet buildWrappedPhaseSpectrum(const std::vector<double>&
         valueSet.leftValues.push_back(wrapDegrees(linearDelayDegrees + (leftExcessScale * 75.0 * excessShape)));
         valueSet.rightValues.push_back(wrapDegrees(linearDelayDegrees + (rightExcessScale * 75.0 * excessShape)));
     }
+    return valueSet;
+}
+
+wolfie::MeasurementValueSet buildFlatMagnitudeSpectrum(const std::vector<double>& frequencyAxisHz,
+                                                       const std::string& key,
+                                                       double leftLevelDb = 0.0,
+                                                       double rightLevelDb = 0.0) {
+    wolfie::MeasurementValueSet valueSet;
+    valueSet.key = key;
+    valueSet.xQuantity = "frequency";
+    valueSet.xUnit = "Hz";
+    valueSet.yQuantity = "level";
+    valueSet.yUnit = "dB";
+    valueSet.xValues = frequencyAxisHz;
+    valueSet.leftValues.assign(frequencyAxisHz.size(), leftLevelDb);
+    valueSet.rightValues.assign(frequencyAxisHz.size(), rightLevelDb);
     return valueSet;
 }
 
@@ -135,10 +152,77 @@ wolfie::MeasurementResult buildPhaseMeasurement(int sampleRate,
     wolfie::MeasurementResult result;
     const std::vector<double> phaseAxisHz = buildLinearAxis(static_cast<double>(sampleRate) * 0.5, 4097);
     result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+    result.valueSets.back().key = "measurement.room_impulse_response";
+    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+    result.valueSets.back().key = "measurement.direct_impulse_response";
+    result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.raw_magnitude_spectrum"));
     result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
+                                                        "measurement.raw_phase_spectrum",
                                                         delaySeconds,
                                                         leftExcessScale,
                                                         rightExcessScale));
+    result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.room_magnitude_spectrum"));
+    result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
+                                                        "measurement.room_phase_spectrum",
+                                                        delaySeconds,
+                                                        leftExcessScale,
+                                                        rightExcessScale));
+    result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.direct_magnitude_spectrum"));
+    result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
+                                                        "measurement.direct_phase_spectrum",
+                                                        delaySeconds,
+                                                        leftExcessScale,
+                                                        rightExcessScale));
+    return result;
+}
+
+wolfie::MeasurementResult buildPhaseMeasurementWithSourceAvailability(int sampleRate,
+                                                                      double delaySeconds,
+                                                                      bool includeDirect,
+                                                                      bool includeRoom,
+                                                                      bool includeRaw,
+                                                                      double directLeftExcessScale,
+                                                                      double directRightExcessScale,
+                                                                      double roomLeftExcessScale,
+                                                                      double roomRightExcessScale,
+                                                                      double rawLeftExcessScale,
+                                                                      double rawRightExcessScale) {
+    wolfie::MeasurementResult result;
+    const std::vector<double> phaseAxisHz = buildLinearAxis(static_cast<double>(sampleRate) * 0.5, 4097);
+    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+    if (includeRoom) {
+        result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+        result.valueSets.back().key = "measurement.room_impulse_response";
+    }
+    if (includeDirect) {
+        result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+        result.valueSets.back().key = "measurement.direct_impulse_response";
+    }
+    if (includeRaw) {
+        result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.raw_magnitude_spectrum"));
+        result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
+                                                            "measurement.raw_phase_spectrum",
+                                                            delaySeconds,
+                                                            rawLeftExcessScale,
+                                                            rawRightExcessScale));
+    }
+    if (includeRoom) {
+        result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.room_magnitude_spectrum"));
+        result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
+                                                            "measurement.room_phase_spectrum",
+                                                            delaySeconds,
+                                                            roomLeftExcessScale,
+                                                            roomRightExcessScale));
+    }
+    if (includeDirect) {
+        result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.direct_magnitude_spectrum"));
+        result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
+                                                            "measurement.direct_phase_spectrum",
+                                                            delaySeconds,
+                                                            directLeftExcessScale,
+                                                            directRightExcessScale));
+    }
     return result;
 }
 
@@ -571,6 +655,216 @@ bool expectBulkDelayIsNotTreatedAsExcessPhase() {
     if (predictedLeftBandMean > 3.0 || predictedRightBandMean > 3.0) {
         std::cerr << "bulk-delay baseline predicted excess phase after delay removal (left="
                   << predictedLeftBandMean << ", right=" << predictedRightBandMean << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectExcessPhasePreparationIgnoresDisplayResponseShape() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurement(measurement.sampleRate, 0.0035, 2.0, -1.0);
+    const wolfie::FilterDesignResult flatResult =
+        wolfie::measurement::designFilters(buildFlatResponse(0.0),
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult shapedResult =
+        wolfie::measurement::designFilters(buildSyntheticResponse(),
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!flatResult.valid || !shapedResult.valid) {
+        std::cerr << "display-response invariance case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double leftInputDelta = bandMeanAbsDelta(flatResult.frequencyAxisHz,
+                                                   flatResult.left.inputExcessPhaseContinuousDegrees,
+                                                   shapedResult.left.inputExcessPhaseContinuousDegrees,
+                                                   20.0,
+                                                   300.0);
+    const double rightInputDelta = bandMeanAbsDelta(flatResult.frequencyAxisHz,
+                                                    flatResult.right.inputExcessPhaseContinuousDegrees,
+                                                    shapedResult.right.inputExcessPhaseContinuousDegrees,
+                                                    20.0,
+                                                    300.0);
+    if (leftInputDelta > 1.0 || rightInputDelta > 1.0) {
+        std::cerr << "excess-phase preparation still depends on display response shape (left="
+                  << leftInputDelta << ", right=" << rightInputDelta << ")\n";
+        return false;
+    }
+
+    const double leftPredictedDelta = bandMeanAbsDelta(flatResult.frequencyAxisHz,
+                                                       flatResult.left.predictedExcessPhaseContinuousDegrees,
+                                                       shapedResult.left.predictedExcessPhaseContinuousDegrees,
+                                                       20.0,
+                                                       300.0);
+    const double rightPredictedDelta = bandMeanAbsDelta(flatResult.frequencyAxisHz,
+                                                        flatResult.right.predictedExcessPhaseContinuousDegrees,
+                                                        shapedResult.right.predictedExcessPhaseContinuousDegrees,
+                                                        20.0,
+                                                        300.0);
+    if (leftPredictedDelta > 1.0 || rightPredictedDelta > 1.0) {
+        std::cerr << "predicted excess phase still depends on display response shape (left="
+                  << leftPredictedDelta << ", right=" << rightPredictedDelta << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectPhasePreparationPrefersDirectSource() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+
+    const wolfie::SmoothedResponse response = buildFlatResponse(0.0);
+    const wolfie::MeasurementResult directPreferredMeasurement =
+        buildPhaseMeasurementWithSourceAvailability(measurement.sampleRate,
+                                                    0.0,
+                                                    true,
+                                                    true,
+                                                    true,
+                                                    2.5,
+                                                    0.0,
+                                                    -1.5,
+                                                    0.0,
+                                                    -2.0,
+                                                    0.0);
+    const wolfie::MeasurementResult directOnlyMeasurement =
+        buildPhaseMeasurementWithSourceAvailability(measurement.sampleRate,
+                                                    0.0,
+                                                    true,
+                                                    false,
+                                                    false,
+                                                    2.5,
+                                                    0.0,
+                                                    0.0,
+                                                    0.0,
+                                                    0.0,
+                                                    0.0);
+    const wolfie::MeasurementResult roomOnlyMeasurement =
+        buildPhaseMeasurementWithSourceAvailability(measurement.sampleRate,
+                                                    0.0,
+                                                    false,
+                                                    true,
+                                                    false,
+                                                    0.0,
+                                                    0.0,
+                                                    -1.5,
+                                                    0.0,
+                                                    0.0,
+                                                    0.0);
+
+    const wolfie::FilterDesignResult preferredResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &directPreferredMeasurement);
+    const wolfie::FilterDesignResult directResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &directOnlyMeasurement);
+    const wolfie::FilterDesignResult roomResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &roomOnlyMeasurement);
+    if (!preferredResult.valid || !directResult.valid || !roomResult.valid) {
+        std::cerr << "phase-source selection case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double preferredVsDirect = bandMeanAbsDelta(preferredResult.frequencyAxisHz,
+                                                      preferredResult.left.inputExcessPhaseContinuousDegrees,
+                                                      directResult.left.inputExcessPhaseContinuousDegrees,
+                                                      20.0,
+                                                      300.0);
+    const double preferredVsRoom = bandMeanAbsDelta(preferredResult.frequencyAxisHz,
+                                                    preferredResult.left.inputExcessPhaseContinuousDegrees,
+                                                    roomResult.left.inputExcessPhaseContinuousDegrees,
+                                                    20.0,
+                                                    300.0);
+    if (preferredVsDirect > 1.0 || preferredVsRoom < 15.0) {
+        std::cerr << "phase preparation did not prefer the direct source as expected (direct delta="
+                  << preferredVsDirect << ", room delta=" << preferredVsRoom << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectPhasePreparationFallsBackToRawSource() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+
+    const wolfie::MeasurementResult rawOnlyMeasurement =
+        buildPhaseMeasurementWithSourceAvailability(measurement.sampleRate,
+                                                    0.0,
+                                                    false,
+                                                    false,
+                                                    true,
+                                                    0.0,
+                                                    0.0,
+                                                    0.0,
+                                                    0.0,
+                                                    2.0,
+                                                    -2.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(buildFlatResponse(0.0),
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &rawOnlyMeasurement);
+    if (!result.valid) {
+        std::cerr << "raw-source fallback case did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double leftBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                            result.left.inputExcessPhaseDegrees,
+                                            20.0,
+                                            300.0);
+    const double rightBandMean = bandMeanAbs(result.frequencyAxisHz,
+                                             result.right.inputExcessPhaseDegrees,
+                                             20.0,
+                                             300.0);
+    if (leftBandMean < 15.0 || rightBandMean < 15.0) {
+        std::cerr << "raw-source fallback did not publish the expected excess-phase content (left="
+                  << leftBandMean << ", right=" << rightBandMean << ")\n";
         return false;
     }
 
@@ -1652,6 +1946,9 @@ bool runFilterDesignTests() {
            expectTargetCurveAnchorsToMeasuredLevel() &&
            expectMinimumPhaseInputNeedsNoExcessCorrection() &&
            expectBulkDelayIsNotTreatedAsExcessPhase() &&
+           expectExcessPhasePreparationIgnoresDisplayResponseShape() &&
+           expectPhasePreparationPrefersDirectSource() &&
+           expectPhasePreparationFallsBackToRawSource() &&
            expectExcessLfModeLeavesMinimumPhaseInputAlone() &&
            expectExcessLfModeIgnoresBulkDelay() &&
            expectExcessLfModeReducesLowFrequencyExcessPhase() &&

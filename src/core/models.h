@@ -266,6 +266,7 @@ struct ResponseSmoothingSettings {
 };
 
 struct SmoothedResponse {
+    ResponseSmoothingSettings smoothingSettings;
     std::vector<double> frequencyAxisHz;
     std::vector<double> leftChannelDb;
     std::vector<double> rightChannelDb;

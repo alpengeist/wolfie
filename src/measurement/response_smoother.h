@@ -9,6 +9,9 @@ double smoothingResolutionFactor(const ResponseSmoothingSettings& settings);
 int effectiveLowWindowCycles(const ResponseSmoothingSettings& settings);
 int effectiveHighWindowCycles(const ResponseSmoothingSettings& settings);
 int effectiveSlidingOctaveDenominator(const ResponseSmoothingSettings& settings);
+std::vector<double> smoothMagnitudeSeries(const std::vector<double>& frequencyAxisHz,
+                                          const std::vector<double>& sourceDb,
+                                          const ResponseSmoothingSettings& settings);
 SmoothedResponse buildSmoothedResponse(const MeasurementResult& result,
                                        const ResponseSmoothingSettings& settings);
 
