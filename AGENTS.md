@@ -121,6 +121,8 @@ For code changes, verify at least:
 - the changed path is consistent with the module boundaries above
 
 If a runtime behavior change cannot be exercised in the current environment, state that clearly.
+There is no need to run a test suite for small or cosmetic UI changes. Save tokens and time.
+
 
 ## Good Change Patterns
 

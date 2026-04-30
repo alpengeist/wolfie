@@ -105,9 +105,6 @@ private:
         HWND labelWaterfallLowCutoff = nullptr;
         HWND sliderWaterfallLowCutoff = nullptr;
         HWND valueWaterfallLowCutoff = nullptr;
-        HWND infoStatusFrame = nullptr;
-        HWND referenceStatus = nullptr;
-        HWND micCompStatus = nullptr;
         HWND responseLegendFrame = nullptr;
         HWND checkboxShowRoomLeft = nullptr;
         HWND lineRoomLeft = nullptr;
@@ -165,17 +162,12 @@ private:
     static std::wstring formatOutputVolumeLabel(double outputVolumeDb);
     static std::wstring getWindowTextValue(HWND control);
     static void setWindowTextValue(HWND control, const std::wstring& text);
-    static std::wstring referenceStatusText(const AudioSettings& audio,
-                                            const MeasurementSettings& measurement,
-                                            const MeasurementResult& referenceResult);
-    static std::wstring microphoneCompStatusText(const AudioSettings& audio);
 
     ResponseGraphData buildGraphData() const;
     void refreshPlots();
     void updatePlotControlVisibility() const;
     void updateLegendVisibility() const;
     void setInteractiveControlsEnabled(bool enabled) const;
-    void refreshReferenceStatusLabels() const;
     void refreshActionButtons() const;
     void createControls();
 

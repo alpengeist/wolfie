@@ -53,11 +53,6 @@ std::optional<std::filesystem::path> pickCalibrationFile(HWND owner, const std::
     return std::filesystem::path(buffer);
 }
 
-bool hasValidMicrophoneCalibration(const AudioSettings& audio) {
-    return audio.microphoneCalibrationFrequencyHz.size() >= 2 &&
-           audio.microphoneCalibrationFrequencyHz.size() == audio.microphoneCalibrationCorrectionDb.size();
-}
-
 std::vector<double> buildMonoReferenceValues(const MeasurementValueSet& valueSet) {
     std::vector<double> values;
     const size_t count = std::min({valueSet.xValues.size(), valueSet.leftValues.size(), valueSet.rightValues.size()});
@@ -113,49 +108,6 @@ std::vector<double> resampleLogFrequency(const std::vector<double>& sourceAxisHz
         resampled.push_back(interpolateLinear(x, x0, sourceValues[lowerIndex], x1, sourceValues[upperIndex]));
     }
     return resampled;
-}
-
-std::wstring referenceStaleReason(const AudioSettings& audio,
-                                  const MeasurementSettings& measurement,
-                                  const MeasurementResult& referenceResult) {
-    if (!referenceResult.hasAnyValues()) {
-        return L"missing";
-    }
-    if (!audio.loopbackEnabled) {
-        return L"loopback off";
-    }
-
-    const MeasurementAnalysis& analysis = referenceResult.analysis;
-    if (analysis.sampleRate > 0 && analysis.sampleRate != measurement.sampleRate) {
-        return L"sample rate changed";
-    }
-    if (!analysis.requestedBackend.empty() && analysis.requestedBackend != audio.backend) {
-        return L"backend changed";
-    }
-    if (audio.backend == "asio") {
-        if (!analysis.requestedDriver.empty() && analysis.requestedDriver != audio.driver) {
-            return L"driver changed";
-        }
-    } else {
-        if (!analysis.requestedWindowsInputDeviceId.empty() &&
-            analysis.requestedWindowsInputDeviceId != audio.windowsInputDeviceId) {
-            return L"input device changed";
-        }
-        if (!analysis.requestedWindowsOutputDeviceId.empty() &&
-            analysis.requestedWindowsOutputDeviceId != audio.windowsOutputDeviceId) {
-            return L"output device changed";
-        }
-    }
-    if (analysis.requestedMicInputChannel > 0 && analysis.requestedMicInputChannel != audio.loopbackInputChannel) {
-        return L"loopback input changed";
-    }
-    if (analysis.requestedLeftOutputChannel > 0 && analysis.requestedLeftOutputChannel != audio.leftOutputChannel) {
-        return L"left output changed";
-    }
-    if (analysis.requestedRightOutputChannel > 0 && analysis.requestedRightOutputChannel != audio.rightOutputChannel) {
-        return L"right output changed";
-    }
-    return {};
 }
 
 void drawLegendFrame(const DRAWITEMSTRUCT& draw) {
@@ -526,20 +478,6 @@ void MeasurementPage::createControls() {
                                                          instance_,
                                                          nullptr);
     controls_.valueWaterfallLowCutoff = CreateWindowW(L"STATIC", L"-72 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.infoStatusFrame = CreateWindowExW(0,
-                                              L"STATIC",
-                                              L"",
-                                              WS_CHILD | WS_VISIBLE | SS_ETCHEDFRAME,
-                                              0,
-                                              0,
-                                              0,
-                                              0,
-                                              window_,
-                                              nullptr,
-                                              instance_,
-                                              nullptr);
-    controls_.referenceStatus = CreateWindowW(L"STATIC", L"Reference: missing", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.micCompStatus = CreateWindowW(L"STATIC", L"Mic compensation: none", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.responseLegendFrame = CreateWindowW(L"STATIC",
                                                   L"",
                                                   WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
@@ -684,7 +622,6 @@ void MeasurementPage::layout() {
     constexpr int kWaterfallCutoffValueWidth = 56;
     constexpr int kLegendGap = 14;
     constexpr int kLegendWidth = 172;
-    constexpr int kInfoBoxHeight = 48;
     constexpr int kCalibrationLabelWidth = 104;
     constexpr int kCalibrationBrowseWidth = 74;
     constexpr int kCalibrationClearWidth = 58;
@@ -921,13 +858,6 @@ void MeasurementPage::layout() {
                kWaterfallCutoffValueWidth,
                18,
                TRUE);
-    const int infoBoxWidth = std::clamp(innerWidth / 4, 260, 340);
-    const int infoBoxLeft = contentLeft + innerWidth - infoBoxWidth;
-    const int infoBoxTop = paramsTop;
-    MoveWindow(controls_.infoStatusFrame, infoBoxLeft, infoBoxTop, infoBoxWidth, kInfoBoxHeight, TRUE);
-    MoveWindow(controls_.referenceStatus, infoBoxLeft + 14, infoBoxTop + 10, infoBoxWidth - 28, 16, TRUE);
-    MoveWindow(controls_.micCompStatus, infoBoxLeft + 14, infoBoxTop + 26, infoBoxWidth - 28, 16, TRUE);
-
     const bool waterfallVisible =
         plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0))) == "waterfall";
     const int graphTop = graphControlsTop + 56;
@@ -1040,7 +970,6 @@ void MeasurementPage::setWorkspaceView(const WorkspaceState& workspace) {
     measurementSettings_ = workspace.measurement;
     result_ = workspace.result;
     referenceResult_ = workspace.referenceResult;
-    refreshReferenceStatusLabels();
     refreshActionButtons();
     refreshPlots();
 }
@@ -1509,37 +1438,6 @@ void MeasurementPage::setWindowTextValue(HWND control, const std::wstring& text)
     SetWindowTextW(control, text.c_str());
 }
 
-std::wstring MeasurementPage::referenceStatusText(const AudioSettings& audio,
-                                                  const MeasurementSettings& measurement,
-                                                  const MeasurementResult& referenceResult) {
-    const std::wstring staleReason = referenceStaleReason(audio, measurement, referenceResult);
-    if (staleReason == L"missing") {
-        return L"Reference: missing";
-    }
-
-    std::wstring text = L"Reference: ";
-    if (staleReason.empty()) {
-        text += L"current";
-    } else {
-        text += L"stale (" + staleReason + L")";
-    }
-
-    if (!referenceResult.analysis.measurementTimestampUtc.empty()) {
-        text += L" - " + toWide(referenceResult.analysis.measurementTimestampUtc);
-    }
-    return text;
-}
-
-std::wstring MeasurementPage::microphoneCompStatusText(const AudioSettings& audio) {
-    if (audio.microphoneCalibrationPath.empty()) {
-        return L"Mic calibration: none";
-    }
-    if (!hasValidMicrophoneCalibration(audio)) {
-        return L"Mic calibration: invalid";
-    }
-    return L"Mic calibration: loaded";
-}
-
 ResponseGraphData MeasurementPage::buildGraphData() const {
     ResponseGraphData data;
     const MeasurementValueSet* magnitudeResponse = result_.magnitudeResponse();
@@ -1618,11 +1516,6 @@ void MeasurementPage::updateLegendVisibility() const {
     EnableWindow(controls_.checkboxShowReference, hasReference ? TRUE : FALSE);
     EnableWindow(controls_.lineReference, hasReference ? TRUE : FALSE);
     EnableWindow(controls_.labelReference, hasReference ? TRUE : FALSE);
-}
-
-void MeasurementPage::refreshReferenceStatusLabels() const {
-    setWindowTextValue(controls_.referenceStatus, referenceStatusText(audioSettings_, measurementSettings_, referenceResult_));
-    setWindowTextValue(controls_.micCompStatus, microphoneCompStatusText(audioSettings_));
 }
 
 void MeasurementPage::refreshActionButtons() const {

@@ -1475,10 +1475,11 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         }
         break;
     case WM_CTLCOLOREDIT: {
+        static HBRUSH inputBrush = GetSysColorBrush(COLOR_WINDOW);
         HDC hdc = reinterpret_cast<HDC>(wParam);
-        SetBkColor(hdc, ui_theme::panelBackgroundColor());
+        SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
         SetTextColor(hdc, ui_theme::kText);
-        return reinterpret_cast<INT_PTR>(ui_theme::panelBackgroundBrush());
+        return reinterpret_cast<INT_PTR>(inputBrush);
     }
     default:
         break;

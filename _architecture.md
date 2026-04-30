@@ -157,7 +157,11 @@ The shared UI theme lives in `src/ui/ui_theme.h`.
 Current design rules:
 
 - Use the system button-face color for page and dialog backgrounds so the app keeps a native Win32 surface.
+- Use the standard window/input surface for editable fields such as `EDIT` and editable parameter controls so active inputs do not read as disabled.
 - Treat charts as distinct work surfaces with a white background, even when the surrounding page is gray.
+- Reserve tinted or gray surfaces for page chrome, frames, non-editable status areas, and passive labels rather than live input fields.
+- Use the shared in-dialog help bubble pattern for parameter help instead of hover-only tooltip popups when the UI needs explanatory text for calculation settings.
+- New calculation input parameters should get a help tooltip/bubble by default unless the field is genuinely self-evident and does not benefit from extra explanation.
 - Keep shared UI colors such as border, accent, muted text, and graph overlay colors centralized in `ui_theme` rather than duplicated inside pages or widgets.
 - Reusable graph widgets should obtain their background and overlay colors through `ui_theme` helpers such as `graphBackgroundColor()` and `graphBackgroundBrush()`.
 - Page modules may decide layout and visibility, but they should not invent page-local color schemes when an existing shared theme value fits.
@@ -165,7 +169,9 @@ Current design rules:
 Why this split exists:
 
 - The gray application chrome keeps the rest of the UI aligned with native controls.
+- White input surfaces preserve the native affordance that editable controls are active and focusable.
 - White chart surfaces improve trace contrast, grid readability, and visual separation between control areas and analysis views.
+- Press-and-hold help bubbles are more reliable in this Win32 surface than transient hover balloons and make parameter semantics discoverable without leaving the workflow.
 - Centralizing theme values keeps cosmetic changes local and avoids drift between `response_graph`, `plot_graph`, `target_curve_graph`, and `waterfall_graph`.
 
 ### `src/wolfie_app.*`
