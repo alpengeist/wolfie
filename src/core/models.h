@@ -41,17 +41,23 @@ struct MeasurementSettings {
     int sampleRate = 44100;
     double fadeInSeconds = 0.5;
     double fadeOutSeconds = 0.1;
-    double durationSeconds = 60.0;
+    double durationSeconds = 20.0;
     double startFrequencyHz = 20.0;
     double endFrequencyHz = 22050.0;
     int targetLengthSamples = 65536;
     int leadInSamples = 6000;
 };
 
+enum class ProcessLogSize {
+    Compact,
+    Medium,
+    Expanded
+};
+
 struct UiSettings {
     int measurementSectionHeight = 320;
     int resultSectionHeight = 360;
-    int processLogHeight = 190;
+    ProcessLogSize processLogSize = ProcessLogSize::Medium;
     double measurementGraphExtraRangeDb = 0.0;
     double measurementGraphVerticalOffsetDb = 0.0;
     bool measurementGraphHasCustomFrequencyRange = false;
@@ -59,6 +65,7 @@ struct UiSettings {
     double measurementGraphVisibleMaxFrequencyHz = 20000.0;
     std::string measurementPlotMode = "magnitude";
     std::string measurementWaterfallChannel = "left";
+    double measurementWaterfallLowCutoffDb = -72.0;
     bool measurementShowRoomLeft = true;
     bool measurementShowRoomRight = true;
     bool measurementShowReference = true;
@@ -283,6 +290,33 @@ struct TargetCurveProfile {
     TargetCurveSettings curve;
 };
 
+struct RoomSimulationSettings {
+    double stereoSkewMs = 0.25;
+    double spectralTiltDbPerOctave = -0.75;
+    double lowShelfGainDb = 5.0;
+    double lowShelfCornerHz = 140.0;
+    double modalPeakFrequencyHz = 52.0;
+    double modalPeakGainDb = 6.0;
+    double modalPeakQ = 8.0;
+    double modalNullFrequencyHz = 88.0;
+    double modalNullDepthDb = 10.0;
+    double modalNullQ = 10.0;
+    int earlyReflectionCount = 6;
+    double earlyReflectionStartMs = 7.5;
+    double earlyReflectionSpacingMs = 4.2;
+    double earlyReflectionDecayDbPerTap = 2.2;
+    double lateDecayRt60Ms = 420.0;
+    double lateDecayStartDb = -22.0;
+    double lateDensityPerSecond = 180.0;
+    double noiseFloorDb = -72.0;
+    int seed = 1;
+};
+
+struct RoomSimulationDefinition {
+    std::string name;
+    RoomSimulationSettings settings;
+};
+
 struct FilterDesignSettings {
     int tapCount = 65536;
     double maxBoostDb = 6.0;
@@ -333,6 +367,8 @@ struct WorkspaceState {
     std::filesystem::path rootPath;
     AudioSettings audio;
     MeasurementSettings measurement;
+    std::string activeRoomSimulationName;
+    std::vector<RoomSimulationDefinition> roomSimulations;
     ResponseSmoothingSettings smoothing;
     TargetCurveSettings targetCurve;
     std::string activeTargetCurveProfileName = "Default";

@@ -146,7 +146,7 @@ void WaterfallGraph::registerWindowClass(HINSTANCE instance) {
     graphClass.hInstance = instance;
     graphClass.lpszClassName = kWindowClassName;
     graphClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    graphClass.hbrBackground = CreateSolidBrush(RGB(248, 250, 252));
+    graphClass.hbrBackground = ui_theme::graphBackgroundBrush();
     RegisterClassW(&graphClass);
 }
 
@@ -167,6 +167,11 @@ void WaterfallGraph::create(HWND parent, HINSTANCE instance, int controlId) {
 
 void WaterfallGraph::setData(measurement::WaterfallPlotData data) {
     data_ = std::move(data);
+    invalidate();
+}
+
+void WaterfallGraph::setLowCutoffDb(double lowCutoffDb) {
+    lowCutoffDb_ = lowCutoffDb;
     invalidate();
 }
 
@@ -216,9 +221,7 @@ void WaterfallGraph::onPaint() const {
 
     RECT rect{};
     GetClientRect(window_, &rect);
-    HBRUSH background = CreateSolidBrush(RGB(248, 250, 252));
-    FillRect(hdc, &rect, background);
-    DeleteObject(background);
+    FillRect(hdc, &rect, ui_theme::graphBackgroundBrush());
 
     SetBkMode(hdc, TRANSPARENT);
     SelectObject(hdc, GetStockObject(DC_PEN));
@@ -255,8 +258,10 @@ void WaterfallGraph::onPaint() const {
         return;
     }
 
+    const double displayMinDb = clampValue(lowCutoffDb_, data_.minDb, data_.maxDb - 1.0);
+    const double displayMaxDb = std::max(data_.maxDb, displayMinDb + 1.0);
     const std::vector<double> xTicks = majorFrequencyTicks();
-    const std::vector<double> tickValues = yTicks(data_.minDb, data_.maxDb);
+    const std::vector<double> tickValues = yTicks(displayMinDb, displayMaxDb);
     constexpr double kYawDegrees = 20.0;
     const int depthDx =
         std::max(8, static_cast<int>(std::lround(static_cast<double>(elevation) * std::tan(kYawDegrees * 3.14159265358979323846 / 180.0))));
@@ -274,7 +279,7 @@ void WaterfallGraph::onPaint() const {
 
     SetDCPenColor(hdc, blendTowardWhite(ui_theme::kBorder, 0.12));
     for (const double tick : tickValues) {
-        const int yFront = graphYFromDb(graph, tick, data_.minDb, data_.maxDb);
+        const int yFront = graphYFromDb(graph, tick, displayMinDb, displayMaxDb);
         const int yBack = projectY(yFront, 1.0);
         MoveToEx(hdc, backLeft, yBack, nullptr);
         LineTo(hdc, backRight, yBack);
@@ -330,7 +335,8 @@ void WaterfallGraph::onPaint() const {
 
         for (size_t pointIndex = 0; pointIndex < data_.frequencyAxisHz.size() && pointIndex < slice.valuesDb.size(); ++pointIndex) {
             const int xFront = graphXFromFrequency(graph, data_.frequencyAxisHz[pointIndex]);
-            const int yFront = graphYFromDb(graph, slice.valuesDb[pointIndex], data_.minDb, data_.maxDb);
+            const double valueDb = std::max(slice.valuesDb[pointIndex], displayMinDb);
+            const int yFront = graphYFromDb(graph, valueDb, displayMinDb, displayMaxDb);
             const int x = projectX(xFront, depthT);
             const int y = projectY(yFront, depthT);
             ridge.push_back(POINT{x, y});
@@ -360,7 +366,7 @@ void WaterfallGraph::onPaint() const {
     const int xTickTop = graph.bottom + 4;
     const int xTickBottom = xTickTop + textHeight + 4;
     for (const double tick : tickValues) {
-        const int y = graphYFromDb(graph, tick, data_.minDb, data_.maxDb);
+        const int y = graphYFromDb(graph, tick, displayMinDb, displayMaxDb);
         RECT labelRect{
             rect.left + yUnitWidth + 6,
             y - (textHeight / 2),

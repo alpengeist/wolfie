@@ -24,27 +24,8 @@ T clampValue(T value, T low, T high) {
 }
 
 constexpr double kMutedOutputVolumeDb = -100.0;
-
-std::wstring formatBool(bool value) {
-    return value ? L"Yes" : L"No";
-}
-
-std::wstring formatSamples(int sampleCount) {
-    return std::to_wstring(sampleCount) + L" samples";
-}
-
-std::wstring formatSamplesAndMs(int sampleCount, int sampleRate) {
-    std::wstring text = formatSamples(sampleCount);
-    if (sampleRate > 0) {
-        const double milliseconds = static_cast<double>(sampleCount) * 1000.0 / static_cast<double>(sampleRate);
-        text += L" (" + formatWideDouble(milliseconds, 2) + L" ms)";
-    }
-    return text;
-}
-
-std::wstring formatPathValue(const std::filesystem::path& path) {
-    return path.empty() ? L"-" : path.wstring();
-}
+constexpr double kLevelMeterMinDb = -90.0;
+constexpr double kLevelMeterMaxDb = 0.0;
 
 std::optional<std::filesystem::path> pickCalibrationFile(HWND owner, const std::filesystem::path& initialPath) {
     std::wstring buffer(32768, L'\0');
@@ -177,35 +158,8 @@ std::wstring referenceStaleReason(const AudioSettings& audio,
     return {};
 }
 
-void drawDisclosureTriangle(HDC hdc, const RECT& rect, bool collapsed, COLORREF color) {
-    const int centerX = (rect.left + rect.right) / 2;
-    const int centerY = (rect.top + rect.bottom) / 2;
-    POINT points[3]{};
-    if (collapsed) {
-        points[0] = {centerX - 3, centerY - 5};
-        points[1] = {centerX + 4, centerY};
-        points[2] = {centerX - 3, centerY + 5};
-    } else {
-        points[0] = {centerX - 5, centerY - 2};
-        points[1] = {centerX + 5, centerY - 2};
-        points[2] = {centerX, centerY + 4};
-    }
-
-    HPEN pen = CreatePen(PS_SOLID, 1, color);
-    HBRUSH brush = CreateSolidBrush(color);
-    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
-    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, brush));
-    Polygon(hdc, points, 3);
-    SelectObject(hdc, oldBrush);
-    SelectObject(hdc, oldPen);
-    DeleteObject(brush);
-    DeleteObject(pen);
-}
-
 void drawLegendFrame(const DRAWITEMSTRUCT& draw) {
-    HBRUSH backgroundBrush = CreateSolidBrush(ui_theme::kBackground);
-    FillRect(draw.hDC, &draw.rcItem, backgroundBrush);
-    DeleteObject(backgroundBrush);
+    FillRect(draw.hDC, &draw.rcItem, ui_theme::backgroundBrush());
 
     const int savedDc = SaveDC(draw.hDC);
     SelectObject(draw.hDC, GetStockObject(HOLLOW_BRUSH));
@@ -217,9 +171,7 @@ void drawLegendFrame(const DRAWITEMSTRUCT& draw) {
 }
 
 void drawLegendLineSample(const DRAWITEMSTRUCT& draw, COLORREF color, bool dashed) {
-    HBRUSH backgroundBrush = CreateSolidBrush(ui_theme::kBackground);
-    FillRect(draw.hDC, &draw.rcItem, backgroundBrush);
-    DeleteObject(backgroundBrush);
+    FillRect(draw.hDC, &draw.rcItem, ui_theme::backgroundBrush());
 
     const int savedDc = SaveDC(draw.hDC);
     HPEN pen = CreatePen(dashed ? PS_DASH : PS_SOLID, 1, color);
@@ -231,6 +183,136 @@ void drawLegendLineSample(const DRAWITEMSTRUCT& draw, COLORREF color, bool dashe
     DeleteObject(pen);
 }
 
+HFONT createUiFont(int pixelHeight, LONG weight) {
+    LOGFONTW font{};
+    HFONT guiFont = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    GetObjectW(guiFont, sizeof(font), &font);
+    font.lfHeight = -pixelHeight;
+    font.lfWeight = weight;
+    return CreateFontIndirectW(&font);
+}
+
+void drawCenteredText(HDC hdc, RECT rect, const std::wstring& text, COLORREF color, int maxPixelHeight, LONG weight) {
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, color);
+
+    const int minPixelHeight = 12;
+    for (int pixelHeight = maxPixelHeight; pixelHeight >= minPixelHeight; --pixelHeight) {
+        HFONT font = createUiFont(pixelHeight, weight);
+        HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, font));
+        RECT textRect = rect;
+        DrawTextW(hdc, text.c_str(), -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_CALCRECT);
+        const bool fits = (textRect.right - textRect.left) <= (rect.right - rect.left) &&
+                          (textRect.bottom - textRect.top) <= (rect.bottom - rect.top);
+        SelectObject(hdc, oldFont);
+        if (fits) {
+            oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, font));
+            DrawTextW(hdc, text.c_str(), -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            SelectObject(hdc, oldFont);
+            DeleteObject(font);
+            return;
+        }
+        DeleteObject(font);
+    }
+
+    HFONT fallbackFont = createUiFont(minPixelHeight, weight);
+    HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, fallbackFont));
+    DrawTextW(hdc, text.c_str(), -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    SelectObject(hdc, oldFont);
+    DeleteObject(fallbackFont);
+}
+
+int meterXFromDb(const RECT& rect, double dbValue) {
+    const double clampedDb = clampValue(dbValue, kLevelMeterMinDb, kLevelMeterMaxDb);
+    const double ratio = (clampedDb - kLevelMeterMinDb) / (kLevelMeterMaxDb - kLevelMeterMinDb);
+    return rect.left + static_cast<int>(std::lround(ratio * static_cast<double>(rect.right - rect.left)));
+}
+
+void drawFrequencyDisplay(const DRAWITEMSTRUCT& draw, double currentFrequencyHz) {
+    FillRect(draw.hDC, &draw.rcItem, ui_theme::backgroundBrush());
+    RECT textRect = draw.rcItem;
+    InflateRect(&textRect, -4, -2);
+    const std::wstring text = std::to_wstring(std::max(0, static_cast<int>(std::lround(currentFrequencyHz))));
+    drawCenteredText(draw.hDC,
+                     textRect,
+                     text,
+                     ui_theme::kText,
+                     std::max(18, static_cast<int>(textRect.bottom - textRect.top - 4)),
+                     FW_BOLD);
+}
+
+void drawLevelMeter(const DRAWITEMSTRUCT& draw, double currentAmplitudeDb, double peakAmplitudeDb) {
+    FillRect(draw.hDC, &draw.rcItem, ui_theme::backgroundBrush());
+
+    RECT barRect = draw.rcItem;
+    InflateRect(&barRect, -6, -8);
+    barRect.bottom -= 16;
+    if ((barRect.right - barRect.left) < 24 || (barRect.bottom - barRect.top) < 12) {
+        return;
+    }
+
+    HBRUSH trackBrush = CreateSolidBrush(RGB(236, 240, 245));
+    FillRect(draw.hDC, &barRect, trackBrush);
+    DeleteObject(trackBrush);
+
+    HPEN borderPen = CreatePen(PS_SOLID, 1, ui_theme::kBorder);
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(draw.hDC, borderPen));
+    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(draw.hDC, GetStockObject(HOLLOW_BRUSH)));
+    Rectangle(draw.hDC, barRect.left, barRect.top, barRect.right, barRect.bottom);
+    SelectObject(draw.hDC, oldBrush);
+    SelectObject(draw.hDC, oldPen);
+    DeleteObject(borderPen);
+
+    RECT fillRect = barRect;
+    fillRect.left += 1;
+    fillRect.top += 1;
+    fillRect.bottom -= 1;
+    fillRect.right = std::max(fillRect.left, static_cast<LONG>(meterXFromDb(barRect, currentAmplitudeDb) - 1));
+    const int fillWidth = fillRect.right - fillRect.left;
+    if (fillWidth > 0) {
+        for (int x = 0; x < fillWidth; ++x) {
+            const double ratio = static_cast<double>(x) / std::max(1, fillWidth - 1);
+            const COLORREF startColor = ui_theme::blendColor(ui_theme::kGreen, ui_theme::kGold, ratio * 1.2);
+            const COLORREF barColor = ui_theme::blendColor(startColor, ui_theme::kRed, std::max(0.0, (ratio - 0.72) / 0.28));
+            HPEN pen = CreatePen(PS_SOLID, 1, barColor);
+            HPEN activePen = reinterpret_cast<HPEN>(SelectObject(draw.hDC, pen));
+            MoveToEx(draw.hDC, fillRect.left + x, fillRect.top, nullptr);
+            LineTo(draw.hDC, fillRect.left + x, fillRect.bottom);
+            SelectObject(draw.hDC, activePen);
+            DeleteObject(pen);
+        }
+    }
+
+    const double scaleMarksDb[] = {-90.0, -60.0, -30.0, -12.0, 0.0};
+    SetBkMode(draw.hDC, TRANSPARENT);
+    SetTextColor(draw.hDC, ui_theme::kMuted);
+    HFONT scaleFont = createUiFont(11, FW_NORMAL);
+    HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(draw.hDC, scaleFont));
+    for (const double dbMark : scaleMarksDb) {
+        const int x = meterXFromDb(barRect, dbMark);
+        HPEN tickPen = CreatePen(PS_SOLID, 1, ui_theme::blendColor(ui_theme::kBorder, ui_theme::kMuted, 0.35));
+        HPEN activePen = reinterpret_cast<HPEN>(SelectObject(draw.hDC, tickPen));
+        MoveToEx(draw.hDC, x, barRect.top + 1, nullptr);
+        LineTo(draw.hDC, x, barRect.bottom - 1);
+        SelectObject(draw.hDC, activePen);
+        DeleteObject(tickPen);
+
+        RECT labelRect{x - 22, barRect.bottom + 2, x + 22, draw.rcItem.bottom};
+        const std::wstring label = std::to_wstring(static_cast<int>(dbMark));
+        DrawTextW(draw.hDC, label.c_str(), -1, &labelRect, DT_CENTER | DT_TOP | DT_SINGLELINE);
+    }
+    SelectObject(draw.hDC, oldFont);
+    DeleteObject(scaleFont);
+
+    const int peakX = meterXFromDb(barRect, peakAmplitudeDb);
+    HPEN peakPen = CreatePen(PS_SOLID, 2, RGB(120, 35, 35));
+    oldPen = reinterpret_cast<HPEN>(SelectObject(draw.hDC, peakPen));
+    MoveToEx(draw.hDC, peakX, barRect.top - 1, nullptr);
+    LineTo(draw.hDC, peakX, barRect.bottom + 1);
+    SelectObject(draw.hDC, oldPen);
+    DeleteObject(peakPen);
+}
+
 }  // namespace
 
 void MeasurementPage::registerPageWindowClass(HINSTANCE instance) {
@@ -239,7 +321,7 @@ void MeasurementPage::registerPageWindowClass(HINSTANCE instance) {
     pageClass.hInstance = instance;
     pageClass.lpszClassName = kPageClassName;
     pageClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    pageClass.hbrBackground = CreateSolidBrush(ui_theme::kBackground);
+    pageClass.hbrBackground = ui_theme::backgroundBrush();
     RegisterClassW(&pageClass);
 }
 
@@ -341,6 +423,18 @@ void MeasurementPage::createControls() {
     controls_.outputVolumeSlider = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS | TBS_HORZ, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.outputVolumeMuteLabel = CreateWindowW(L"STATIC", L"Mute", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.outputVolumeMaxLabel = CreateWindowW(L"STATIC", L"0 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.actionMetersFrame = CreateWindowExW(0,
+                                                  L"STATIC",
+                                                  L"",
+                                                  WS_CHILD | WS_VISIBLE | SS_ETCHEDFRAME,
+                                                  0,
+                                                  0,
+                                                  0,
+                                                  0,
+                                                  window_,
+                                                  nullptr,
+                                                  instance_,
+                                                  nullptr);
     controls_.buttonMeasure = CreateWindowW(L"BUTTON", L"START", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonMeasure), instance_, nullptr);
     controls_.buttonMeasureReference = CreateWindowW(L"BUTTON",
                                                      L"REFERENCE",
@@ -353,15 +447,45 @@ void MeasurementPage::createControls() {
                                                      reinterpret_cast<HMENU>(kButtonMeasureReference),
                                                      instance_,
                                                      nullptr);
+    controls_.buttonRoomSimulation = CreateWindowW(L"BUTTON",
+                                                   L"Sim",
+                                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   window_,
+                                                   reinterpret_cast<HMENU>(kButtonRoomSimulation),
+                                                   instance_,
+                                                   nullptr);
     controls_.leftChannelLabel = CreateWindowW(L"STATIC", L"Left", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.leftProgressBar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.leftProgressText = CreateWindowW(L"STATIC", L"0%", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.rightChannelLabel = CreateWindowW(L"STATIC", L"Right", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.rightProgressBar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.rightProgressText = CreateWindowW(L"STATIC", L"0%", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.currentFrequency = CreateWindowW(L"STATIC", L"Freq 0 Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.currentAmplitude = CreateWindowW(L"STATIC", L"Amp -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.peakAmplitude = CreateWindowW(L"STATIC", L"Peak -90 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.frequencyDisplay = CreateWindowW(L"STATIC",
+                                               L"",
+                                               WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
+                                               0,
+                                               0,
+                                               0,
+                                               0,
+                                               window_,
+                                               reinterpret_cast<HMENU>(kFrequencyDisplay),
+                                               instance_,
+                                               nullptr);
+    controls_.levelMeter = CreateWindowW(L"STATIC",
+                                         L"",
+                                         WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
+                                         0,
+                                         0,
+                                         0,
+                                         0,
+                                         window_,
+                                         reinterpret_cast<HMENU>(kLevelMeter),
+                                         instance_,
+                                         nullptr);
     controls_.labelPlot = CreateWindowW(L"STATIC", L"Plot", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.comboPlot = CreateWindowW(L"COMBOBOX",
                                         nullptr,
@@ -386,6 +510,20 @@ void MeasurementPage::createControls() {
                                                     reinterpret_cast<HMENU>(kComboWaterfallChannel),
                                                     instance_,
                                                     nullptr);
+    controls_.labelWaterfallLowCutoff = CreateWindowW(L"STATIC", L"Low Cutoff", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.sliderWaterfallLowCutoff = CreateWindowExW(0,
+                                                         TRACKBAR_CLASSW,
+                                                         nullptr,
+                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         0,
+                                                         window_,
+                                                         reinterpret_cast<HMENU>(kSliderWaterfallLowCutoff),
+                                                         instance_,
+                                                         nullptr);
+    controls_.valueWaterfallLowCutoff = CreateWindowW(L"STATIC", L"-72 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.infoStatusFrame = CreateWindowExW(0,
                                               L"STATIC",
                                               L"",
@@ -450,30 +588,6 @@ void MeasurementPage::createControls() {
                                                     nullptr);
     controls_.lineReference = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelReference = CreateWindowW(L"STATIC", L"Reference", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.metadataLabel = CreateWindowW(L"STATIC", L"Measurement Metadata", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.metadataToggle = CreateWindowW(L"BUTTON",
-                                             L"",
-                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                                             0,
-                                             0,
-                                             0,
-                                             0,
-                                             window_,
-                                             reinterpret_cast<HMENU>(kButtonMetadataToggle),
-                                             instance_,
-                                             nullptr);
-    controls_.metadataTable = CreateWindowExW(WS_EX_CLIENTEDGE,
-                                              WC_LISTVIEWW,
-                                              nullptr,
-                                              WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
-                                              0,
-                                              0,
-                                              0,
-                                              0,
-                                              window_,
-                                              reinterpret_cast<HMENU>(kMetadataTable),
-                                              instance_,
-                                              nullptr);
 
     responseGraph_.create(window_, instance_, kResponseGraph);
     waterfallGraph_.create(window_, instance_);
@@ -498,6 +612,7 @@ void MeasurementPage::createControls() {
     SetWindowLongPtrW(controls_.unitLeadIn, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelPlot, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelWaterfallChannel, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.labelWaterfallLowCutoff, GWL_STYLE, centeredStaticStyle);
     SendMessageW(controls_.editEndFrequency, EM_SETREADONLY, TRUE, 0);
     SendMessageW(controls_.checkboxShowRoomLeft, BM_SETCHECK, BST_CHECKED, 0);
     SendMessageW(controls_.checkboxShowRoomRight, BM_SETCHECK, BST_CHECKED, 0);
@@ -511,21 +626,12 @@ void MeasurementPage::createControls() {
     SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMIN, FALSE, 0);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETRANGEMAX, FALSE, kOutputVolumeSliderMax);
     SendMessageW(controls_.outputVolumeSlider, TBM_SETTICFREQ, 10, 0);
-    ListView_SetExtendedListViewStyle(controls_.metadataTable,
-                                      LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
-    LVCOLUMNW column{};
-    column.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
-    column.pszText = const_cast<LPWSTR>(L"Section");
-    column.cx = 132;
-    ListView_InsertColumn(controls_.metadataTable, 0, &column);
-    column.pszText = const_cast<LPWSTR>(L"Metric");
-    column.cx = 220;
-    column.iSubItem = 1;
-    ListView_InsertColumn(controls_.metadataTable, 1, &column);
-    column.pszText = const_cast<LPWSTR>(L"Value");
-    column.cx = 560;
-    column.iSubItem = 2;
-    ListView_InsertColumn(controls_.metadataTable, 2, &column);
+    SendMessageW(controls_.sliderWaterfallLowCutoff, TBM_SETRANGEMIN, FALSE, 0);
+    SendMessageW(controls_.sliderWaterfallLowCutoff,
+                 TBM_SETRANGEMAX,
+                 FALSE,
+                 kWaterfallLowCutoffMaxDb - kWaterfallLowCutoffMinDb);
+    SendMessageW(controls_.sliderWaterfallLowCutoff, TBM_SETTICFREQ, 6, 0);
     populateMeasurementSampleRateCombo(controls_.comboSampleRate);
     populatePlotCombo(controls_.comboPlot);
     populateWaterfallChannelCombo(controls_.comboWaterfallChannel);
@@ -560,6 +666,11 @@ void MeasurementPage::layout() {
     constexpr int kSliderValueWidth = 56;
     constexpr int kGraphComboWidth = 150;
     constexpr int kGraphComboHeight = 220;
+    constexpr int kWaterfallChannelLabelWidth = 72;
+    constexpr int kWaterfallChannelComboWidth = 110;
+    constexpr int kWaterfallCutoffLabelWidth = 72;
+    constexpr int kWaterfallCutoffSliderWidth = 160;
+    constexpr int kWaterfallCutoffValueWidth = 56;
     constexpr int kLegendGap = 14;
     constexpr int kLegendWidth = 172;
     constexpr int kInfoBoxHeight = 48;
@@ -567,6 +678,17 @@ void MeasurementPage::layout() {
     constexpr int kCalibrationBrowseWidth = 74;
     constexpr int kCalibrationClearWidth = 58;
     constexpr int kCalibrationGap = 10;
+    constexpr int kReferenceButtonWidth = 138;
+    constexpr int kSimButtonWidth = 56;
+    constexpr int kActionFramePaddingX = 12;
+    constexpr int kActionGroupGap = 18;
+    constexpr int kActionFrameHeight = 64;
+    constexpr int kActionFrameBottomGap = 14;
+    constexpr int kMinProgressBarWidth = 96;
+    constexpr int kFrequencyDisplayMinWidth = 82;
+    constexpr int kFrequencyDisplayMaxWidth = 118;
+    constexpr int kMeterBlockMinWidth = 176;
+    constexpr int kLevelMeterMinWidth = 150;
 
     auto placeCenteredFieldWithUnit = [&](HWND label, HWND edit, HWND unit, int left, int top, int labelWidth, int editWidth, int unitWidth) {
         const int labelLeft = left + ((editWidth - labelWidth) / 2);
@@ -629,43 +751,164 @@ void MeasurementPage::layout() {
     MoveWindow(controls_.outputVolumeMaxLabel, contentLeft + 100 + kSliderValueWidth + 12 + kSliderWidth - 40, volumeTop + 32, 40, 18, TRUE);
 
     const int metricsTop = volumeTop + 66;
+    const int buttonsBlockWidth = kButtonWidth + 10 + kReferenceButtonWidth + 8 + kSimButtonWidth;
     const int dataRowTop = metricsTop;
     const int progressRowTop = dataRowTop + 30;
-    const int buttonTop = dataRowTop - 4;
-    const int buttonHeight = (progressRowTop + 20) - buttonTop;
-    constexpr int kReferenceButtonWidth = 138;
-    MoveWindow(controls_.buttonMeasure, contentLeft, buttonTop, kButtonWidth, buttonHeight, TRUE);
-    MoveWindow(controls_.buttonMeasureReference,
-               contentLeft + kButtonWidth + 10,
-               buttonTop,
-               kReferenceButtonWidth,
-               buttonHeight,
-               TRUE);
-    int metricLeft = contentLeft + kButtonWidth + 10 + kReferenceButtonWidth + kMetricGap;
-    MoveWindow(controls_.currentFrequency, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
-    metricLeft += kMetricWidth + kMetricGap;
-    MoveWindow(controls_.currentAmplitude, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
-    metricLeft += kMetricWidth + kMetricGap;
-    MoveWindow(controls_.peakAmplitude, metricLeft, dataRowTop + 4, kMetricWidth, 20, TRUE);
+    const int legacyButtonTop = dataRowTop - 4;
+    const int legacyButtonHeight = (progressRowTop + 20) - legacyButtonTop;
+    const int actionFrameTop = metricsTop - 4;
+    const bool useGroupedActionFrame = innerWidth >= 860;
+    const int graphControlsAnchorRight = contentLeft + buttonsBlockWidth;
 
-    metricLeft = contentLeft + kButtonWidth + 10 + kReferenceButtonWidth + kMetricGap;
-    MoveWindow(controls_.leftChannelLabel, metricLeft, progressRowTop + 2, kProgressLabelWidth, 18, TRUE);
-    MoveWindow(controls_.leftProgressBar, metricLeft + kProgressLabelWidth + 8, progressRowTop + 4, kProgressBarWidth, 16, TRUE);
-    MoveWindow(controls_.leftProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
-    metricLeft += kProgressLabelWidth + 8 + kProgressBarWidth + 8 + kProgressTextWidth + kMetricGap;
-    MoveWindow(controls_.rightChannelLabel, metricLeft, progressRowTop + 2, kProgressLabelWidth, 18, TRUE);
-    MoveWindow(controls_.rightProgressBar, metricLeft + kProgressLabelWidth + 8, progressRowTop + 4, kProgressBarWidth, 16, TRUE);
-    MoveWindow(controls_.rightProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
+    int metricLeft = 0;
+    int graphControlsTop = progressRowTop + 30;
+    if (useGroupedActionFrame) {
+        const int actionFrameWidth = innerWidth;
+        const int actionFrameBottom = actionFrameTop + kActionFrameHeight;
+        const int buttonHeight = 32;
+        const int buttonTop = actionFrameTop + ((kActionFrameHeight - buttonHeight) / 2);
+        const int buttonLeft = contentLeft + kActionFramePaddingX;
+        const int frequencyLeft = buttonLeft + buttonsBlockWidth + kActionGroupGap;
+        const int frameInnerRight = contentLeft + actionFrameWidth - kActionFramePaddingX;
+        const int meterBlockWidth = std::clamp((innerWidth - 770) / 2, kMeterBlockMinWidth, 228);
+        const int frequencyWidth = std::clamp((innerWidth - 1020) / 2 + 96, kFrequencyDisplayMinWidth, kFrequencyDisplayMaxWidth);
+        const int levelMeterLeft = frameInnerRight - std::max(kLevelMeterMinWidth,
+                                                               frameInnerRight - (frequencyLeft + frequencyWidth + kActionGroupGap + meterBlockWidth + kActionGroupGap));
+        const int metersLeft = levelMeterLeft - kActionGroupGap - meterBlockWidth;
+        const int levelMeterWidth = frameInnerRight - levelMeterLeft;
+        const int meterRowHeight = 20;
+        const int meterRowsHeight = (meterRowHeight * 2) + 4;
+        const int meterTop = actionFrameTop + ((kActionFrameHeight - meterRowsHeight) / 2);
+        const int frequencyTop = actionFrameTop + 6;
+        const int frequencyHeight = kActionFrameHeight - 12;
 
-    const int graphControlsTop = progressRowTop + 30;
-    MoveWindow(controls_.labelPlot, contentLeft, graphControlsTop + 2, 44, 18, TRUE);
-    MoveWindow(controls_.comboPlot, contentLeft + 52, graphControlsTop - 2, kGraphComboWidth, kGraphComboHeight, TRUE);
-    MoveWindow(controls_.labelWaterfallChannel, contentLeft + 220, graphControlsTop + 2, 56, 18, TRUE);
-    MoveWindow(controls_.comboWaterfallChannel,
-               contentLeft + 286,
+        MoveWindow(controls_.actionMetersFrame, contentLeft, actionFrameTop, actionFrameWidth, kActionFrameHeight, TRUE);
+        MoveWindow(controls_.buttonMeasure, buttonLeft, buttonTop, kButtonWidth, buttonHeight, TRUE);
+        MoveWindow(controls_.buttonMeasureReference,
+                   buttonLeft + kButtonWidth + 10,
+                   buttonTop,
+                   kReferenceButtonWidth,
+                   buttonHeight,
+                   TRUE);
+        MoveWindow(controls_.buttonRoomSimulation,
+                   buttonLeft + kButtonWidth + 10 + kReferenceButtonWidth + 8,
+                   buttonTop,
+                   kSimButtonWidth,
+                   buttonHeight,
+                   TRUE);
+        MoveWindow(controls_.frequencyDisplay, frequencyLeft, frequencyTop, frequencyWidth, frequencyHeight, TRUE);
+
+        MoveWindow(controls_.leftChannelLabel, metersLeft, meterTop + 2, kProgressLabelWidth, 18, TRUE);
+        MoveWindow(controls_.leftProgressBar,
+                   metersLeft + kProgressLabelWidth + 8,
+                   meterTop + 4,
+                   meterBlockWidth - kProgressLabelWidth - 8 - kProgressTextWidth - 8,
+                   16,
+                   TRUE);
+        MoveWindow(controls_.leftProgressText,
+                   metersLeft + meterBlockWidth - kProgressTextWidth,
+                   meterTop,
+                   kProgressTextWidth,
+                   20,
+                   TRUE);
+        MoveWindow(controls_.rightChannelLabel, metersLeft, meterTop + meterRowHeight + 6, kProgressLabelWidth, 18, TRUE);
+        MoveWindow(controls_.rightProgressBar,
+                   metersLeft + kProgressLabelWidth + 8,
+                   meterTop + meterRowHeight + 8,
+                   meterBlockWidth - kProgressLabelWidth - 8 - kProgressTextWidth - 8,
+                   16,
+                   TRUE);
+        MoveWindow(controls_.rightProgressText,
+                   metersLeft + meterBlockWidth - kProgressTextWidth,
+                   meterTop + meterRowHeight + 4,
+                   kProgressTextWidth,
+                   20,
+                   TRUE);
+        MoveWindow(controls_.levelMeter,
+                   levelMeterLeft,
+                   actionFrameTop + 6,
+                   levelMeterWidth,
+                   kActionFrameHeight - 12,
+                   TRUE);
+
+        graphControlsTop = actionFrameBottom + kActionFrameBottomGap;
+    } else {
+        ShowWindow(controls_.actionMetersFrame, SW_HIDE);
+        MoveWindow(controls_.buttonMeasure, contentLeft, legacyButtonTop, kButtonWidth, legacyButtonHeight, TRUE);
+        MoveWindow(controls_.buttonMeasureReference,
+                   contentLeft + kButtonWidth + 10,
+                   legacyButtonTop,
+                   kReferenceButtonWidth,
+                   legacyButtonHeight,
+                   TRUE);
+        MoveWindow(controls_.buttonRoomSimulation,
+                   contentLeft + kButtonWidth + 10 + kReferenceButtonWidth + 8,
+                   legacyButtonTop,
+                   kSimButtonWidth,
+                   legacyButtonHeight,
+                   TRUE);
+        metricLeft = contentLeft + buttonsBlockWidth + kMetricGap;
+        MoveWindow(controls_.frequencyDisplay, metricLeft, dataRowTop + 1, 92, 28, TRUE);
+        MoveWindow(controls_.levelMeter,
+                   metricLeft + 92 + kMetricGap,
+                   dataRowTop,
+                   std::max(180, innerWidth - (metricLeft - contentLeft) - 92 - kMetricGap),
+                   30,
+                   TRUE);
+
+        metricLeft = contentLeft + buttonsBlockWidth + kMetricGap;
+        MoveWindow(controls_.leftChannelLabel, metricLeft, progressRowTop + 2, kProgressLabelWidth, 18, TRUE);
+        MoveWindow(controls_.leftProgressBar, metricLeft + kProgressLabelWidth + 8, progressRowTop + 4, kProgressBarWidth, 16, TRUE);
+        MoveWindow(controls_.leftProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
+        metricLeft += kProgressLabelWidth + 8 + kProgressBarWidth + 8 + kProgressTextWidth + kMetricGap;
+        MoveWindow(controls_.rightChannelLabel, metricLeft, progressRowTop + 2, kProgressLabelWidth, 18, TRUE);
+        MoveWindow(controls_.rightProgressBar, metricLeft + kProgressLabelWidth + 8, progressRowTop + 4, kProgressBarWidth, 16, TRUE);
+        MoveWindow(controls_.rightProgressText, metricLeft + kProgressLabelWidth + 8 + kProgressBarWidth + 8, progressRowTop, kProgressTextWidth, 20, TRUE);
+    }
+    if (useGroupedActionFrame) {
+        ShowWindow(controls_.actionMetersFrame, SW_SHOW);
+    }
+
+    const int plotFieldLeft = contentLeft;
+    const int plotComboLeft = plotFieldLeft + kWaterfallChannelLabelWidth + 10;
+    MoveWindow(controls_.labelPlot, plotFieldLeft, graphControlsTop + 2, kWaterfallChannelLabelWidth, 18, TRUE);
+    MoveWindow(controls_.comboPlot,
+               plotComboLeft,
                graphControlsTop - 2,
-               110,
+               kGraphComboWidth,
                kGraphComboHeight,
+               TRUE);
+    const int waterfallChannelLeft = plotComboLeft + kGraphComboWidth + 32;
+    MoveWindow(controls_.labelWaterfallChannel,
+               waterfallChannelLeft,
+               graphControlsTop + 2,
+               kWaterfallChannelLabelWidth,
+               18,
+               TRUE);
+    MoveWindow(controls_.comboWaterfallChannel,
+               waterfallChannelLeft + kWaterfallChannelLabelWidth + 10,
+               graphControlsTop - 2,
+               kWaterfallChannelComboWidth,
+               kGraphComboHeight,
+               TRUE);
+    const int waterfallCutoffLeft = waterfallChannelLeft + kWaterfallChannelLabelWidth + 10 + kWaterfallChannelComboWidth + 24;
+    MoveWindow(controls_.labelWaterfallLowCutoff,
+               waterfallCutoffLeft,
+               graphControlsTop + 2,
+               kWaterfallCutoffLabelWidth,
+               18,
+               TRUE);
+    MoveWindow(controls_.sliderWaterfallLowCutoff,
+               waterfallCutoffLeft + kWaterfallCutoffLabelWidth + 10,
+               graphControlsTop - 2,
+               kWaterfallCutoffSliderWidth,
+               32,
+               TRUE);
+    MoveWindow(controls_.valueWaterfallLowCutoff,
+               waterfallCutoffLeft + kWaterfallCutoffLabelWidth + 10 + kWaterfallCutoffSliderWidth + 10,
+               graphControlsTop + 2,
+               kWaterfallCutoffValueWidth,
+               18,
                TRUE);
     const int infoBoxWidth = std::clamp(innerWidth / 4, 260, 340);
     const int infoBoxLeft = contentLeft + innerWidth - infoBoxWidth;
@@ -674,13 +917,11 @@ void MeasurementPage::layout() {
     MoveWindow(controls_.referenceStatus, infoBoxLeft + 14, infoBoxTop + 10, infoBoxWidth - 28, 16, TRUE);
     MoveWindow(controls_.micCompStatus, infoBoxLeft + 14, infoBoxTop + 26, infoBoxWidth - 28, 16, TRUE);
 
-    const int graphTop = graphControlsTop + 56;
-    const int availableBottom = contentTop + innerHeight;
-    const int metadataSectionHeight = metadataCollapsed_ ? 26 : std::max(150, (availableBottom - graphTop) * 9 / 20);
-    const int metadataLabelTop = availableBottom - metadataSectionHeight;
-    const int graphBottom = std::max(graphTop + 200, metadataLabelTop - 10);
     const bool waterfallVisible =
         plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0))) == "waterfall";
+    const int graphTop = graphControlsTop + 56;
+    const int availableBottom = contentTop + innerHeight;
+    const int graphBottom = std::max(graphTop + 200, availableBottom);
     const int legendLeft = contentLeft + innerWidth - kLegendWidth;
     const int graphRight = waterfallVisible ? (contentLeft + innerWidth) : (legendLeft - kLegendGap);
     const RECT graphBounds{contentLeft, graphTop, graphRight, graphBottom};
@@ -712,27 +953,6 @@ void MeasurementPage::layout() {
                kLegendWidth - (labelLeft - legendLeft) - 12,
                20,
                TRUE);
-    constexpr int kMetadataToggleSize = 24;
-    MoveWindow(controls_.metadataLabel, contentLeft, metadataLabelTop, std::max(160, innerWidth - 36), 20, TRUE);
-    MoveWindow(controls_.metadataToggle,
-               contentLeft + innerWidth - kMetadataToggleSize,
-               metadataLabelTop - 2,
-               kMetadataToggleSize,
-               kMetadataToggleSize,
-               TRUE);
-    MoveWindow(controls_.metadataTable,
-               contentLeft,
-               metadataLabelTop + 24,
-               innerWidth,
-               metadataCollapsed_ ? 0 : std::max(120, availableBottom - (metadataLabelTop + 24)),
-               TRUE);
-    const int sectionWidth = std::clamp(innerWidth / 7, 120, 180);
-    const int metricWidth = std::clamp(innerWidth / 4, 180, 260);
-    const int valueWidth = std::max(240, innerWidth - sectionWidth - metricWidth - 28);
-    ListView_SetColumnWidth(controls_.metadataTable, 0, sectionWidth);
-    ListView_SetColumnWidth(controls_.metadataTable, 1, metricWidth);
-    ListView_SetColumnWidth(controls_.metadataTable, 2, valueWidth);
-    updateMetadataVisibility();
     if (window_ != nullptr) {
         RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
     }
@@ -762,14 +982,19 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
                  CB_SETCURSEL,
                  comboIndexFromWaterfallChannel(workspace.ui.measurementWaterfallChannel),
                  0);
+    SendMessageW(controls_.sliderWaterfallLowCutoff,
+                 TBM_SETPOS,
+                 TRUE,
+                 sliderPositionFromWaterfallLowCutoffDb(workspace.ui.measurementWaterfallLowCutoffDb));
+    setWindowTextValue(controls_.valueWaterfallLowCutoff,
+                       formatWaterfallLowCutoffLabel(workspace.ui.measurementWaterfallLowCutoffDb));
+    waterfallGraph_.setLowCutoffDb(workspace.ui.measurementWaterfallLowCutoffDb);
     showRoomLeft_ = workspace.ui.measurementShowRoomLeft;
     showRoomRight_ = workspace.ui.measurementShowRoomRight;
     showReference_ = workspace.ui.measurementShowReference;
     SendMessageW(controls_.checkboxShowRoomLeft, BM_SETCHECK, showRoomLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowRoomRight, BM_SETCHECK, showRoomRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowReference, BM_SETCHECK, showReference_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    metadataCollapsed_ = workspace.ui.measurementMetadataCollapsed;
-    updateMetadataVisibility();
     setWorkspaceView(workspace);
 }
 
@@ -791,10 +1016,11 @@ void MeasurementPage::syncToWorkspace(WorkspaceState& workspace) const {
         plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0)));
     workspace.ui.measurementWaterfallChannel = waterfallChannelFromComboIndex(
         static_cast<int>(SendMessageW(controls_.comboWaterfallChannel, CB_GETCURSEL, 0, 0)));
+    workspace.ui.measurementWaterfallLowCutoffDb =
+        waterfallLowCutoffDbFromSliderPosition(static_cast<int>(SendMessageW(controls_.sliderWaterfallLowCutoff, TBM_GETPOS, 0, 0)));
     workspace.ui.measurementShowRoomLeft = SendMessageW(controls_.checkboxShowRoomLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     workspace.ui.measurementShowRoomRight = SendMessageW(controls_.checkboxShowRoomRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     workspace.ui.measurementShowReference = SendMessageW(controls_.checkboxShowReference, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    workspace.ui.measurementMetadataCollapsed = metadataCollapsed_;
     measurement::syncDerivedMeasurementSettings(workspace.measurement);
 }
 
@@ -806,7 +1032,6 @@ void MeasurementPage::setWorkspaceView(const WorkspaceState& workspace) {
     refreshReferenceStatusLabels();
     refreshActionButtons();
     refreshPlots();
-    populateMetadataTable(result_);
 }
 
 void MeasurementPage::setCalibrationRefreshInProgress(bool inProgress,
@@ -861,9 +1086,8 @@ void MeasurementPage::refreshStatus(const MeasurementStatus& status, bool hasRes
     SendMessageW(controls_.rightProgressBar, PBM_SETPOS, rightProgress, 0);
     setWindowTextValue(controls_.leftProgressText, std::to_wstring(leftProgress / 10) + L"%");
     setWindowTextValue(controls_.rightProgressText, std::to_wstring(rightProgress / 10) + L"%");
-    setWindowTextValue(controls_.currentFrequency, L"Freq " + formatWideDouble(status.currentFrequencyHz, 0) + L" Hz");
-    setWindowTextValue(controls_.currentAmplitude, L"Amp " + formatWideDouble(status.currentAmplitudeDb, 1) + L" dB");
-    setWindowTextValue(controls_.peakAmplitude, L"Peak " + formatWideDouble(status.peakAmplitudeDb, 1) + L" dB");
+    InvalidateRect(controls_.frequencyDisplay, nullptr, TRUE);
+    InvalidateRect(controls_.levelMeter, nullptr, TRUE);
     InvalidateRect(controls_.buttonMeasure, nullptr, TRUE);
     InvalidateRect(controls_.buttonMeasureReference, nullptr, TRUE);
     refreshActionButtons();
@@ -882,10 +1106,11 @@ void MeasurementPage::setInteractiveControlsEnabled(bool enabled) const {
     EnableWindow(controls_.outputVolumeSlider, enabled ? TRUE : FALSE);
     EnableWindow(controls_.comboPlot, enabled ? TRUE : FALSE);
     EnableWindow(controls_.comboWaterfallChannel, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.sliderWaterfallLowCutoff, enabled ? TRUE : FALSE);
     EnableWindow(controls_.checkboxShowRoomLeft, enabled ? TRUE : FALSE);
     EnableWindow(controls_.checkboxShowRoomRight, enabled ? TRUE : FALSE);
     EnableWindow(controls_.checkboxShowReference, enabled ? TRUE : FALSE);
-    EnableWindow(controls_.metadataToggle, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.buttonRoomSimulation, enabled ? TRUE : FALSE);
     EnableWindow(responseGraph_.window(), enabled ? TRUE : FALSE);
     EnableWindow(waterfallGraph_.window(), enabled ? TRUE : FALSE);
 }
@@ -918,34 +1143,12 @@ bool MeasurementPage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
         return true;
     }
 
-    if (draw->CtlID == kButtonMetadataToggle) {
-        HDC hdc = draw->hDC;
-        RECT rect = draw->rcItem;
-        const bool pressed = (draw->itemState & ODS_SELECTED) != 0;
-        const bool focused = (draw->itemState & ODS_FOCUS) != 0;
-        const bool hot = (draw->itemState & ODS_HOTLIGHT) != 0;
-        const COLORREF fill = pressed ? RGB(221, 228, 236) : (hot ? RGB(233, 239, 245) : ui_theme::kPanelBackground);
-        const COLORREF border = pressed ? RGB(177, 187, 199) : ui_theme::kBorder;
-
-        HBRUSH brush = CreateSolidBrush(fill);
-        FillRect(hdc, &rect, brush);
-        DeleteObject(brush);
-
-        HPEN pen = CreatePen(PS_SOLID, 1, border);
-        HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
-        HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
-        Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
-        SelectObject(hdc, oldBrush);
-        SelectObject(hdc, oldPen);
-        DeleteObject(pen);
-
-        drawDisclosureTriangle(hdc, rect, metadataCollapsed_, ui_theme::kMuted);
-
-        if (focused) {
-            RECT focusRect = rect;
-            InflateRect(&focusRect, -3, -3);
-            DrawFocusRect(hdc, &focusRect);
-        }
+    if (draw->hwndItem == controls_.frequencyDisplay) {
+        drawFrequencyDisplay(*draw, status_.currentFrequencyHz);
+        return true;
+    }
+    if (draw->hwndItem == controls_.levelMeter) {
+        drawLevelMeter(*draw, status_.currentAmplitudeDb, status_.peakAmplitudeDb);
         return true;
     }
 
@@ -1023,6 +1226,7 @@ bool MeasurementPage::handleCommand(WORD commandId,
                                     WorkspaceState& workspace,
                                     bool& roomMeasurePressed,
                                     bool& referenceMeasurePressed,
+                                    bool& roomSimulationPressed,
                                     bool& microphoneCalibrationChanged,
                                     bool& sampleRateChanged,
                                     bool& graphZoomChanged,
@@ -1034,6 +1238,11 @@ bool MeasurementPage::handleCommand(WORD commandId,
 
     if (commandId == kButtonMeasureReference) {
         referenceMeasurePressed = true;
+        return true;
+    }
+
+    if (commandId == kButtonRoomSimulation && notificationCode == BN_CLICKED) {
+        roomSimulationPressed = true;
         return true;
     }
 
@@ -1085,18 +1294,10 @@ bool MeasurementPage::handleCommand(WORD commandId,
         return true;
     }
 
-    if (commandId == kButtonMetadataToggle && notificationCode == BN_CLICKED) {
-        metadataCollapsed_ = !metadataCollapsed_;
-        updateMetadataVisibility();
-        layout();
-        syncToWorkspace(workspace);
-        plotSelectionChanged = true;
-        return true;
-    }
-
     if ((commandId == kComboPlot || commandId == kComboWaterfallChannel) && notificationCode == CBN_SELCHANGE) {
         if (commandId == kComboPlot) {
             updatePlotControlVisibility();
+            layout();
         }
         syncToWorkspace(workspace);
         refreshPlots();
@@ -1121,17 +1322,25 @@ bool MeasurementPage::handleCommand(WORD commandId,
 }
 
 bool MeasurementPage::handleHScroll(HWND source, WorkspaceState& workspace) {
-    if (source != controls_.outputVolumeSlider) {
-        return false;
+    if (source == controls_.outputVolumeSlider) {
+        workspace.audio.outputVolumeDb = sliderPositionToOutputVolumeDb(static_cast<int>(SendMessageW(controls_.outputVolumeSlider, TBM_GETPOS, 0, 0)));
+        setWindowTextValue(controls_.outputVolumeValue, formatOutputVolumeLabel(workspace.audio.outputVolumeDb));
+        return true;
     }
 
-    workspace.audio.outputVolumeDb = sliderPositionToOutputVolumeDb(static_cast<int>(SendMessageW(controls_.outputVolumeSlider, TBM_GETPOS, 0, 0)));
-    setWindowTextValue(controls_.outputVolumeValue, formatOutputVolumeLabel(workspace.audio.outputVolumeDb));
-    return true;
+    if (source == controls_.sliderWaterfallLowCutoff) {
+        workspace.ui.measurementWaterfallLowCutoffDb = waterfallLowCutoffDbFromSliderPosition(
+            static_cast<int>(SendMessageW(controls_.sliderWaterfallLowCutoff, TBM_GETPOS, 0, 0)));
+        setWindowTextValue(controls_.valueWaterfallLowCutoff,
+                           formatWaterfallLowCutoffLabel(workspace.ui.measurementWaterfallLowCutoffDb));
+        waterfallGraph_.setLowCutoffDb(workspace.ui.measurementWaterfallLowCutoffDb);
+        return true;
+    }
+
+    return false;
 }
 
 LRESULT CALLBACK MeasurementPage::PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
-    static HBRUSH pageBackgroundBrush = CreateSolidBrush(ui_theme::kBackground);
     switch (message) {
     case WM_COMMAND:
     case WM_HSCROLL:
@@ -1143,13 +1352,13 @@ LRESULT CALLBACK MeasurementPage::PageWindowProc(HWND window, UINT message, WPAR
         return 0;
     }
     case WM_CTLCOLORDLG:
-        return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORBTN: {
         HDC hdc = reinterpret_cast<HDC>(wParam);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, ui_theme::kText);
-        return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     }
     default:
         return DefWindowProcW(window, message, wParam, lParam);
@@ -1221,6 +1430,20 @@ std::string MeasurementPage::waterfallChannelFromComboIndex(int index) {
     return index == 1 ? "right" : "left";
 }
 
+double MeasurementPage::waterfallLowCutoffDbFromSliderPosition(int position) {
+    const int clamped = clampValue(position, 0, kWaterfallLowCutoffMaxDb - kWaterfallLowCutoffMinDb);
+    return static_cast<double>(kWaterfallLowCutoffMinDb + clamped);
+}
+
+int MeasurementPage::sliderPositionFromWaterfallLowCutoffDb(double lowCutoffDb) {
+    const int rounded = static_cast<int>(std::lround(lowCutoffDb));
+    return clampValue(rounded - kWaterfallLowCutoffMinDb, 0, kWaterfallLowCutoffMaxDb - kWaterfallLowCutoffMinDb);
+}
+
+std::wstring MeasurementPage::formatWaterfallLowCutoffLabel(double lowCutoffDb) {
+    return formatWideDouble(lowCutoffDb, 0) + L" dB";
+}
+
 double MeasurementPage::sliderPositionToOutputVolumeDb(int position) {
     const int clamped = clampValue(position, 0, kOutputVolumeSliderMax);
     return clamped == 0 ? kMutedOutputVolumeDb : static_cast<double>(clamped - kOutputVolumeSliderMax);
@@ -1250,19 +1473,6 @@ std::wstring MeasurementPage::getWindowTextValue(HWND control) {
 
 void MeasurementPage::setWindowTextValue(HWND control, const std::wstring& text) {
     SetWindowTextW(control, text.c_str());
-}
-
-void MeasurementPage::setListViewText(HWND listView, int row, int column, const std::wstring& text) {
-    LVITEMW item{};
-    item.iItem = row;
-    item.iSubItem = column;
-    item.mask = LVIF_TEXT;
-    item.pszText = const_cast<LPWSTR>(text.c_str());
-    if (column == 0) {
-        ListView_InsertItem(listView, &item);
-    } else {
-        ListView_SetItem(listView, &item);
-    }
 }
 
 std::wstring MeasurementPage::referenceStatusText(const AudioSettings& audio,
@@ -1330,6 +1540,8 @@ ResponseGraphData MeasurementPage::buildGraphData() const {
 
 void MeasurementPage::refreshPlots() {
     responseGraph_.setData(buildGraphData());
+    waterfallGraph_.setLowCutoffDb(
+        waterfallLowCutoffDbFromSliderPosition(static_cast<int>(SendMessageW(controls_.sliderWaterfallLowCutoff, TBM_GETPOS, 0, 0))));
 
     const std::string channelSelection = waterfallChannelFromComboIndex(
         static_cast<int>(SendMessageW(controls_.comboWaterfallChannel, CB_GETCURSEL, 0, 0)));
@@ -1348,6 +1560,9 @@ void MeasurementPage::updatePlotControlVisibility() const {
     ShowWindow(waterfallGraph_.window(), waterfallVisible ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.labelWaterfallChannel, waterfallVisible ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.comboWaterfallChannel, waterfallVisible ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.labelWaterfallLowCutoff, waterfallVisible ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.sliderWaterfallLowCutoff, waterfallVisible ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.valueWaterfallLowCutoff, waterfallVisible ? SW_SHOW : SW_HIDE);
     updateLegendVisibility();
 }
 
@@ -1371,16 +1586,6 @@ void MeasurementPage::updateLegendVisibility() const {
     EnableWindow(controls_.labelReference, hasReference ? TRUE : FALSE);
 }
 
-void MeasurementPage::updateMetadataVisibility() const {
-    if (controls_.metadataToggle != nullptr) {
-        SetWindowTextW(controls_.metadataToggle, metadataCollapsed_ ? L"Expand metadata" : L"Collapse metadata");
-        InvalidateRect(controls_.metadataToggle, nullptr, TRUE);
-    }
-    if (controls_.metadataTable != nullptr) {
-        ShowWindow(controls_.metadataTable, metadataCollapsed_ ? SW_HIDE : SW_SHOW);
-    }
-}
-
 void MeasurementPage::refreshReferenceStatusLabels() const {
     setWindowTextValue(controls_.referenceStatus, referenceStatusText(audioSettings_, measurementSettings_, referenceResult_));
     setWindowTextValue(controls_.micCompStatus, microphoneCompStatusText(audioSettings_));
@@ -1400,114 +1605,9 @@ void MeasurementPage::refreshActionButtons() const {
                   ((running && status_.runMode == MeasurementRunMode::Reference) || !running))
                      ? TRUE
                      : FALSE);
+    EnableWindow(controls_.buttonRoomSimulation, busy ? FALSE : TRUE);
     InvalidateRect(controls_.buttonMeasure, nullptr, TRUE);
     InvalidateRect(controls_.buttonMeasureReference, nullptr, TRUE);
-}
-
-std::vector<MeasurementPage::MetadataRow> MeasurementPage::buildMetadataRows(const MeasurementResult& result) const {
-    std::vector<MetadataRow> rows;
-    const MeasurementAnalysis& analysis = result.analysis;
-    if (!result.hasAnyValues() &&
-        analysis.measurementTimestampUtc.empty() &&
-        analysis.artifacts.empty()) {
-        rows.push_back({L"Result", L"Status", L"No measurement result saved."});
-        return rows;
-    }
-
-    auto add = [&](std::wstring section, std::wstring metric, std::wstring value) {
-        rows.push_back({std::move(section), std::move(metric), std::move(value)});
-    };
-
-    add(L"Result", L"Value Sets", std::to_wstring(result.valueSets.size()));
-    if (const MeasurementValueSet* magnitude = result.magnitudeResponse(); magnitude != nullptr) {
-        add(L"Result", L"Magnitude Response Key", toWide(magnitude->key));
-        add(L"Result", L"Magnitude Response Points", std::to_wstring(magnitude->xValues.size()));
-    } else {
-        add(L"Result", L"Magnitude Response Key", L"-");
-        add(L"Result", L"Magnitude Response Points", L"0");
-    }
-
-    add(L"Run", L"Analyzer Version", toWide(analysis.analyzerVersion));
-    add(L"Run", L"Measured At (UTC)", toWide(analysis.measurementTimestampUtc.empty() ? std::string("-") : analysis.measurementTimestampUtc));
-    add(L"Run", L"Backend", toWide(analysis.backendName.empty() ? std::string("-") : analysis.backendName));
-    add(L"Run", L"Input Device", toWide(analysis.backendInputDevice.empty() ? std::string("-") : analysis.backendInputDevice));
-    add(L"Run", L"Output Device", toWide(analysis.backendOutputDevice.empty() ? std::string("-") : analysis.backendOutputDevice));
-    add(L"Run", L"Requested Driver", toWide(analysis.requestedDriver.empty() ? std::string("-") : analysis.requestedDriver));
-    add(L"Run", L"Routing Honored", formatBool(analysis.routingSelectionHonored));
-    add(L"Run", L"Routing Notes", toWide(analysis.routingNotes.empty() ? std::string("-") : analysis.routingNotes));
-
-    add(L"Sweep", L"Sample Rate", std::to_wstring(analysis.sampleRate) + L" Hz");
-    add(L"Sweep", L"Duration", formatWideDouble(analysis.sweepDurationSeconds, 1) + L" s");
-    add(L"Sweep", L"Fade In", formatWideDouble(analysis.fadeInSeconds, 2) + L" s");
-    add(L"Sweep", L"Fade Out", formatWideDouble(analysis.fadeOutSeconds, 2) + L" s");
-    add(L"Sweep", L"Start Frequency", formatWideDouble(analysis.startFrequencyHz, 1) + L" Hz");
-    add(L"Sweep", L"End Frequency", formatWideDouble(analysis.endFrequencyHz, 1) + L" Hz");
-    add(L"Sweep", L"Target Length", formatSamples(analysis.targetLengthSamples));
-    add(L"Sweep", L"Lead-In", formatSamples(analysis.leadInSamples));
-    add(L"Sweep", L"Output Volume", formatWideDouble(analysis.outputVolumeDb, 1) + L" dB");
-    add(L"Sweep", L"Played Sweep Samples", formatSamples(analysis.playedSweepSamples));
-
-    add(L"Capture", L"Captured Samples", formatSamples(analysis.capturedSamples));
-    add(L"Capture", L"Capture Clipping", formatBool(analysis.captureClippingDetected));
-    add(L"Capture", L"Capture Too Quiet", formatBool(analysis.captureTooQuiet));
-    add(L"Capture", L"Capture Peak", formatWideDouble(analysis.capturePeakDb, 1) + L" dB");
-    add(L"Capture", L"Capture RMS", formatWideDouble(analysis.captureRmsDb, 1) + L" dB");
-    add(L"Capture", L"Capture Noise Floor", formatWideDouble(analysis.captureNoiseFloorDb, 1) + L" dB");
-    add(L"Capture", L"Alignment Search", formatSamplesAndMs(analysis.alignmentSearchSamples, analysis.sampleRate));
-    add(L"Capture", L"Alignment Method", toWide(analysis.alignmentMethod.empty() ? std::string("-") : analysis.alignmentMethod));
-    add(L"Capture", L"Window Type", toWide(analysis.windowType.empty() ? std::string("-") : analysis.windowType));
-    add(L"Capture", L"Inverse Filter Length", formatSamples(analysis.inverseFilterLengthSamples));
-    add(L"Capture", L"Inverse Filter Peak Index", std::to_wstring(analysis.inverseFilterPeakIndex));
-    add(L"Capture", L"FFT Size", formatSamples(analysis.fftSize));
-    add(L"Capture", L"Display Points", std::to_wstring(analysis.displayPointCount));
-
-    auto addChannel = [&](const wchar_t* section, const MeasurementChannelMetrics& channel) {
-        add(section, L"Available", formatBool(channel.available));
-        add(section, L"Detected Latency", formatSamplesAndMs(channel.detectedLatencySamples, analysis.sampleRate));
-        add(section, L"Onset Sample", std::to_wstring(channel.onsetSampleIndex));
-        add(section, L"Onset Time", formatWideDouble(channel.onsetTimeSeconds * 1000.0, 2) + L" ms");
-        add(section, L"Deconvolution Peak Index", std::to_wstring(channel.peakSampleIndex));
-        add(section, L"Impulse Start Sample", std::to_wstring(channel.impulseStartSample));
-        add(section, L"Impulse Length", formatSamples(channel.impulseLengthSamples));
-        add(section, L"Pre-Roll", formatSamples(channel.preRollSamples));
-        add(section, L"Window Start Sample", std::to_wstring(channel.analysisWindowStartSample));
-        add(section, L"Window Length", formatSamples(channel.analysisWindowLengthSamples));
-        add(section, L"Window Fade", formatSamples(channel.analysisWindowFadeSamples));
-        add(section, L"Capture Peak", formatWideDouble(channel.capturePeakDb, 1) + L" dB");
-        add(section, L"Capture RMS", formatWideDouble(channel.captureRmsDb, 1) + L" dB");
-        add(section, L"Noise Floor", formatWideDouble(channel.noiseFloorDb, 1) + L" dB");
-        add(section, L"Impulse Peak Amplitude", formatWideDouble(channel.impulsePeakAmplitude, 6));
-        add(section, L"Impulse Peak", formatWideDouble(channel.impulsePeakDb, 1) + L" dB");
-        add(section, L"Impulse RMS", formatWideDouble(channel.impulseRmsDb, 1) + L" dB");
-        add(section, L"Impulse Peak/Noise", formatWideDouble(channel.impulsePeakToNoiseDb, 1) + L" dB");
-    };
-
-    addChannel(L"Left", analysis.left);
-    addChannel(L"Right", analysis.right);
-
-    for (const MeasurementArtifact& artifact : analysis.artifacts) {
-        add(L"Artifacts", toWide(artifact.key), formatPathValue(artifact.path));
-    }
-
-    for (const MeasurementValueSet& valueSet : result.valueSets) {
-        add(L"Series", toWide(valueSet.key), std::to_wstring(valueSet.xValues.size()) + L" pts");
-    }
-
-    return rows;
-}
-
-void MeasurementPage::populateMetadataTable(const MeasurementResult& result) const {
-    if (controls_.metadataTable == nullptr) {
-        return;
-    }
-
-    const std::vector<MetadataRow> rows = buildMetadataRows(result);
-    ListView_DeleteAllItems(controls_.metadataTable);
-    for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
-        setListViewText(controls_.metadataTable, i, 0, rows[i].section);
-        setListViewText(controls_.metadataTable, i, 1, rows[i].metric);
-        setListViewText(controls_.metadataTable, i, 2, rows[i].value);
-    }
 }
 
 }  // namespace wolfie::ui

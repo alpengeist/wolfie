@@ -15,25 +15,6 @@ The codebase is organized into focused modules:
 
 Read `_architecture.md` before making structural changes.
 
-## Build And Verify
-
-Preferred local configure/build flow on this machine:
-
-```powershell
-cmake -S . -B build-agent -G Ninja `
-  -DCMAKE_MAKE_PROGRAM=E:/Programs/CLion/bin/ninja/win/x64/ninja.exe `
-  -DCMAKE_CXX_COMPILER=E:/Programs/CLion/bin/mingw/bin/g++.exe `
-  -DCMAKE_RC_COMPILER=E:/Programs/CLion/bin/mingw/bin/windres.exe
-
-& 'E:/Programs/CLion/bin/ninja/win/x64/ninja.exe' -C build-agent
-```
-
-Notes:
-
-- `cmake --build` may fail in some shells if the Ninja path is not resolved correctly.
-- Existing build directories may contain a locked `wolfie.exe`. If linking fails with `Permission denied`, use a fresh build directory instead of deleting files blindly.
-- This is a Windows-only app. Do not try to make Linux/macOS changes unless explicitly requested.
-
 ## General Engineering Rules
 
 - Preserve the current module boundaries unless the task is explicitly architectural.
@@ -104,6 +85,7 @@ For larger refactors:
 
 ## File And Build Hygiene
 
+- Use cmake
 - Ignore `build-*` and IDE-generated directories unless the task is specifically about build configuration.
 - Do not remove or overwrite user build outputs just to get a clean build.
 - If an executable is locked, use another build directory.

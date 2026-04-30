@@ -15,7 +15,7 @@ void SmoothingPage::registerPageWindowClass(HINSTANCE instance) {
     pageClass.hInstance = instance;
     pageClass.lpszClassName = kPageClassName;
     pageClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    pageClass.hbrBackground = CreateSolidBrush(ui_theme::kBackground);
+    pageClass.hbrBackground = ui_theme::backgroundBrush();
     RegisterClassW(&pageClass);
 }
 
@@ -81,6 +81,10 @@ void SmoothingPage::layout() {
     constexpr int kUnitTopOffset = 52;
     constexpr int kUnitHeight = 16;
     constexpr int kSliderWidth = 240;
+    constexpr int kCutoffLabelWidth = 130;
+    constexpr int kCutoffEditWidth = 96;
+    constexpr int kCutoffUnitWidth = 24;
+    constexpr int kInlineGroupGap = 28;
 
     auto placeFieldWithUnit = [&](HWND label, HWND edit, HWND unit, int left, int top, int labelWidth, int editWidth, int unitWidth) {
         const int labelLeft = left + ((editWidth - labelWidth) / 2);
@@ -98,17 +102,38 @@ void SmoothingPage::layout() {
     MoveWindow(controls_.resolutionSlider, resolutionLeft, parameterTop + kFieldTopOffset - 2, kSliderWidth, 32, TRUE);
     MoveWindow(controls_.resolutionCoarseLabel, resolutionLeft, parameterTop + 50, 48, 18, TRUE);
     MoveWindow(controls_.resolutionFineLabel, resolutionLeft + kSliderWidth - 36, parameterTop + 50, 36, 18, TRUE);
-    MoveWindow(controls_.effectiveParameter, resolutionLeft, parameterTop + 72, std::max(260, innerWidth - resolutionLeft - 24), 18, TRUE);
+    const int inlineCutoffLeft = resolutionLeft + kSliderWidth + kInlineGroupGap + ((kCutoffLabelWidth - kCutoffEditWidth) / 2);
+    const int requiredInlineWidth = (inlineCutoffLeft - contentLeft) + kCutoffEditWidth;
+    const bool cutoffFitsInline = innerWidth >= (requiredInlineWidth + 24);
 
-    const int detailTop = parameterTop + 98;
-    placeFieldWithUnit(controls_.labelHighFrequencyCutoff,
-                       controls_.editHighFrequencyCutoff,
-                       controls_.unitHighFrequencyCutoff,
-                       contentLeft,
-                       detailTop,
-                       130,
-                       96,
-                       24);
+    int detailTop = parameterTop + 98;
+    if (cutoffFitsInline) {
+        MoveWindow(controls_.effectiveParameter, resolutionLeft, parameterTop + 72, kSliderWidth, 18, TRUE);
+        placeFieldWithUnit(controls_.labelHighFrequencyCutoff,
+                           controls_.editHighFrequencyCutoff,
+                           controls_.unitHighFrequencyCutoff,
+                           inlineCutoffLeft,
+                           parameterTop,
+                           kCutoffLabelWidth,
+                           kCutoffEditWidth,
+                           kCutoffUnitWidth);
+        detailTop = parameterTop;
+    } else {
+        MoveWindow(controls_.effectiveParameter,
+                   resolutionLeft,
+                   parameterTop + 72,
+                   std::max(260, innerWidth - resolutionLeft - 24),
+                   18,
+                   TRUE);
+        placeFieldWithUnit(controls_.labelHighFrequencyCutoff,
+                           controls_.editHighFrequencyCutoff,
+                           controls_.unitHighFrequencyCutoff,
+                           contentLeft,
+                           detailTop,
+                           kCutoffLabelWidth,
+                           kCutoffEditWidth,
+                           kCutoffUnitWidth);
+    }
 
     const int graphTop = detailTop + 92;
     const RECT graphBounds{contentLeft, graphTop, contentLeft + innerWidth, graphTop + std::max(200, innerHeight - graphTop - 12)};
@@ -180,7 +205,6 @@ bool SmoothingPage::handleHScroll(HWND source, WorkspaceState& workspace, bool& 
 }
 
 LRESULT CALLBACK SmoothingPage::PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
-    static HBRUSH pageBackgroundBrush = CreateSolidBrush(ui_theme::kBackground);
     switch (message) {
     case WM_COMMAND: {
         HWND root = GetAncestor(window, GA_ROOT);
@@ -197,13 +221,13 @@ LRESULT CALLBACK SmoothingPage::PageWindowProc(HWND window, UINT message, WPARAM
         return 0;
     }
     case WM_CTLCOLORDLG:
-        return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLOREDIT: {
         HDC hdc = reinterpret_cast<HDC>(wParam);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, ui_theme::kText);
-        return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     }
     default:
         return DefWindowProcW(window, message, wParam, lParam);

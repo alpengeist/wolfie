@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "persistence/microphone_calibration_repository.h"
+#include "persistence/room_simulation_repository.h"
 #include "measurement/filter_designer.h"
 #include "measurement/response_smoother.h"
 #include "measurement/sweep_generator.h"
@@ -17,6 +18,55 @@
 namespace wolfie::persistence {
 
 namespace {
+
+const RoomSimulationRepository& roomSimulationRepository() {
+    static const RoomSimulationRepository repository;
+    return repository;
+}
+
+ProcessLogSize processLogSizeFromString(std::string_view value) {
+    if (value == "compact") {
+        return ProcessLogSize::Compact;
+    }
+    if (value == "expanded") {
+        return ProcessLogSize::Expanded;
+    }
+    return ProcessLogSize::Medium;
+}
+
+ProcessLogSize processLogSizeFromLegacyHeight(int height) {
+    if (height <= 120) {
+        return ProcessLogSize::Compact;
+    }
+    if (height >= 260) {
+        return ProcessLogSize::Expanded;
+    }
+    return ProcessLogSize::Medium;
+}
+
+std::string_view processLogSizeToString(ProcessLogSize size) {
+    switch (size) {
+    case ProcessLogSize::Compact:
+        return "compact";
+    case ProcessLogSize::Expanded:
+        return "expanded";
+    case ProcessLogSize::Medium:
+    default:
+        return "medium";
+    }
+}
+
+int legacyProcessLogHeight(ProcessLogSize size) {
+    switch (size) {
+    case ProcessLogSize::Compact:
+        return 86;
+    case ProcessLogSize::Expanded:
+        return 320;
+    case ProcessLogSize::Medium:
+    default:
+        return 190;
+    }
+}
 
 std::string escapeJson(std::string_view value) {
     std::string escaped;
@@ -168,8 +218,14 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "resultSectionHeight")) {
         ui.resultSectionHeight = static_cast<int>(*value);
     }
-    if (const auto value = findJsonNumber(content, "processLogHeight")) {
-        ui.processLogHeight = static_cast<int>(*value);
+    const std::optional<std::string> processLogSize = findJsonString(content, "processLogSize");
+    if (processLogSize.has_value()) {
+        ui.processLogSize = processLogSizeFromString(*processLogSize);
+    }
+    if (!processLogSize.has_value()) {
+        if (const auto value = findJsonNumber(content, "processLogHeight")) {
+            ui.processLogSize = processLogSizeFromLegacyHeight(static_cast<int>(*value));
+        }
     }
     if (const auto value = findJsonNumber(content, "measurementGraphExtraRangeDb")) {
         ui.measurementGraphExtraRangeDb = *value;
@@ -191,6 +247,9 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     }
     if (const auto value = findJsonString(content, "measurementWaterfallChannel")) {
         ui.measurementWaterfallChannel = *value;
+    }
+    if (const auto value = findJsonNumber(content, "measurementWaterfallLowCutoffDb")) {
+        ui.measurementWaterfallLowCutoffDb = *value;
     }
     if (const auto value = findJsonBool(content, "measurementShowRoomLeft")) {
         ui.measurementShowRoomLeft = *value;
@@ -1254,6 +1313,9 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonString(*content, "activeTargetCurveProfileName")) {
             workspace.activeTargetCurveProfileName = *value;
         }
+        if (const auto value = findJsonString(*content, "activeRoomSimulationName")) {
+            workspace.activeRoomSimulationName = *value;
+        }
         if (const auto value = findJsonNumber(*content, "filterTapCount")) {
             workspace.filters.tapCount = static_cast<int>(*value);
         }
@@ -1308,6 +1370,10 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
     loadMeasurementAnalysisFile(workspace);
     loadReferenceResultFile(workspace);
     loadReferenceAnalysisFile(workspace);
+    workspace.roomSimulations = roomSimulationRepository().loadAll(path);
+    if (workspace.activeRoomSimulationName.empty() && !workspace.roomSimulations.empty()) {
+        workspace.activeRoomSimulationName = workspace.roomSimulations.front().name;
+    }
     loadTargetCurveProfiles(workspace);
     const auto targetPlot = measurement::buildTargetCurvePlotData(workspace.smoothedResponse,
                                                                   workspace.measurement,
@@ -1376,6 +1442,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"bypassEqBands\": " << (workspace.targetCurve.bypassEqBands ? "true" : "false") << "\n"
                   << "  },\n"
                   << "  \"activeTargetCurveProfileName\": \"" << escapeJson(workspace.activeTargetCurveProfileName) << "\",\n"
+                  << "  \"activeRoomSimulationName\": \"" << escapeJson(workspace.activeRoomSimulationName) << "\",\n"
                   << "  \"filters\": {\n"
                   << "    \"filterTapCount\": " << workspace.filters.tapCount << ",\n"
                   << "    \"filterMaxBoostDb\": " << workspace.filters.maxBoostDb << ",\n"
@@ -1394,7 +1461,8 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "  \"ui\": {\n"
                   << "    \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
                   << "    \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
-                  << "    \"processLogHeight\": " << workspace.ui.processLogHeight << ",\n"
+                  << "    \"processLogSize\": \"" << processLogSizeToString(workspace.ui.processLogSize) << "\",\n"
+                  << "    \"processLogHeight\": " << legacyProcessLogHeight(workspace.ui.processLogSize) << ",\n"
                   << "    \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
                   << "    \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
                   << "    \"measurementGraphHasCustomFrequencyRange\": "
@@ -1404,6 +1472,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
                   << "    \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
                   << "    \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
                   << "\",\n"
+                  << "    \"measurementWaterfallLowCutoffDb\": " << workspace.ui.measurementWaterfallLowCutoffDb << ",\n"
                   << "    \"measurementShowRoomLeft\": " << (workspace.ui.measurementShowRoomLeft ? "true" : "false") << ",\n"
                   << "    \"measurementShowRoomRight\": " << (workspace.ui.measurementShowRoomRight ? "true" : "false") << ",\n"
                   << "    \"measurementShowReference\": " << (workspace.ui.measurementShowReference ? "true" : "false") << ",\n"
@@ -1466,7 +1535,8 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
     uiJson << "{\n"
            << "  \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
            << "  \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
-           << "  \"processLogHeight\": " << workspace.ui.processLogHeight << ",\n"
+           << "  \"processLogSize\": \"" << processLogSizeToString(workspace.ui.processLogSize) << "\",\n"
+           << "  \"processLogHeight\": " << legacyProcessLogHeight(workspace.ui.processLogSize) << ",\n"
            << "  \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
            << "  \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
            << "  \"measurementGraphHasCustomFrequencyRange\": "
@@ -1476,6 +1546,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
            << "  \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
            << "  \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
            << "\",\n"
+           << "  \"measurementWaterfallLowCutoffDb\": " << workspace.ui.measurementWaterfallLowCutoffDb << ",\n"
            << "  \"measurementShowRoomLeft\": " << (workspace.ui.measurementShowRoomLeft ? "true" : "false") << ",\n"
            << "  \"measurementShowRoomRight\": " << (workspace.ui.measurementShowRoomRight ? "true" : "false") << ",\n"
            << "  \"measurementShowReference\": " << (workspace.ui.measurementShowReference ? "true" : "false") << ",\n"
@@ -1535,6 +1606,9 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
     saveMeasurementAnalysisFile(workspace);
     saveReferenceResultFile(workspace);
     saveReferenceAnalysisFile(workspace);
+    for (const RoomSimulationDefinition& simulation : workspace.roomSimulations) {
+        roomSimulationRepository().save(workspace.rootPath, simulation);
+    }
     saveTargetCurveProfiles(workspace);
 }
 
@@ -1547,7 +1621,8 @@ void WorkspaceRepository::saveUiSettings(const WorkspaceState& workspace) const 
     uiJson << "{\n"
            << "  \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
            << "  \"resultSectionHeight\": " << workspace.ui.resultSectionHeight << ",\n"
-           << "  \"processLogHeight\": " << workspace.ui.processLogHeight << ",\n"
+           << "  \"processLogSize\": \"" << processLogSizeToString(workspace.ui.processLogSize) << "\",\n"
+           << "  \"processLogHeight\": " << legacyProcessLogHeight(workspace.ui.processLogSize) << ",\n"
            << "  \"measurementGraphExtraRangeDb\": " << workspace.ui.measurementGraphExtraRangeDb << ",\n"
            << "  \"measurementGraphVerticalOffsetDb\": " << workspace.ui.measurementGraphVerticalOffsetDb << ",\n"
            << "  \"measurementGraphHasCustomFrequencyRange\": "
@@ -1557,6 +1632,7 @@ void WorkspaceRepository::saveUiSettings(const WorkspaceState& workspace) const 
            << "  \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
            << "  \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
            << "\",\n"
+           << "  \"measurementWaterfallLowCutoffDb\": " << workspace.ui.measurementWaterfallLowCutoffDb << ",\n"
            << "  \"measurementShowRoomLeft\": " << (workspace.ui.measurementShowRoomLeft ? "true" : "false") << ",\n"
            << "  \"measurementShowRoomRight\": " << (workspace.ui.measurementShowRoomRight ? "true" : "false") << ",\n"
            << "  \"measurementShowReference\": " << (workspace.ui.measurementShowReference ? "true" : "false") << ",\n"

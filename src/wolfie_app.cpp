@@ -9,13 +9,13 @@
 #include <commctrl.h>
 #include <richedit.h>
 #include <shobjidl.h>
-#include <windowsx.h>
 
 #include "audio/asio_audio_backend.h"
 #include "core/text_utils.h"
 #include "measurement/response_analyzer.h"
 #include "measurement/filter_designer.h"
 #include "measurement/filter_wav_export.h"
+#include "measurement/room_simulator.h"
 #include "measurement/response_smoother.h"
 #include "measurement/target_curve_designer.h"
 #include "persistence/microphone_calibration_repository.h"
@@ -58,15 +58,22 @@ constexpr int kMenuFileSettings = 1005;
 constexpr int kMenuFileRecentBase = 1100;
 constexpr int kTabMain = 3013;
 constexpr int kProcessLog = 3015;
-constexpr int kProcessLogSplitter = 3016;
-constexpr int kButtonExportRoon = 3017;
+constexpr int kProcessLogSizeCompact = 3016;
+constexpr int kProcessLogSizeMedium = 3017;
+constexpr int kProcessLogSizeExpanded = 3018;
+constexpr int kButtonExportRoon = 3019;
 constexpr int kExportSampleRateCheckboxBase = 3020;
 constexpr wchar_t kMainClassName[] = L"WolfieMainWindow";
-constexpr int kLogSplitterHeight = 6;
+constexpr int kLogDividerHeight = 2;
 constexpr int kLogLabelHeight = 20;
-constexpr int kMinLogHeight = 86;
-constexpr int kMaxLogHeight = 420;
+constexpr int kLogHeaderBottomGap = 4;
+constexpr int kCompactLogHeight = 86;
+constexpr int kMediumLogHeight = 190;
+constexpr int kExpandedLogHeight = 320;
 constexpr int kMinTabHeight = 360;
+constexpr int kLogSizeButtonWidth = 24;
+constexpr int kLogSizeButtonHeight = 18;
+constexpr int kLogSizeButtonGap = 4;
 constexpr COLORREF kLogNormalColor = RGB(0, 0, 0);
 constexpr COLORREF kLogErrorColor = RGB(190, 0, 0);
 
@@ -98,6 +105,18 @@ std::filesystem::path appStatePath() {
 std::wstring formatSampleRateLabel(int sampleRate) {
     const int decimals = sampleRate % 1000 == 0 ? 0 : 1;
     return formatWideDouble(static_cast<double>(sampleRate) / 1000.0, decimals) + L" kHz";
+}
+
+int processLogHeightForSize(ProcessLogSize size) {
+    switch (size) {
+    case ProcessLogSize::Compact:
+        return kCompactLogHeight;
+    case ProcessLogSize::Expanded:
+        return kExpandedLogHeight;
+    case ProcessLogSize::Medium:
+    default:
+        return kMediumLogHeight;
+    }
 }
 
 void pumpPendingMessages() {
@@ -187,44 +206,10 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
     case WM_HSCROLL:
         app->onHScroll(reinterpret_cast<HWND>(lParam));
         return 0;
-    case WM_SETCURSOR: {
-        const POINT cursor = [] {
-            POINT point{};
-            GetCursorPos(&point);
-            return point;
-        }();
-        POINT clientPoint = cursor;
-        ScreenToClient(window, &clientPoint);
-        if (app->resizingLog_ || app->isPointOnLogSplitter(clientPoint.y)) {
-            SetCursor(LoadCursor(nullptr, IDC_SIZENS));
+    case WM_DRAWITEM:
+        if (app->handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
             return TRUE;
         }
-        break;
-    }
-    case WM_LBUTTONDOWN: {
-        const int y = GET_Y_LPARAM(lParam);
-        if (app->isPointOnLogSplitter(y)) {
-            app->beginLogResize(y);
-            return 0;
-        }
-        break;
-    }
-    case WM_LBUTTONUP:
-        if (app->resizingLog_) {
-            app->endLogResize();
-            return 0;
-        }
-        break;
-    case WM_MOUSEMOVE:
-        if (app->resizingLog_) {
-            app->updateLogResize(GET_Y_LPARAM(lParam));
-            return 0;
-        }
-        break;
-    case WM_CAPTURECHANGED:
-        app->resizingLog_ = false;
-        break;
-    case WM_DRAWITEM:
         if (app->measurementPage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
             return TRUE;
         }
@@ -288,7 +273,7 @@ void WolfieApp::createMainWindow() {
     mainClass.hInstance = instance_;
     mainClass.lpszClassName = kMainClassName;
     mainClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    mainClass.hbrBackground = CreateSolidBrush(ui_theme::kBackground);
+    mainClass.hbrBackground = ui_theme::backgroundBrush();
     mainClass.hIcon = largeIcon;
     mainClass.hIconSm = smallIcon;
     RegisterClassExW(&mainClass);
@@ -396,10 +381,43 @@ void WolfieApp::createLayout() {
                                     nullptr);
     exportStatus_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
                                   0, 0, 0, 0, pageExport_, nullptr, instance_, nullptr);
-    logSplitter_ = CreateWindowW(L"STATIC", nullptr, WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
-                                 0, 0, 0, 0, mainWindow_, reinterpret_cast<HMENU>(kProcessLogSplitter), instance_, nullptr);
+    logDivider_ = CreateWindowW(L"STATIC", nullptr, WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+                                0, 0, 0, 0, mainWindow_, nullptr, instance_, nullptr);
     logLabel_ = CreateWindowW(L"STATIC", L"Process Log", WS_CHILD | WS_VISIBLE,
                               0, 0, 0, 0, mainWindow_, nullptr, instance_, nullptr);
+    logSizeCompactButton_ = CreateWindowW(L"BUTTON",
+                                          L"\x2581",
+                                          WS_CHILD | WS_VISIBLE | WS_GROUP | BS_AUTORADIOBUTTON | BS_OWNERDRAW,
+                                          0,
+                                          0,
+                                          0,
+                                          0,
+                                          mainWindow_,
+                                          reinterpret_cast<HMENU>(kProcessLogSizeCompact),
+                                          instance_,
+                                          nullptr);
+    logSizeMediumButton_ = CreateWindowW(L"BUTTON",
+                                         L"\x2584",
+                                         WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | BS_OWNERDRAW,
+                                         0,
+                                         0,
+                                         0,
+                                         0,
+                                         mainWindow_,
+                                         reinterpret_cast<HMENU>(kProcessLogSizeMedium),
+                                         instance_,
+                                         nullptr);
+    logSizeExpandedButton_ = CreateWindowW(L"BUTTON",
+                                           L"\x2588",
+                                           WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | BS_OWNERDRAW,
+                                           0,
+                                           0,
+                                           0,
+                                           0,
+                                           mainWindow_,
+                                           reinterpret_cast<HMENU>(kProcessLogSizeExpanded),
+                                           instance_,
+                                           nullptr);
     LoadLibraryW(L"Msftedit.dll");
     logEdit_ = CreateWindowExW(WS_EX_CLIENTEDGE,
                                MSFTEDIT_CLASS,
@@ -414,6 +432,7 @@ void WolfieApp::createLayout() {
                                instance_,
                                nullptr);
     SendMessageW(logEdit_, EM_SETLIMITTEXT, 0, 0);
+    updateProcessLogSizeButtons();
 
     updateVisibleTab();
     layoutMainWindow();
@@ -424,30 +443,43 @@ void WolfieApp::layoutMainWindow() {
     const RECT bounds = clientRect(mainWindow_);
     const int width = std::max(320L, bounds.right - (2 * kContentMargin));
     const int height = std::max(360L, bounds.bottom - (2 * kContentMargin));
-    const int maxLogHeight = std::max(kMinLogHeight, height - kMinTabHeight - kLogSplitterHeight);
-    workspace_.ui.processLogHeight = std::clamp(workspace_.ui.processLogHeight,
-                                                kMinLogHeight,
-                                                std::min(kMaxLogHeight, maxLogHeight));
-    const int logHeight = workspace_.ui.processLogHeight;
-    const int tabHeight = std::max(kMinTabHeight, height - logHeight - kLogSplitterHeight);
+    const int preferredLogHeight = processLogHeightForSize(workspace_.ui.processLogSize);
+    const int maxLogHeight = std::max(kCompactLogHeight, height - kMinTabHeight - kLogDividerHeight);
+    const int logHeight = std::min(preferredLogHeight, maxLogHeight);
+    const int tabHeight = std::max(kMinTabHeight, height - logHeight - kLogDividerHeight);
     MoveWindow(tabControl_, kContentMargin, kContentMargin, width, tabHeight, TRUE);
 
-    const int splitterTop = kContentMargin + tabHeight;
-    logSplitterRect_ = RECT{kContentMargin, splitterTop, kContentMargin + width, splitterTop + kLogSplitterHeight};
-    MoveWindow(logSplitter_,
-               logSplitterRect_.left,
-               logSplitterRect_.top,
-               logSplitterRect_.right - logSplitterRect_.left,
-               logSplitterRect_.bottom - logSplitterRect_.top,
-               TRUE);
+    const int dividerTop = kContentMargin + tabHeight;
+    MoveWindow(logDivider_, kContentMargin, dividerTop, width, kLogDividerHeight, TRUE);
 
-    const int logTop = splitterTop + kLogSplitterHeight;
-    MoveWindow(logLabel_, kContentMargin, logTop + 2, width, kLogLabelHeight, TRUE);
+    const int logTop = dividerTop + kLogDividerHeight;
+    const int buttonsWidth = (3 * kLogSizeButtonWidth) + (2 * kLogSizeButtonGap);
+    const int buttonsLeft = kContentMargin + width - buttonsWidth;
+    const int labelWidth = std::max(80, buttonsLeft - kContentMargin - 8);
+    MoveWindow(logLabel_, kContentMargin, logTop + 2, labelWidth, kLogLabelHeight, TRUE);
+    MoveWindow(logSizeCompactButton_,
+               buttonsLeft,
+               logTop + 1,
+               kLogSizeButtonWidth,
+               kLogSizeButtonHeight,
+               TRUE);
+    MoveWindow(logSizeMediumButton_,
+               buttonsLeft + kLogSizeButtonWidth + kLogSizeButtonGap,
+               logTop + 1,
+               kLogSizeButtonWidth,
+               kLogSizeButtonHeight,
+               TRUE);
+    MoveWindow(logSizeExpandedButton_,
+               buttonsLeft + (2 * (kLogSizeButtonWidth + kLogSizeButtonGap)),
+               logTop + 1,
+               kLogSizeButtonWidth,
+               kLogSizeButtonHeight,
+               TRUE);
     MoveWindow(logEdit_,
                kContentMargin,
-               logTop + kLogLabelHeight,
+               logTop + kLogLabelHeight + kLogHeaderBottomGap,
                width,
-               std::max(40, logHeight - kLogLabelHeight),
+               std::max(40, logHeight - kLogLabelHeight - kLogHeaderBottomGap),
                TRUE);
 
     RECT tabRect{};
@@ -461,6 +493,53 @@ void WolfieApp::layoutMainWindow() {
     MoveWindow(filtersPage_.window(), tabRect.left, tabRect.top + 10, pageWidth, std::max(240, pageHeight - 10), TRUE);
     MoveWindow(pageExport_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     layoutContent();
+}
+
+bool WolfieApp::handleDrawItem(const DRAWITEMSTRUCT* drawItem) const {
+    if (drawItem == nullptr) {
+        return false;
+    }
+
+    if (drawItem->CtlID != kProcessLogSizeCompact &&
+        drawItem->CtlID != kProcessLogSizeMedium &&
+        drawItem->CtlID != kProcessLogSizeExpanded) {
+        return false;
+    }
+
+    const bool checked = SendMessageW(drawItem->hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    FillRect(drawItem->hDC, &drawItem->rcItem, ui_theme::backgroundBrush());
+
+    wchar_t glyph[8] = {};
+    GetWindowTextW(drawItem->hwndItem, glyph, static_cast<int>(sizeof(glyph) / sizeof(glyph[0])));
+
+    SetBkMode(drawItem->hDC, TRANSPARENT);
+    SetTextColor(drawItem->hDC, checked ? ui_theme::kAccent : ui_theme::kMuted);
+
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(drawItem->hwndItem, WM_GETFONT, 0, 0));
+    HGDIOBJ previousFont = nullptr;
+    if (font != nullptr) {
+        previousFont = SelectObject(drawItem->hDC, font);
+    }
+
+    RECT glyphRect = drawItem->rcItem;
+    if ((drawItem->itemState & ODS_SELECTED) != 0) {
+        OffsetRect(&glyphRect, 0, 1);
+    }
+    DrawTextW(drawItem->hDC, glyph, -1, &glyphRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    if (checked) {
+        RECT underline = drawItem->rcItem;
+        underline.top = std::max(underline.top, underline.bottom - 2);
+        HBRUSH accentBrush = CreateSolidBrush(ui_theme::kAccent);
+        FillRect(drawItem->hDC, &underline, accentBrush);
+        DeleteObject(accentBrush);
+    }
+
+    if (previousFont != nullptr) {
+        SelectObject(drawItem->hDC, previousFont);
+    }
+
+    return true;
 }
 
 void WolfieApp::layoutContent() {
@@ -534,38 +613,32 @@ void WolfieApp::appendMeasurementLog(const std::wstring& message, LogSeverity se
     appendLog(L"Measurement: " + message, severity);
 }
 
-bool WolfieApp::isPointOnLogSplitter(int y) const {
-    return y >= logSplitterRect_.top - 3 && y <= logSplitterRect_.bottom + 3;
+void WolfieApp::updateProcessLogSizeButtons() const {
+    SendMessageW(logSizeCompactButton_,
+                 BM_SETCHECK,
+                 workspace_.ui.processLogSize == ProcessLogSize::Compact ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(logSizeMediumButton_,
+                 BM_SETCHECK,
+                 workspace_.ui.processLogSize == ProcessLogSize::Medium ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(logSizeExpandedButton_,
+                 BM_SETCHECK,
+                 workspace_.ui.processLogSize == ProcessLogSize::Expanded ? BST_CHECKED : BST_UNCHECKED,
+                 0);
 }
 
-void WolfieApp::beginLogResize(int) {
-    resizingLog_ = true;
-    SetCapture(mainWindow_);
-    SetCursor(LoadCursor(nullptr, IDC_SIZENS));
-}
-
-void WolfieApp::updateLogResize(int y) {
-    const RECT bounds = clientRect(mainWindow_);
-    const int contentBottom = bounds.bottom - kContentMargin;
-    const int height = std::max(360L, bounds.bottom - (2 * kContentMargin));
-    const int maxLogHeight = std::max(kMinLogHeight, height - kMinTabHeight - kLogSplitterHeight);
-    workspace_.ui.processLogHeight = std::clamp(contentBottom - y - kLogSplitterHeight,
-                                                kMinLogHeight,
-                                                std::min(kMaxLogHeight, maxLogHeight));
-    layoutMainWindow();
-}
-
-void WolfieApp::endLogResize() {
-    resizingLog_ = false;
-    if (GetCapture() == mainWindow_) {
-        ReleaseCapture();
+void WolfieApp::setProcessLogSize(ProcessLogSize size) {
+    if (workspace_.ui.processLogSize == size) {
+        return;
     }
+
+    workspace_.ui.processLogSize = size;
+    updateProcessLogSizeButtons();
+    layoutMainWindow();
+
     if (!workspace_.rootPath.empty()) {
-        try {
-            syncStateFromControls();
-        } catch (...) {
-        }
-        workspaceRepository_.save(workspace_);
+        workspaceRepository_.saveUiSettings(workspace_);
     }
 }
 
@@ -579,6 +652,18 @@ void WolfieApp::showSettingsWindow() {
     });
 }
 
+void WolfieApp::showRoomSimulationWindow() {
+    roomSimulationDialog_.show(instance_,
+                               mainWindow_,
+                               [this](const std::string& name, const RoomSimulationSettings& settings) {
+                                   saveRoomSimulationDefinition(name, settings);
+                               },
+                               [this](const std::string& name, const RoomSimulationSettings& settings) {
+                                   generateRoomSimulationMeasurement(name, settings);
+                               });
+    roomSimulationDialog_.populate(workspace_);
+}
+
 void WolfieApp::populateControlsFromState() {
     measurement::syncDerivedMeasurementSettings(workspace_.measurement);
     measurement::normalizeResponseSmoothingSettings(workspace_.smoothing);
@@ -589,11 +674,15 @@ void WolfieApp::populateControlsFromState() {
                                                                   std::nullopt);
     measurement::normalizeTargetCurveSettings(workspace_.targetCurve, targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz);
     measurementPage_.populate(workspace_);
+    if (!roomSimulationDialog_.isOpen()) {
+        roomSimulationDialog_.populate(workspace_);
+    }
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
     filtersPage_.populate(workspace_);
     populateExportSampleRateControls();
     updateExportControls();
+    updateProcessLogSizeButtons();
     layoutMainWindow();
 }
 
@@ -1043,6 +1132,65 @@ void WolfieApp::exportRoonFilters() {
               L" to " + exportDirectory.wstring());
 }
 
+void WolfieApp::saveRoomSimulationDefinition(const std::string& name,
+                                             const RoomSimulationSettings& settings) {
+    if (name.empty()) {
+        return;
+    }
+
+    RoomSimulationSettings normalized = settings;
+    measurement::normalizeRoomSimulationSettings(normalized);
+
+    auto it = std::find_if(workspace_.roomSimulations.begin(),
+                           workspace_.roomSimulations.end(),
+                           [&](const RoomSimulationDefinition& simulation) {
+                               return simulation.name == name;
+                           });
+    if (it == workspace_.roomSimulations.end()) {
+        workspace_.roomSimulations.push_back({name, normalized});
+        std::sort(workspace_.roomSimulations.begin(),
+                  workspace_.roomSimulations.end(),
+                  [](const RoomSimulationDefinition& left, const RoomSimulationDefinition& right) {
+                      return left.name < right.name;
+                  });
+    } else {
+        it->settings = normalized;
+    }
+    workspace_.activeRoomSimulationName = name;
+
+    if (!workspace_.rootPath.empty()) {
+        roomSimulationRepository_.save(workspace_.rootPath, {name, normalized});
+        workspaceRepository_.save(workspace_);
+    }
+}
+
+void WolfieApp::generateRoomSimulationMeasurement(const std::string& name,
+                                                  const RoomSimulationSettings& settings) {
+    if (workspace_.rootPath.empty()) {
+        appendMeasurementLog(L"Cannot generate a room simulation because no workspace is open.", LogSeverity::Error);
+        return;
+    }
+
+    syncStateFromControls();
+    saveRoomSimulationDefinition(name, settings);
+    workspace_.result = measurement::buildSimulatedRoomMeasurement(workspace_.measurement, settings, name);
+    workspace_.smoothedResponse = {};
+    invalidateFilterDesign();
+
+    const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
+    if (selected == 1 || selected == 2 || selected == 3) {
+        ensureSmoothedResponseReady();
+    }
+
+    measurementPage_.setWorkspaceView(workspace_);
+    smoothingPage_.populate(workspace_);
+    targetCurvePage_.populate(workspace_);
+    filtersPage_.populate(workspace_);
+    workspaceRepository_.save(workspace_);
+    refreshMeasurementStatus();
+    appendMeasurementLog(L"Generated room simulation: " + toWide(name) + L".");
+}
+
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     if (calibrationReanalysisInProgress_) {
         return;
@@ -1050,6 +1198,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
 
     bool roomMeasurePressed = false;
     bool referenceMeasurePressed = false;
+    bool roomSimulationPressed = false;
     bool microphoneCalibrationChanged = false;
     bool sampleRateChanged = false;
     bool measurementGraphZoomChanged = false;
@@ -1059,6 +1208,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
                                        workspace_,
                                        roomMeasurePressed,
                                        referenceMeasurePressed,
+                                       roomSimulationPressed,
                                        microphoneCalibrationChanged,
                                        sampleRateChanged,
                                        measurementGraphZoomChanged,
@@ -1098,6 +1248,10 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             syncStateFromControls();
             workspaceRepository_.save(workspace_);
             refreshMeasurementStatus();
+        }
+        if (roomSimulationPressed) {
+            showRoomSimulationWindow();
+            return;
         }
         if (roomMeasurePressed || referenceMeasurePressed) {
             if (measurementController_.status().running) {
@@ -1195,6 +1349,21 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     }
 
     switch (commandId) {
+    case kProcessLogSizeCompact:
+        if (notificationCode == BN_CLICKED) {
+            setProcessLogSize(ProcessLogSize::Compact);
+        }
+        return;
+    case kProcessLogSizeMedium:
+        if (notificationCode == BN_CLICKED) {
+            setProcessLogSize(ProcessLogSize::Medium);
+        }
+        return;
+    case kProcessLogSizeExpanded:
+        if (notificationCode == BN_CLICKED) {
+            setProcessLogSize(ProcessLogSize::Expanded);
+        }
+        return;
     case kButtonExportRoon:
         if (notificationCode == BN_CLICKED) {
             exportRoonFilters();
@@ -1372,6 +1541,7 @@ void WolfieApp::persistTargetCurveStateIfPending() {
 }
 
 void WolfieApp::newWorkspace() {
+    roomSimulationDialog_.close();
     auto path = pickFolder(true);
     if (!path) {
         return;
@@ -1408,6 +1578,7 @@ void WolfieApp::openWorkspace() {
 }
 
 void WolfieApp::openWorkspace(const std::filesystem::path& path) {
+    roomSimulationDialog_.close();
     saveCurrentWorkspaceIfOpen();
     workspace_ = workspaceRepository_.load(path);
     invalidateFilterDesign();

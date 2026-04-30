@@ -32,6 +32,8 @@ add_executable(wolfie WIN32
     src/measurement/filter_wav_export.h
     src/measurement/dsp_utils.cpp
     src/measurement/dsp_utils.h
+    src/measurement/room_simulator.cpp
+    src/measurement/room_simulator.h
     src/measurement/response_analyzer.cpp
     src/measurement/response_analyzer.h
     src/measurement/response_smoother.cpp
@@ -46,6 +48,8 @@ add_executable(wolfie WIN32
     src/persistence/app_state_repository.h
     src/persistence/microphone_calibration_repository.cpp
     src/persistence/microphone_calibration_repository.h
+    src/persistence/room_simulation_repository.cpp
+    src/persistence/room_simulation_repository.h
     src/persistence/wave_file_repository.cpp
     src/persistence/wave_file_repository.h
     src/persistence/workspace_repository.cpp
@@ -58,6 +62,8 @@ add_executable(wolfie WIN32
     src/ui/plot_graph.h
     src/ui/response_graph.cpp
     src/ui/response_graph.h
+    src/ui/room_simulation_dialog.cpp
+    src/ui/room_simulation_dialog.h
     src/ui/settings_dialog.cpp
     src/ui/settings_dialog.h
     src/ui/splash_screen.cpp

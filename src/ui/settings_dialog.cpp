@@ -31,7 +31,7 @@ void registerSettingsWindowClass(HINSTANCE instance) {
     settingsClass.hInstance = instance;
     settingsClass.lpszClassName = kWindowClassName;
     settingsClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    settingsClass.hbrBackground = CreateSolidBrush(ui_theme::kBackground);
+    settingsClass.hbrBackground = ui_theme::backgroundBrush();
     RegisterClassW(&settingsClass);
 }
 
@@ -165,18 +165,17 @@ LRESULT CALLBACK SettingsDialog::WindowProc(HWND window, UINT message, WPARAM wP
         return DefWindowProcW(window, message, wParam, lParam);
     }
 
-    static HBRUSH settingsBackgroundBrush = CreateSolidBrush(ui_theme::kBackground);
     switch (message) {
     case WM_CREATE:
         dialog->createControls();
         return 0;
     case WM_CTLCOLORDLG:
-        return reinterpret_cast<INT_PTR>(settingsBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     case WM_CTLCOLORSTATIC: {
         HDC hdc = reinterpret_cast<HDC>(wParam);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, ui_theme::kText);
-        return reinterpret_cast<INT_PTR>(settingsBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     }
     case WM_COMMAND: {
         const WORD commandId = LOWORD(wParam);

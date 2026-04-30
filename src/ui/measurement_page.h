@@ -40,6 +40,7 @@ public:
                        WorkspaceState& workspace,
                        bool& roomMeasurePressed,
                        bool& referenceMeasurePressed,
+                       bool& roomSimulationPressed,
                        bool& microphoneCalibrationChanged,
                        bool& sampleRateChanged,
                        bool& graphZoomChanged,
@@ -84,21 +85,25 @@ private:
         HWND outputVolumeSlider = nullptr;
         HWND outputVolumeMuteLabel = nullptr;
         HWND outputVolumeMaxLabel = nullptr;
+        HWND actionMetersFrame = nullptr;
         HWND buttonMeasure = nullptr;
         HWND buttonMeasureReference = nullptr;
+        HWND buttonRoomSimulation = nullptr;
         HWND leftChannelLabel = nullptr;
         HWND leftProgressBar = nullptr;
         HWND leftProgressText = nullptr;
         HWND rightChannelLabel = nullptr;
         HWND rightProgressBar = nullptr;
         HWND rightProgressText = nullptr;
-        HWND currentFrequency = nullptr;
-        HWND currentAmplitude = nullptr;
-        HWND peakAmplitude = nullptr;
+        HWND frequencyDisplay = nullptr;
+        HWND levelMeter = nullptr;
         HWND labelPlot = nullptr;
         HWND comboPlot = nullptr;
         HWND labelWaterfallChannel = nullptr;
         HWND comboWaterfallChannel = nullptr;
+        HWND labelWaterfallLowCutoff = nullptr;
+        HWND sliderWaterfallLowCutoff = nullptr;
+        HWND valueWaterfallLowCutoff = nullptr;
         HWND infoStatusFrame = nullptr;
         HWND referenceStatus = nullptr;
         HWND micCompStatus = nullptr;
@@ -112,15 +117,6 @@ private:
         HWND checkboxShowReference = nullptr;
         HWND lineReference = nullptr;
         HWND labelReference = nullptr;
-        HWND metadataLabel = nullptr;
-        HWND metadataToggle = nullptr;
-        HWND metadataTable = nullptr;
-    };
-
-    struct MetadataRow {
-        std::wstring section;
-        std::wstring metric;
-        std::wstring value;
     };
 
     static constexpr wchar_t kPageClassName[] = L"WolfiePageWindow";
@@ -136,15 +132,19 @@ private:
     static constexpr int kResponseGraph = 3014;
     static constexpr int kComboPlot = 3018;
     static constexpr int kComboWaterfallChannel = 3019;
-    static constexpr int kMetadataTable = 3017;
-    static constexpr int kButtonMetadataToggle = 3020;
     static constexpr int kButtonMeasureReference = 3021;
     static constexpr int kCheckboxShowRoomLeft = 3022;
     static constexpr int kCheckboxShowRoomRight = 3023;
     static constexpr int kCheckboxShowReference = 3024;
     static constexpr int kButtonMicCalibrationBrowse = 3025;
     static constexpr int kButtonMicCalibrationClear = 3026;
+    static constexpr int kButtonRoomSimulation = 3027;
+    static constexpr int kSliderWaterfallLowCutoff = 3028;
+    static constexpr int kFrequencyDisplay = 3029;
+    static constexpr int kLevelMeter = 3030;
     static constexpr int kOutputVolumeSliderMax = 61;
+    static constexpr int kWaterfallLowCutoffMinDb = -72;
+    static constexpr int kWaterfallLowCutoffMaxDb = -24;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static int measurementSampleRateFromComboIndex(int index);
@@ -156,12 +156,14 @@ private:
     static void populateWaterfallChannelCombo(HWND combo);
     static int comboIndexFromWaterfallChannel(const std::string& channel);
     static std::string waterfallChannelFromComboIndex(int index);
+    static double waterfallLowCutoffDbFromSliderPosition(int position);
+    static int sliderPositionFromWaterfallLowCutoffDb(double lowCutoffDb);
+    static std::wstring formatWaterfallLowCutoffLabel(double lowCutoffDb);
     static double sliderPositionToOutputVolumeDb(int position);
     static int outputVolumeDbToSliderPosition(double outputVolumeDb);
     static std::wstring formatOutputVolumeLabel(double outputVolumeDb);
     static std::wstring getWindowTextValue(HWND control);
     static void setWindowTextValue(HWND control, const std::wstring& text);
-    static void setListViewText(HWND listView, int row, int column, const std::wstring& text);
     static std::wstring referenceStatusText(const AudioSettings& audio,
                                             const MeasurementSettings& measurement,
                                             const MeasurementResult& referenceResult);
@@ -170,13 +172,10 @@ private:
     ResponseGraphData buildGraphData() const;
     void refreshPlots();
     void updatePlotControlVisibility() const;
-    void updateMetadataVisibility() const;
     void updateLegendVisibility() const;
     void setInteractiveControlsEnabled(bool enabled) const;
     void refreshReferenceStatusLabels() const;
     void refreshActionButtons() const;
-    std::vector<MetadataRow> buildMetadataRows(const MeasurementResult& result) const;
-    void populateMetadataTable(const MeasurementResult& result) const;
     void createControls();
 
     HINSTANCE instance_ = nullptr;
@@ -187,7 +186,6 @@ private:
     AudioSettings audioSettings_;
     MeasurementSettings measurementSettings_;
     MeasurementStatus status_;
-    bool metadataCollapsed_ = false;
     bool showRoomLeft_ = true;
     bool showRoomRight_ = true;
     bool showReference_ = true;

@@ -53,6 +53,7 @@ Files:
 
 - `sweep_generator.h/.cpp`
 - `response_analyzer.h/.cpp`
+- `room_simulator.h/.cpp`
 - `measurement_controller.h/.cpp`
 - `target_curve_designer.h/.cpp`
 - `filter_designer.h/.cpp`
@@ -62,6 +63,7 @@ Responsibilities:
 
 - `sweep_generator` creates playback sweep data and exported sweep WAV content.
 - `response_analyzer` turns captured audio into `MeasurementResult` value sets and analysis metadata.
+- `room_simulator` generates synthetic room-response `MeasurementResult` data for UI and filter-testing workflows without audio I/O.
 - `measurement_controller` orchestrates a measurement run through an audio backend.
 - `target_curve_designer` computes target-curve view data without UI dependencies.
 - `filter_designer` computes correction curves, minimum-phase FIR filters, simulated responses, phase-derived diagnostics, and filter-design view data without UI dependencies.
@@ -103,10 +105,12 @@ Files:
 
 - `workspace_repository.h/.cpp`
 - `app_state_repository.h/.cpp`
+- `room_simulation_repository.h/.cpp`
 
 Responsibilities:
 
 - Load and save workspace files and recent-workspace state.
+- Load and save named room-simulation parameter files under the workspace.
 - Persist measurement value sets, workspace settings, and app-level state.
 
 Reasoning:
@@ -124,6 +128,7 @@ Files:
 - `response_graph.h/.cpp`
 - `plot_graph.h/.cpp`
 - `measurement_page.h/.cpp`
+- `room_simulation_dialog.h/.cpp`
 - `target_curve_graph.h/.cpp`
 - `target_curve_page.h/.cpp`
 - `filters_page.h/.cpp`
@@ -136,6 +141,7 @@ Responsibilities:
 - `response_graph` renders reusable response displays for measurement workflows.
 - `plot_graph` renders reusable non-interactive plots for filter-design workflows.
 - `measurement_page`, `target_curve_page`, and `filters_page` own their controls, layout, legend state, and graph synchronization.
+- `room_simulation_dialog` owns the non-modal synthetic-room editor and delegates generation/persistence outward.
 - `target_curve_graph` and `waterfall_graph` implement specialized graph behavior for their workflows.
 - `settings_dialog` owns settings-window behavior and delegates ASIO-specific work outward.
 
@@ -143,6 +149,24 @@ Reasoning:
 
 - Widgets should render supplied data, not reach into `WolfieApp`.
 - Page modules should own page behavior so the app shell stays focused on coordination.
+
+### UI Theming
+
+The shared UI theme lives in `src/ui/ui_theme.h`.
+
+Current design rules:
+
+- Use the system button-face color for page and dialog backgrounds so the app keeps a native Win32 surface.
+- Treat charts as distinct work surfaces with a white background, even when the surrounding page is gray.
+- Keep shared UI colors such as border, accent, muted text, and graph overlay colors centralized in `ui_theme` rather than duplicated inside pages or widgets.
+- Reusable graph widgets should obtain their background and overlay colors through `ui_theme` helpers such as `graphBackgroundColor()` and `graphBackgroundBrush()`.
+- Page modules may decide layout and visibility, but they should not invent page-local color schemes when an existing shared theme value fits.
+
+Why this split exists:
+
+- The gray application chrome keeps the rest of the UI aligned with native controls.
+- White chart surfaces improve trace contrast, grid readability, and visual separation between control areas and analysis views.
+- Centralizing theme values keeps cosmetic changes local and avoids drift between `response_graph`, `plot_graph`, `target_curve_graph`, and `waterfall_graph`.
 
 ### `src/wolfie_app.*`
 

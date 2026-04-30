@@ -18,6 +18,7 @@ public:
 
     void create(HWND parent, HINSTANCE instance, int controlId = 0);
     void setData(measurement::WaterfallPlotData data);
+    void setLowCutoffDb(double lowCutoffDb);
     void layout(const RECT& bounds) const;
     void invalidate() const;
 
@@ -30,6 +31,7 @@ private:
 
     HWND window_ = nullptr;
     measurement::WaterfallPlotData data_;
+    double lowCutoffDb_ = -72.0;
 };
 
 }  // namespace wolfie::ui

@@ -84,7 +84,7 @@ void ensureProfilePromptWindowClass(HINSTANCE instance) {
     windowClass.hInstance = instance;
     windowClass.lpszClassName = kProfilePromptClassName;
     windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
+    windowClass.hbrBackground = ui_theme::backgroundBrush();
     RegisterClassW(&windowClass);
     registered = true;
 }
@@ -113,7 +113,7 @@ void TargetCurvePage::registerPageWindowClass(HINSTANCE instance) {
     pageClass.hInstance = instance;
     pageClass.lpszClassName = kPageClassName;
     pageClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    pageClass.hbrBackground = CreateSolidBrush(ui_theme::kBackground);
+    pageClass.hbrBackground = ui_theme::backgroundBrush();
     RegisterClassW(&pageClass);
 }
 
@@ -528,7 +528,8 @@ bool TargetCurvePage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
     const bool selected = (draw->itemState & ODS_SELECTED) != 0;
     const bool focused = (draw->itemState & ODS_FOCUS) != 0;
     const bool bypassed = SendMessageW(controls_.checkboxBypassAll, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    const COLORREF fillColor = !bypassed && selected ? RGB(225, 234, 246) : ui_theme::kPanelBackground;
+    const COLORREF fillColor =
+        !bypassed && selected ? RGB(225, 234, 246) : ui_theme::panelBackgroundColor();
     HBRUSH fillBrush = CreateSolidBrush(fillColor);
     FillRect(draw->hDC, &draw->rcItem, fillBrush);
     DeleteObject(fillBrush);
@@ -559,7 +560,8 @@ bool TargetCurvePage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
         }
         const COLORREF baseDotColor = band != nullptr ? targetCurveBandColor(band->colorIndex)
                                                       : targetCurveBandColor(static_cast<int>(bandIndex));
-        const COLORREF dotColor = bypassed ? blendColor(baseDotColor, ui_theme::kPanelBackground, 0.55) : baseDotColor;
+        const COLORREF dotColor =
+            bypassed ? blendColor(baseDotColor, ui_theme::panelBackgroundColor(), 0.55) : baseDotColor;
         HBRUSH dotBrush = CreateSolidBrush(dotColor);
         HBRUSH previousBrush = reinterpret_cast<HBRUSH>(SelectObject(draw->hDC, dotBrush));
         HPEN dotPen = CreatePen(PS_SOLID, 1, dotColor);
@@ -592,7 +594,6 @@ LRESULT CALLBACK TargetCurvePage::PageWindowProc(HWND window, UINT message, WPAR
     }
 
     TargetCurvePage* page = reinterpret_cast<TargetCurvePage*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    static HBRUSH pageBackgroundBrush = CreateSolidBrush(ui_theme::kBackground);
     switch (message) {
     case WM_MOUSEWHEEL:
         if (page != nullptr && page->handleMouseWheel(wParam, lParam)) {
@@ -609,27 +610,26 @@ LRESULT CALLBACK TargetCurvePage::PageWindowProc(HWND window, UINT message, WPAR
         return 0;
     }
     case WM_CTLCOLORDLG:
-        return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORBTN: {
         HDC hdc = reinterpret_cast<HDC>(wParam);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, ui_theme::kText);
-        return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     }
     case WM_CTLCOLOREDIT: {
-        static HBRUSH editBackgroundBrush = CreateSolidBrush(ui_theme::kPanelBackground);
         HDC hdc = reinterpret_cast<HDC>(wParam);
-        SetBkColor(hdc, ui_theme::kPanelBackground);
+        SetBkColor(hdc, ui_theme::panelBackgroundColor());
         SetTextColor(hdc, ui_theme::kText);
-        return reinterpret_cast<INT_PTR>(editBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::panelBackgroundBrush());
     }
     case WM_CTLCOLORLISTBOX: {
         HDC hdc = reinterpret_cast<HDC>(wParam);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, ui_theme::kText);
-        static HBRUSH listBrush = CreateSolidBrush(ui_theme::kPanelBackground);
-        return reinterpret_cast<INT_PTR>(listBrush);
+        SetBkColor(hdc, ui_theme::panelBackgroundColor());
+        return reinterpret_cast<INT_PTR>(ui_theme::panelBackgroundBrush());
     }
     default:
         return DefWindowProcW(window, message, wParam, lParam);

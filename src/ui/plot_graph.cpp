@@ -681,7 +681,7 @@ void fillSelectionOverlay(HDC hdc, const RECT& selection) {
 
     HBITMAP oldOverlayBitmap = reinterpret_cast<HBITMAP>(SelectObject(overlayDc, overlayBitmap));
     RECT overlayRect{0, 0, width, height};
-    HBRUSH overlayBrush = CreateSolidBrush(RGB(214, 227, 244));
+    HBRUSH overlayBrush = CreateSolidBrush(ui_theme::graphOverlayColor());
     FillRect(overlayDc, &overlayRect, overlayBrush);
     DeleteObject(overlayBrush);
 
@@ -723,7 +723,7 @@ void PlotGraph::registerWindowClass(HINSTANCE instance) {
     graphClass.hInstance = instance;
     graphClass.lpszClassName = kWindowClassName;
     graphClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    graphClass.hbrBackground = CreateSolidBrush(RGB(248, 250, 252));
+    graphClass.hbrBackground = ui_theme::graphBackgroundBrush();
     RegisterClassW(&graphClass);
 }
 
@@ -1038,9 +1038,7 @@ LRESULT CALLBACK PlotGraph::WindowProc(HWND window, UINT message, WPARAM wParam,
 }
 
 void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
-    HBRUSH background = CreateSolidBrush(RGB(248, 250, 252));
-    FillRect(hdc, &rect, background);
-    DeleteObject(background);
+    FillRect(hdc, &rect, ui_theme::graphBackgroundBrush());
 
     SetBkMode(hdc, TRANSPARENT);
     SelectObject(hdc, GetStockObject(DC_PEN));
@@ -1065,7 +1063,7 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
     const std::vector<AxisLabel> xLabels =
         buildXLabels(hdc, layout.graph, data_, layout.visibleMinX, layout.visibleMaxX, xTicks);
 
-    HBRUSH stripeBrush = CreateSolidBrush(RGB(244, 247, 251));
+    HBRUSH stripeBrush = CreateSolidBrush(ui_theme::graphStripeColor());
     for (size_t index = 0; index + 1 < layout.yTicks.size(); ++index) {
         if ((index % 2) != 0) {
             continue;

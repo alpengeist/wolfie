@@ -45,9 +45,7 @@ double smoothnessValueFromSliderPosition(LRESULT position) {
 }
 
 void drawLegendFrame(const DRAWITEMSTRUCT& draw) {
-    HBRUSH backgroundBrush = CreateSolidBrush(ui_theme::kBackground);
-    FillRect(draw.hDC, &draw.rcItem, backgroundBrush);
-    DeleteObject(backgroundBrush);
+    FillRect(draw.hDC, &draw.rcItem, ui_theme::backgroundBrush());
 
     const int savedDc = SaveDC(draw.hDC);
     SelectObject(draw.hDC, GetStockObject(HOLLOW_BRUSH));
@@ -177,7 +175,7 @@ void FiltersPage::registerPageWindowClass(HINSTANCE instance) {
     pageClass.hInstance = instance;
     pageClass.lpszClassName = kPageClassName;
     pageClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    pageClass.hbrBackground = CreateSolidBrush(ui_theme::kBackground);
+    pageClass.hbrBackground = ui_theme::backgroundBrush();
     RegisterClassW(&pageClass);
 }
 
@@ -1111,8 +1109,8 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
     const COLORREF hoverFill = blendColor(baseFill, RGB(255, 255, 255), 0.12);
     const COLORREF pressedFill = blendColor(baseFill, RGB(0, 0, 0), 0.18);
     const COLORREF border = blendColor(baseFill, RGB(0, 0, 0), 0.28);
-    const COLORREF disabledFill = blendColor(baseFill, ui_theme::kBackground, 0.35);
-    const COLORREF disabledBorder = blendColor(border, ui_theme::kBackground, 0.3);
+    const COLORREF disabledFill = blendColor(baseFill, ui_theme::backgroundColor(), 0.35);
+    const COLORREF disabledBorder = blendColor(border, ui_theme::backgroundColor(), 0.3);
 
     const COLORREF fill = disabled ? disabledFill : (pressed ? pressedFill : (hot ? hoverFill : baseFill));
     HBRUSH brush = CreateSolidBrush(fill);
@@ -1136,7 +1134,9 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
     HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, buttonFont));
 
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, disabled ? blendColor(RGB(255, 255, 255), ui_theme::kBackground, 0.2) : RGB(255, 255, 255));
+    SetTextColor(hdc,
+                 disabled ? blendColor(RGB(255, 255, 255), ui_theme::backgroundColor(), 0.2)
+                          : RGB(255, 255, 255));
     RECT textRect = rect;
     if (pressed) {
         OffsetRect(&textRect, 0, 1);
@@ -1287,8 +1287,6 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     }
 
     auto* page = reinterpret_cast<FiltersPage*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    static HBRUSH pageBackgroundBrush = CreateSolidBrush(ui_theme::kBackground);
-
     switch (message) {
     case WM_SIZE:
         if (page != nullptr) {
@@ -1342,11 +1340,11 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         HDC hdc = reinterpret_cast<HDC>(wParam);
         RECT rect{};
         GetClientRect(window, &rect);
-        FillRect(hdc, &rect, pageBackgroundBrush);
+        FillRect(hdc, &rect, ui_theme::backgroundBrush());
         return 1;
     }
     case WM_CTLCOLORDLG:
-        return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORBTN: {
         static HBRUSH lineInputRightBrush = CreateSolidBrush(ui_theme::kRed);
@@ -1450,14 +1448,13 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         }
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, ui_theme::kText);
-        return reinterpret_cast<INT_PTR>(pageBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     }
     case WM_CTLCOLOREDIT: {
-        static HBRUSH editBackgroundBrush = CreateSolidBrush(ui_theme::kPanelBackground);
         HDC hdc = reinterpret_cast<HDC>(wParam);
-        SetBkColor(hdc, ui_theme::kPanelBackground);
+        SetBkColor(hdc, ui_theme::panelBackgroundColor());
         SetTextColor(hdc, ui_theme::kText);
-        return reinterpret_cast<INT_PTR>(editBackgroundBrush);
+        return reinterpret_cast<INT_PTR>(ui_theme::panelBackgroundBrush());
     }
     default:
         break;

@@ -569,7 +569,7 @@ void fillSelectionOverlay(HDC hdc, const RECT& selection) {
 
     HBITMAP oldOverlayBitmap = reinterpret_cast<HBITMAP>(SelectObject(overlayDc, overlayBitmap));
     RECT overlayRect{0, 0, width, height};
-    HBRUSH overlayBrush = CreateSolidBrush(RGB(214, 227, 244));
+    HBRUSH overlayBrush = CreateSolidBrush(ui_theme::graphOverlayColor());
     FillRect(overlayDc, &overlayRect, overlayBrush);
     DeleteObject(overlayBrush);
 
@@ -592,7 +592,7 @@ void ResponseGraph::registerWindowClass(HINSTANCE instance) {
     graphClass.hInstance = instance;
     graphClass.lpszClassName = kWindowClassName;
     graphClass.hCursor = LoadCursor(nullptr, IDC_CROSS);
-    graphClass.hbrBackground = CreateSolidBrush(RGB(248, 250, 252));
+    graphClass.hbrBackground = ui_theme::graphBackgroundBrush();
     RegisterClassW(&graphClass);
 }
 
@@ -731,9 +731,7 @@ LRESULT CALLBACK ResponseGraph::WindowProc(HWND window, UINT message, WPARAM wPa
 }
 
 void ResponseGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
-    HBRUSH background = CreateSolidBrush(RGB(248, 250, 252));
-    FillRect(hdc, &rect, background);
-    DeleteObject(background);
+    FillRect(hdc, &rect, ui_theme::graphBackgroundBrush());
 
     SetBkMode(hdc, TRANSPARENT);
     SelectObject(hdc, GetStockObject(DC_PEN));
@@ -747,7 +745,7 @@ void ResponseGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
     const std::vector<AxisLabel> xLabels =
         buildFrequencyLabels(hdc, graph, layout.visibleMinFrequencyHz, layout.visibleMaxFrequencyHz, xTickValues);
 
-    const COLORREF stripeColor = RGB(244, 247, 251);
+    const COLORREF stripeColor = ui_theme::graphStripeColor();
     HBRUSH stripeBrush = CreateSolidBrush(stripeColor);
     for (size_t i = 0; i + 1 < layout.yTickValues.size(); ++i) {
         if ((i % 2) != 0) {

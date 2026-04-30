@@ -20,9 +20,11 @@
 #include "core/models.h"
 #include "measurement/measurement_controller.h"
 #include "persistence/app_state_repository.h"
+#include "persistence/room_simulation_repository.h"
 #include "persistence/workspace_repository.h"
 #include "ui/filters_page.h"
 #include "ui/measurement_page.h"
+#include "ui/room_simulation_dialog.h"
 #include "ui/smoothing_page.h"
 #include "ui/target_curve_page.h"
 
@@ -61,13 +63,13 @@ private:
     void createLayout();
     void layoutMainWindow();
     void layoutContent();
+    bool handleDrawItem(const DRAWITEMSTRUCT* drawItem) const;
+    void updateProcessLogSizeButtons() const;
+    void setProcessLogSize(ProcessLogSize size);
     void appendLog(const std::wstring& message, LogSeverity severity = LogSeverity::Normal);
     void appendMeasurementLog(const std::wstring& message, LogSeverity severity = LogSeverity::Normal);
-    void beginLogResize(int y);
-    void updateLogResize(int y);
-    void endLogResize();
-    [[nodiscard]] bool isPointOnLogSplitter(int y) const;
     void showSettingsWindow();
+    void showRoomSimulationWindow();
     void populateControlsFromState();
     void syncStateFromControls();
     static CalibrationReanalysisTaskResult buildReanalyzedMeasurementWithCurrentMicCalibration(
@@ -89,6 +91,8 @@ private:
     void syncExportSampleRatesToWorkspace();
     [[nodiscard]] std::vector<int> selectedExportSampleRates() const;
     void exportRoonFilters();
+    void saveRoomSimulationDefinition(const std::string& name, const RoomSimulationSettings& settings);
+    void generateRoomSimulationMeasurement(const std::string& name, const RoomSimulationSettings& settings);
     void onCommand(WORD commandId, WORD notificationCode);
     void onHScroll(HWND source);
     void onNotify(LPARAM lParam);
@@ -123,21 +127,24 @@ private:
     std::vector<HWND> exportSampleRateChecks_;
     HWND logLabel_ = nullptr;
     HWND logEdit_ = nullptr;
-    HWND logSplitter_ = nullptr;
+    HWND logDivider_ = nullptr;
+    HWND logSizeCompactButton_ = nullptr;
+    HWND logSizeMediumButton_ = nullptr;
+    HWND logSizeExpandedButton_ = nullptr;
     bool exportRunning_ = false;
-    bool resizingLog_ = false;
     bool measurementCompletionHandled_ = true;
     bool calibrationReanalysisInProgress_ = false;
     int activeTabIndex_ = 0;
     bool targetCurvePersistencePending_ = false;
-    RECT logSplitterRect_{};
     WorkspaceState workspace_;
     AppState appState_;
     ui::MeasurementPage measurementPage_;
+    ui::RoomSimulationDialog roomSimulationDialog_;
     ui::SmoothingPage smoothingPage_;
     ui::TargetCurvePage targetCurvePage_;
     ui::FiltersPage filtersPage_;
     MeasurementController measurementController_;
+    persistence::RoomSimulationRepository roomSimulationRepository_;
     persistence::WorkspaceRepository workspaceRepository_;
     persistence::AppStateRepository appStateRepository_;
     audio::AsioService asioService_;
