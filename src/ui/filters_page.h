@@ -9,6 +9,7 @@
 #include <windows.h>
 
 #include "core/models.h"
+#include "ui/help_bubble.h"
 #include "ui/plot_graph.h"
 
 namespace wolfie::ui {
@@ -262,6 +263,7 @@ private:
     int sampleRate_ = 48000;
     int scrollOffset_ = 0;
     int contentHeight_ = 0;
+    HelpBubbleController helpBubble_;
 };
 
 }  // namespace wolfie::ui

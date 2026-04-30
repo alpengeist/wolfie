@@ -58,6 +58,8 @@ add_executable(wolfie WIN32
     src/ui/measurement_page.h
     src/ui/filters_page.cpp
     src/ui/filters_page.h
+    src/ui/help_bubble.cpp
+    src/ui/help_bubble.h
     src/ui/plot_graph.cpp
     src/ui/plot_graph.h
     src/ui/response_graph.cpp

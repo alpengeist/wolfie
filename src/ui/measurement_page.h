@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "core/models.h"
+#include "ui/help_bubble.h"
 #include "ui/response_graph.h"
 #include "ui/waterfall_graph.h"
 
@@ -192,6 +193,7 @@ private:
     bool calibrationRefreshInProgress_ = false;
     ResponseGraph responseGraph_;
     WaterfallGraph waterfallGraph_;
+    HelpBubbleController helpBubble_;
 };
 
 }  // namespace wolfie::ui

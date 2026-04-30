@@ -13,6 +13,7 @@
 #include <windows.h>
 
 #include "core/models.h"
+#include "ui/help_bubble.h"
 
 namespace wolfie::ui {
 
@@ -97,7 +98,7 @@ private:
     bool populatingControls_ = false;
     std::vector<HWND> fieldLabels_;
     std::vector<HWND> fieldUnits_;
-    HWND tooltip_ = nullptr;
+    HelpBubbleController helpBubble_;
 };
 
 }  // namespace wolfie::ui

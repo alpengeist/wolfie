@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <cwchar>
 
-#include <commctrl.h>
-
 #include "core/text_utils.h"
 #include "measurement/room_simulator.h"
 #include "ui/ui_theme.h"
@@ -107,45 +105,6 @@ struct FieldDefinition {
     HWND* edit;
 };
 
-HWND createTooltipWindow(HWND parent, HINSTANCE instance) {
-    HWND tooltip = CreateWindowExW(WS_EX_TOPMOST,
-                                   TOOLTIPS_CLASSW,
-                                   nullptr,
-                                   WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
-                                   CW_USEDEFAULT,
-                                   CW_USEDEFAULT,
-                                   CW_USEDEFAULT,
-                                   CW_USEDEFAULT,
-                                   parent,
-                                   nullptr,
-                                   instance,
-                                   nullptr);
-    if (tooltip == nullptr) {
-        return nullptr;
-    }
-
-    SetWindowPos(tooltip, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    SendMessageW(tooltip, TTM_SETMAXTIPWIDTH, 0, 320);
-    SendMessageW(tooltip, TTM_SETDELAYTIME, TTDT_INITIAL, 700);
-    SendMessageW(tooltip, TTM_SETDELAYTIME, TTDT_RESHOW, 150);
-    SendMessageW(tooltip, TTM_SETDELAYTIME, TTDT_AUTOPOP, 12000);
-    return tooltip;
-}
-
-void addLabelTooltip(HWND tooltip, HWND label, const wchar_t* text) {
-    if (tooltip == nullptr || label == nullptr || text == nullptr || text[0] == L'\0') {
-        return;
-    }
-
-    TOOLINFOW toolInfo{};
-    toolInfo.cbSize = sizeof(toolInfo);
-    toolInfo.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
-    toolInfo.hwnd = GetParent(label);
-    toolInfo.uId = reinterpret_cast<UINT_PTR>(label);
-    toolInfo.lpszText = const_cast<LPWSTR>(text);
-    SendMessageW(tooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&toolInfo));
-}
-
 }  // namespace
 
 void RoomSimulationDialog::show(HINSTANCE instance,
@@ -233,16 +192,21 @@ LRESULT CALLBACK RoomSimulationDialog::WindowProc(HWND window, UINT message, WPA
         dialog->refreshGenerateButton();
         return 0;
     case WM_SIZE:
+        dialog->helpBubble_.hide();
         dialog->layoutControls();
         return 0;
-    case WM_CTLCOLORDLG:
-        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     case WM_CTLCOLORSTATIC: {
         HDC hdc = reinterpret_cast<HDC>(wParam);
+        LRESULT helpColorResult = 0;
+        if (dialog->helpBubble_.handleCtlColorStatic(hdc, reinterpret_cast<HWND>(lParam), helpColorResult)) {
+            return helpColorResult;
+        }
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, ui_theme::kText);
         return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     }
+    case WM_CTLCOLORDLG:
+        return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     case WM_COMMAND: {
         const WORD commandId = LOWORD(wParam);
         const WORD notificationCode = HIWORD(wParam);
@@ -267,13 +231,14 @@ LRESULT CALLBACK RoomSimulationDialog::WindowProc(HWND window, UINT message, WPA
         break;
     }
     case WM_CLOSE:
+        dialog->helpBubble_.hide();
         if (dialog->persistCurrentSimulation(true)) {
             DestroyWindow(window);
         }
         return 0;
     case WM_NCDESTROY:
         SetWindowLongPtrW(window, GWLP_USERDATA, 0);
-        dialog->tooltip_ = nullptr;
+        dialog->helpBubble_.destroy();
         dialog->window_ = nullptr;
         return 0;
     default:
@@ -396,12 +361,12 @@ bool RoomSimulationDialog::tryParseInt(const std::wstring& text, int& value) {
 void RoomSimulationDialog::createControls() {
     fieldLabels_.clear();
     fieldUnits_.clear();
-    tooltip_ = createTooltipWindow(window_, instance_);
+    helpBubble_.create(window_, instance_);
 
-    controls_.labelSimulation = CreateWindowW(L"STATIC", L"Simulation", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelSimulation = CreateWindowW(L"STATIC", L"Simulation", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.comboSimulations = CreateWindowW(L"COMBOBOX",
                                                nullptr,
-                                               WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                               WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL | kHelpBubbleChildClipStyle,
                                                0,
                                                0,
                                                0,
@@ -412,7 +377,7 @@ void RoomSimulationDialog::createControls() {
                                                nullptr);
     controls_.buttonNew = CreateWindowW(L"BUTTON",
                                         L"New",
-                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | kHelpBubbleChildClipStyle,
                                         0,
                                         0,
                                         0,
@@ -423,7 +388,7 @@ void RoomSimulationDialog::createControls() {
                                         nullptr);
     controls_.buttonGenerate = CreateWindowW(L"BUTTON",
                                              L"Generate",
-                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | kHelpBubbleChildClipStyle,
                                              0,
                                              0,
                                              0,
@@ -434,31 +399,31 @@ void RoomSimulationDialog::createControls() {
                                              nullptr);
 
     const FieldDefinition fields[] = {
-        {L"Stereo Skew", L"ms", L"Offsets one stereo channel in time to simulate asymmetric speaker placement or arrival time.", kEditStereoSkew, &controls_.editStereoSkew},
-        {L"Spectral Tilt", L"dB/oct", L"Applies a broadband tonal slope so the simulated room gets brighter or darker across the spectrum.", kEditSpectralTilt, &controls_.editSpectralTilt},
-        {L"LF Shelf Gain", L"dB", L"Boosts or cuts the low-frequency shelf that shapes overall bass balance in the simulated room.", kEditLowShelfGain, &controls_.editLowShelfGain},
+        {L"Stereo Skew", L"ms", L"Offsets one stereo channel in time\r\nto simulate asymmetric speaker placement or arrival time.", kEditStereoSkew, &controls_.editStereoSkew},
+        {L"Spectral Tilt", L"dB/oct", L"Applies a broadband tonal slope so the simulated room\r\ngets brighter or darker across the spectrum.", kEditSpectralTilt, &controls_.editSpectralTilt},
+        {L"LF Shelf Gain", L"dB", L"Boosts or cuts the low-frequency shelf that shapes\r\noverall bass balance in the simulated room.", kEditLowShelfGain, &controls_.editLowShelfGain},
         {L"LF Shelf Corner", L"Hz", L"Sets the turnover frequency where the low-frequency shelf begins to take effect.", kEditLowShelfCorner, &controls_.editLowShelfCorner},
         {L"Peak Freq", L"Hz", L"Chooses the center frequency of the main resonant room mode peak.", kEditModalPeakFrequency, &controls_.editModalPeakFrequency},
-        {L"Peak Gain", L"dB", L"Sets how strongly the main resonant room mode is boosted at its center frequency.", kEditModalPeakGain, &controls_.editModalPeakGain},
-        {L"Peak Q", L"", L"Controls how narrow or broad the resonant room mode peak is around its center frequency.", kEditModalPeakQ, &controls_.editModalPeakQ},
-        {L"Null Freq", L"Hz", L"Chooses the center frequency of the main cancellation null in the simulated response.", kEditModalNullFrequency, &controls_.editModalNullFrequency},
-        {L"Null Depth", L"dB", L"Sets how deep the simulated cancellation null dips below the surrounding response.", kEditModalNullDepth, &controls_.editModalNullDepth},
-        {L"Null Q", L"", L"Controls how narrow or broad the simulated cancellation null is around its center frequency.", kEditModalNullQ, &controls_.editModalNullQ},
-        {L"Reflections", L"count", L"Sets how many discrete early reflections are added before the late reverberant tail.", kEditReflectionCount, &controls_.editReflectionCount},
+        {L"Peak Gain", L"dB", L"Sets how strongly the main resonant room mode\r\nis boosted at its center frequency.", kEditModalPeakGain, &controls_.editModalPeakGain},
+        {L"Peak Q", L"", L"Controls how narrow or broad the resonant room mode peak\r\nis around its center frequency.", kEditModalPeakQ, &controls_.editModalPeakQ},
+        {L"Null Freq", L"Hz", L"Chooses the center frequency of the main cancellation null\r\nin the simulated response.", kEditModalNullFrequency, &controls_.editModalNullFrequency},
+        {L"Null Depth", L"dB", L"Sets how deep the simulated cancellation null dips\r\nbelow the surrounding response.", kEditModalNullDepth, &controls_.editModalNullDepth},
+        {L"Null Q", L"", L"Controls how narrow or broad the simulated cancellation null\r\nis around its center frequency.", kEditModalNullQ, &controls_.editModalNullQ},
+        {L"Reflections", L"count", L"Sets how many discrete early reflections are added\r\nbefore the late reverberant tail.", kEditReflectionCount, &controls_.editReflectionCount},
         {L"Reflection Start", L"ms", L"Sets when the first early reflection arrives after the direct sound.", kEditReflectionStart, &controls_.editReflectionStart},
         {L"Reflection Spacing", L"ms", L"Sets the average time gap between successive early reflections.", kEditReflectionSpacing, &controls_.editReflectionSpacing},
         {L"Reflection Decay", L"dB/tap", L"Sets how much each early reflection level drops relative to the previous one.", kEditReflectionDecay, &controls_.editReflectionDecay},
         {L"Late RT60", L"ms", L"Sets the decay time for the late reverberant field to fall by about 60 dB.", kEditLateDecayRt60, &controls_.editLateDecayRt60},
-        {L"Late Tail Start", L"dB", L"Sets the starting level of the late reverberant tail relative to the direct sound.", kEditLateDecayStart, &controls_.editLateDecayStart},
+        {L"Late Tail Start", L"dB", L"Sets the starting level of the late reverberant tail\r\nrelative to the direct sound.", kEditLateDecayStart, &controls_.editLateDecayStart},
         {L"Late Density", L"taps/s", L"Sets how densely late reflections are packed into the reverberant tail.", kEditLateDensity, &controls_.editLateDensity},
         {L"Noise Floor", L"dBFS", L"Sets the background noise level that the simulated response settles into.", kEditNoiseFloor, &controls_.editNoiseFloor},
-        {L"Seed", L"", L"Changes the random pattern used for reflections and noise while keeping the same overall parameter values.", kEditSeed, &controls_.editSeed},
+        {L"Seed", L"", L"Changes the random pattern used for reflections and noise\r\nwhile keeping the same overall parameter values.", kEditSeed, &controls_.editSeed},
     };
 
     for (const FieldDefinition& field : fields) {
         HWND label = CreateWindowW(L"STATIC",
                                    field.label,
-                                   WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+                                   WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle,
                                    0,
                                    0,
                                    0,
@@ -468,11 +433,11 @@ void RoomSimulationDialog::createControls() {
                                    instance_,
                                    nullptr);
         fieldLabels_.push_back(label);
-        addLabelTooltip(tooltip_, label, field.tooltip);
+        helpBubble_.registerLabel(label, field.tooltip != nullptr ? field.tooltip : L"");
         *field.edit = CreateWindowExW(WS_EX_CLIENTEDGE,
                                       L"EDIT",
                                       L"",
-                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                       0,
                                       0,
                                       0,
@@ -482,7 +447,7 @@ void RoomSimulationDialog::createControls() {
                                       instance_,
                                       nullptr);
         if (field.unit != nullptr && field.unit[0] != L'\0') {
-            fieldUnits_.push_back(CreateWindowW(L"STATIC", field.unit, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr));
+            fieldUnits_.push_back(CreateWindowW(L"STATIC", field.unit, WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr));
         } else {
             fieldUnits_.push_back(nullptr);
         }
