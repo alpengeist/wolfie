@@ -35,6 +35,10 @@ struct PreparedPhaseData {
     PreparedPhaseChannel right;
     std::string sourceWindow;
     std::string sourceKey;
+    std::string sourceSeriesKind;
+    std::string magnitudeValueSetKey;
+    std::string phaseValueSetKey;
+    double bulkDelaySeconds = 0.0;
 };
 
 struct PreparedPhaseView {

@@ -273,6 +273,9 @@ struct PhaseSourceSelection {
     const MeasurementValueSet* phase = nullptr;
     std::string sourceWindow;
     std::string sourceKey;
+    std::string sourceSeriesKind;
+    std::string magnitudeValueSetKey;
+    std::string phaseValueSetKey;
 };
 
 PhaseSourceSelection selectPhaseSource(const MeasurementResult* result) {
@@ -284,39 +287,50 @@ PhaseSourceSelection selectPhaseSource(const MeasurementResult* result) {
     struct Candidate {
         std::string_view sourceWindow;
         std::string_view sourceKey;
+        std::string_view sourceSeriesKind;
         std::string_view magnitudeKey;
         std::string_view phaseKey;
     };
 
     constexpr Candidate candidates[] = {
         {"direct", "measurement.reference_compensated_direct",
+         "response",
          "measurement.reference_compensated_direct_magnitude_response",
          "measurement.reference_compensated_direct_phase_response"},
         {"direct", "measurement.reference_compensated_direct",
+         "spectrum",
          "measurement.reference_compensated_direct_magnitude_spectrum",
          "measurement.reference_compensated_direct_phase_spectrum"},
         {"direct", "measurement.direct",
+         "response",
          "measurement.direct_magnitude_response",
          "measurement.direct_phase_response"},
         {"direct", "measurement.direct",
+         "spectrum",
          "measurement.direct_magnitude_spectrum",
          "measurement.direct_phase_spectrum"},
         {"room", "measurement.reference_compensated_room",
+         "response",
          "measurement.reference_compensated_room_magnitude_response",
          "measurement.reference_compensated_room_phase_response"},
         {"room", "measurement.reference_compensated_room",
+         "spectrum",
          "measurement.reference_compensated_room_magnitude_spectrum",
          "measurement.reference_compensated_room_phase_spectrum"},
         {"room", "measurement.room",
+         "response",
          "measurement.room_magnitude_response",
          "measurement.room_phase_response"},
         {"room", "measurement.room",
+         "spectrum",
          "measurement.room_magnitude_spectrum",
          "measurement.room_phase_spectrum"},
         {"raw", "measurement.raw",
+         "response",
          "measurement.raw_magnitude_response",
          "measurement.raw_phase_response"},
         {"raw", "measurement.raw",
+         "spectrum",
          "measurement.raw_magnitude_spectrum",
          "measurement.raw_phase_spectrum"}
     };
@@ -335,6 +349,9 @@ PhaseSourceSelection selectPhaseSource(const MeasurementResult* result) {
         selection.phase = phase;
         selection.sourceWindow = std::string(candidate.sourceWindow);
         selection.sourceKey = std::string(candidate.sourceKey);
+        selection.sourceSeriesKind = std::string(candidate.sourceSeriesKind);
+        selection.magnitudeValueSetKey = std::string(candidate.magnitudeKey);
+        selection.phaseValueSetKey = std::string(candidate.phaseKey);
         return selection;
     }
 
@@ -397,6 +414,7 @@ PreparedPhaseData preparePhaseData(const MeasurementResult* result,
     }
 
     const double bulkDelaySeconds = bulkDelaySecondsFromImpulse(result);
+    prepared.bulkDelaySeconds = bulkDelaySeconds;
     prepared.left = prepareMatchedPhaseChannel(selection.phase->xValues,
                                                selection.magnitude->leftValues,
                                                unwrapPhaseRadians(degreesToRadians(selection.phase->leftValues)),
@@ -416,6 +434,9 @@ PreparedPhaseData preparePhaseData(const MeasurementResult* result,
     prepared.valid = prepared.left.valid() && prepared.right.valid();
     prepared.sourceWindow = selection.sourceWindow;
     prepared.sourceKey = selection.sourceKey;
+    prepared.sourceSeriesKind = selection.sourceSeriesKind;
+    prepared.magnitudeValueSetKey = selection.magnitudeValueSetKey;
+    prepared.phaseValueSetKey = selection.phaseValueSetKey;
     return prepared;
 }
 

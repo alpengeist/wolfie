@@ -25,48 +25,7 @@ Read `_architecture.md` before making structural changes.
 
 ## Architectural Boundaries
 
-Keep these responsibilities separated:
-
-- UI code belongs in `src/ui` and `src/wolfie_app.*`
-- domain measurement logic belongs in `src/measurement`
-- device/backend logic belongs in `src/audio`
-- file parsing and writing belongs in `src/persistence`
-- shared data contracts belong in `src/core`
-
-Do not:
-
-- put WinMM, ASIO, COM, or registry logic into UI modules
-- put file parsing/writing into UI modules
-- let reusable widgets read global app state directly
-- move measurement math into message handlers
-- grow `WolfieApp` back into a monolith
-
-## UI Guidance
-
-- The app is Win32-based and hand-laid-out. Preserve the existing style unless the task is a UI redesign.
-- Reusable rendering components should remain generic. `ResponseGraph` should accept view data, not workspace/application state.
-- New tabs or dialogs should usually become separate UI modules in `src/ui`.
-- Keep top-level window procedures thin and delegate to focused classes where possible.
-
-## Audio And Platform Guidance
-
-- `src/audio/winmm_audio_backend.*` is the only place for WinMM playback/capture session logic.
-- `src/audio/asio_service.*` owns ASIO enumeration and control-panel access.
-- Be conservative around audio resource lifetime. Cleanup order matters.
-- Do not silently change sample format, channel layout, or timing assumptions unless the task requires it.
-
-## Persistence Guidance
-
-- Persist workspace-level data through `WorkspaceRepository`.
-- Persist app-level data such as recent workspaces through `AppStateRepository`.
-- If adding new persisted fields, update both load and save paths.
-- Keep file formats backward-compatible when practical.
-
-## Measurement Guidance
-
-- Keep pure signal generation and analysis code independent from UI and platform APIs.
-- `MeasurementController` should orchestrate workflow, not own rendering or persistence logic.
-- If adding new analysis stages, prefer adding focused helpers to `src/measurement` rather than expanding `WolfieApp`.
+Pay attention the rules in _architecture.md file.
 
 ## Refactoring Rules
 

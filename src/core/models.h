@@ -385,6 +385,11 @@ struct FilterDesignResult {
     int fftSize = 0;
     int positiveBinCount = 0;
     std::string phaseMode = "minimum";
+    std::string phasePreparationSourceWindow;
+    std::string phasePreparationSourceKey;
+    std::string phasePreparationSeriesKind;
+    double phasePreparationBulkDelaySeconds = 0.0;
+    std::vector<std::string> processLog;
     std::vector<double> frequencyAxisHz;
     std::vector<double> targetCurveDb;
     FilterDesignChannelResult left;

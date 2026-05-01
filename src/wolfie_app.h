@@ -84,7 +84,7 @@ private:
     void refreshRecentMenu();
     void ensureSmoothedResponseReady();
     void invalidateFilterDesign();
-    void ensureFilterDesignReady(bool warnOnStaleReference = false);
+    void ensureFilterDesignReady();
     void setExportInProgress(bool running);
     void showExportProgress(const std::wstring& message) const;
     void updateExportControls();

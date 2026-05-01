@@ -50,49 +50,6 @@ std::string sanitizeFileComponent(std::string_view value) {
     return sanitized;
 }
 
-std::wstring staleReferenceReason(const AudioSettings& audio,
-                                  const MeasurementSettings& measurement,
-                                  const MeasurementResult& referenceResult) {
-    if (!referenceResult.hasAnyValues()) {
-        return L"missing";
-    }
-    if (!audio.loopbackEnabled) {
-        return L"loopback off";
-    }
-
-    const MeasurementAnalysis& analysis = referenceResult.analysis;
-    if (analysis.sampleRate > 0 && analysis.sampleRate != measurement.sampleRate) {
-        return L"sample rate changed";
-    }
-    if (!analysis.requestedBackend.empty() && analysis.requestedBackend != audio.backend) {
-        return L"backend changed";
-    }
-    if (audio.backend == "asio") {
-        if (!analysis.requestedDriver.empty() && analysis.requestedDriver != audio.driver) {
-            return L"driver changed";
-        }
-    } else {
-        if (!analysis.requestedWindowsInputDeviceId.empty() &&
-            analysis.requestedWindowsInputDeviceId != audio.windowsInputDeviceId) {
-            return L"input device changed";
-        }
-        if (!analysis.requestedWindowsOutputDeviceId.empty() &&
-            analysis.requestedWindowsOutputDeviceId != audio.windowsOutputDeviceId) {
-            return L"output device changed";
-        }
-    }
-    if (analysis.requestedMicInputChannel > 0 && analysis.requestedMicInputChannel != audio.loopbackInputChannel) {
-        return L"loopback input changed";
-    }
-    if (analysis.requestedLeftOutputChannel > 0 && analysis.requestedLeftOutputChannel != audio.leftOutputChannel) {
-        return L"left output changed";
-    }
-    if (analysis.requestedRightOutputChannel > 0 && analysis.requestedRightOutputChannel != audio.rightOutputChannel) {
-        return L"right output changed";
-    }
-    return {};
-}
-
 constexpr int kMenuFileNew = 1001;
 constexpr int kMenuFileOpen = 1002;
 constexpr int kMenuFileSave = 1003;
@@ -1019,7 +976,7 @@ void WolfieApp::invalidateFilterDesign() {
     workspace_.filterResult = {};
 }
 
-void WolfieApp::ensureFilterDesignReady(bool warnOnStaleReference) {
+void WolfieApp::ensureFilterDesignReady() {
     if (workspace_.filterResult.valid) {
         return;
     }
@@ -1029,25 +986,23 @@ void WolfieApp::ensureFilterDesignReady(bool warnOnStaleReference) {
         return;
     }
 
-    const std::wstring ignoredReferenceReason =
-        staleReferenceReason(workspace_.audio, workspace_.measurement, workspace_.referenceResult);
-    if (warnOnStaleReference &&
-        !ignoredReferenceReason.empty() &&
-        ignoredReferenceReason != L"missing") {
-        MessageBoxW(mainWindow_,
-                    (L"The saved reference is stale (" + ignoredReferenceReason +
-                     L") and will be ignored for this filter run.")
-                        .c_str(),
-                    L"Filter Design",
-                    MB_OK | MB_ICONWARNING);
-    }
-
     measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
     workspace_.filterResult = measurement::designFilters(workspace_.smoothedResponse,
                                                          workspace_.measurement,
                                                          workspace_.targetCurve,
                                                          workspace_.filters,
                                                          &workspace_.result);
+    if (!workspace_.filterResult.valid) {
+        appendLog(L"Filter design failed.", LogSeverity::Error);
+        for (const std::string& entry : workspace_.filterResult.processLog) {
+            appendLog(L"Filter design: " + toWide(entry), LogSeverity::Error);
+        }
+        return;
+    }
+
+    for (const std::string& entry : workspace_.filterResult.processLog) {
+        appendLog(L"Filter design: " + toWide(entry));
+    }
 }
 
 void WolfieApp::setExportInProgress(bool running) {
@@ -1403,7 +1358,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         if (filtersRecalculateRequested) {
             invalidateFilterDesign();
             filtersPage_.setRecalculateInProgress(true);
-            ensureFilterDesignReady(true);
+            ensureFilterDesignReady();
             filtersPage_.populate(workspace_);
             filtersPage_.setRecalculateInProgress(false);
             syncStateFromControls();

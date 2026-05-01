@@ -309,6 +309,15 @@ double maxAdjacentAbsDelta(const std::vector<double>& values) {
     return maxDelta;
 }
 
+bool processLogContains(const wolfie::FilterDesignResult& result, const std::string& needle) {
+    for (const std::string& entry : result.processLog) {
+        if (entry.find(needle) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool expectDesignedFilterLooksSane() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -865,6 +874,71 @@ bool expectPhasePreparationFallsBackToRawSource() {
     if (leftBandMean < 15.0 || rightBandMean < 15.0) {
         std::cerr << "raw-source fallback did not publish the expected excess-phase content (left="
                   << leftBandMean << ", right=" << rightBandMean << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.phaseMode = "mixed";
+
+    const wolfie::MeasurementResult phaseMeasurement =
+        buildPhaseMeasurementWithSourceAvailability(measurement.sampleRate,
+                                                    0.0035,
+                                                    true,
+                                                    true,
+                                                    true,
+                                                    2.0,
+                                                    -1.0,
+                                                    -1.5,
+                                                    0.0,
+                                                    -2.0,
+                                                    0.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(buildFlatResponse(0.0),
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "phase-preparation metadata case did not produce a valid filter result\n";
+        return false;
+    }
+
+    if (result.phasePreparationSourceWindow != "direct" ||
+        result.phasePreparationSourceKey != "measurement.direct" ||
+        result.phasePreparationSeriesKind != "spectrum") {
+        std::cerr << "filter result did not publish the expected phase-preparation metadata (window="
+                  << result.phasePreparationSourceWindow << ", key=" << result.phasePreparationSourceKey
+                  << ", kind=" << result.phasePreparationSeriesKind << ")\n";
+        return false;
+    }
+    if (result.phasePreparationBulkDelaySeconds < 0.003 || result.phasePreparationBulkDelaySeconds > 0.004) {
+        std::cerr << "filter result published an unexpected prepared bulk delay value ("
+                  << result.phasePreparationBulkDelaySeconds << " s)\n";
+        return false;
+    }
+
+    if (result.processLog.size() < 6 ||
+        !processLogContains(result, "Starting filter design") ||
+        !processLogContains(result, "Prepared matched phase data from measurement.direct") ||
+        (!processLogContains(result, "Built per-channel low-frequency mixed-phase correction") &&
+         !processLogContains(result, "Built shared low-frequency mixed-phase correction")) ||
+        !processLogContains(result, "Designed left filter channel") ||
+        !processLogContains(result, "Designed right filter channel") ||
+        !processLogContains(result, "Completed filter design")) {
+        std::cerr << "filter result process log did not publish the expected major steps\n";
         return false;
     }
 
@@ -1949,10 +2023,23 @@ bool runFilterDesignTests() {
            expectExcessPhasePreparationIgnoresDisplayResponseShape() &&
            expectPhasePreparationPrefersDirectSource() &&
            expectPhasePreparationFallsBackToRawSource() &&
+           expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog() &&
            expectExcessLfModeLeavesMinimumPhaseInputAlone() &&
            expectExcessLfModeIgnoresBulkDelay() &&
            expectExcessLfModeReducesLowFrequencyExcessPhase() &&
            expectExcessLfModeContainsCorrectionToLowFrequencies() &&
+           expectMixedModeIgnoresBulkDelay() &&
+           expectMixedModeReducesLowFrequencyExcessPhase() &&
+           expectMixedModeContainsCorrectionToLowFrequencies() &&
+           expectMixedModePreservesMagnitudeVsMinimum() &&
+           expectMixedModeStrengthZeroMatchesMinimum() &&
+           expectMixedModePhaseLimitControlsCorrectionExtent() &&
+           expectMixedModePhaseCapControlsLowFrequencyReduction() &&
+           expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay() &&
+           expectMixedModePreservesStereoLowFrequencyPhaseRelationship() &&
+           expectInputGroupDelayIsPublishedFromMeasuredPhase() &&
+           expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps() &&
            expectRoonExportSupportsCommonSampleRates() &&
+           expectRoonMixedExportDiffersFromMinimum() &&
            true;
 }

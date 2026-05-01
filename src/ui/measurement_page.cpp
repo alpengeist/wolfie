@@ -27,6 +27,93 @@ constexpr double kMutedOutputVolumeDb = -100.0;
 constexpr double kLevelMeterMinDb = -90.0;
 constexpr double kLevelMeterMaxDb = 0.0;
 
+std::wstring staleReferenceReason(const AudioSettings& audio,
+                                  const MeasurementSettings& measurement,
+                                  const MeasurementResult& referenceResult) {
+    if (!referenceResult.hasAnyValues()) {
+        return L"missing";
+    }
+    if (!audio.loopbackEnabled) {
+        return L"loopback off";
+    }
+
+    const MeasurementAnalysis& analysis = referenceResult.analysis;
+    if (analysis.sampleRate > 0 && analysis.sampleRate != measurement.sampleRate) {
+        return L"sample rate changed";
+    }
+    if (!analysis.requestedBackend.empty() && analysis.requestedBackend != audio.backend) {
+        return L"backend changed";
+    }
+    if (audio.backend == "asio") {
+        if (!analysis.requestedDriver.empty() && analysis.requestedDriver != audio.driver) {
+            return L"driver changed";
+        }
+    } else {
+        if (!analysis.requestedWindowsInputDeviceId.empty() &&
+            analysis.requestedWindowsInputDeviceId != audio.windowsInputDeviceId) {
+            return L"input device changed";
+        }
+        if (!analysis.requestedWindowsOutputDeviceId.empty() &&
+            analysis.requestedWindowsOutputDeviceId != audio.windowsOutputDeviceId) {
+            return L"output device changed";
+        }
+    }
+    if (analysis.requestedMicInputChannel > 0 && analysis.requestedMicInputChannel != audio.loopbackInputChannel) {
+        return L"loopback input changed";
+    }
+    if (analysis.requestedLeftOutputChannel > 0 && analysis.requestedLeftOutputChannel != audio.leftOutputChannel) {
+        return L"left output changed";
+    }
+    if (analysis.requestedRightOutputChannel > 0 && analysis.requestedRightOutputChannel != audio.rightOutputChannel) {
+        return L"right output changed";
+    }
+    return {};
+}
+
+std::wstring describeReferenceInterface(const MeasurementAnalysis& analysis) {
+    if (analysis.requestedBackend == "asio") {
+        const std::string driver = !analysis.requestedDriver.empty() ? analysis.requestedDriver : analysis.backendName;
+        if (!driver.empty()) {
+            return L"ASIO driver '" + toWide(driver) + L"'";
+        }
+        return L"ASIO";
+    }
+
+    if (analysis.requestedBackend == "windows") {
+        const bool hasInput = !analysis.requestedWindowsInputDeviceName.empty();
+        const bool hasOutput = !analysis.requestedWindowsOutputDeviceName.empty();
+        if (hasInput && hasOutput) {
+            return L"Windows input '" + toWide(analysis.requestedWindowsInputDeviceName) +
+                   L"' and output '" + toWide(analysis.requestedWindowsOutputDeviceName) + L"'";
+        }
+        if (hasInput) {
+            return L"Windows input '" + toWide(analysis.requestedWindowsInputDeviceName) + L"'";
+        }
+        if (hasOutput) {
+            return L"Windows output '" + toWide(analysis.requestedWindowsOutputDeviceName) + L"'";
+        }
+        return L"Windows audio";
+    }
+
+    if (analysis.requestedBackend == "simulation") {
+        if (!analysis.requestedDriver.empty()) {
+            return L"simulation '" + toWide(analysis.requestedDriver) + L"'";
+        }
+        return L"simulation";
+    }
+
+    if (!analysis.requestedDriver.empty()) {
+        return toWide(analysis.requestedDriver);
+    }
+    if (!analysis.requestedBackend.empty()) {
+        return toWide(analysis.requestedBackend);
+    }
+    if (!analysis.backendName.empty()) {
+        return toWide(analysis.backendName);
+    }
+    return L"saved audio settings";
+}
+
 std::optional<std::filesystem::path> pickCalibrationFile(HWND owner, const std::filesystem::path& initialPath) {
     std::wstring buffer(32768, L'\0');
     const std::wstring initialText = initialPath.wstring();
@@ -412,6 +499,17 @@ void MeasurementPage::createControls() {
                                                    reinterpret_cast<HMENU>(kButtonRoomSimulation),
                                                    instance_,
                                                    nullptr);
+    controls_.labelReferenceNote = CreateWindowW(L"STATIC",
+                                                 L"Reference: none saved.",
+                                                 WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
+                                                 0,
+                                                 0,
+                                                 0,
+                                                 0,
+                                                 window_,
+                                                 nullptr,
+                                                 instance_,
+                                                 nullptr);
     controls_.leftChannelLabel = CreateWindowW(L"STATIC", L"Left", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.leftProgressBar = CreateWindowExW(0, PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.leftProgressText = CreateWindowW(L"STATIC", L"0%", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -632,6 +730,8 @@ void MeasurementPage::layout() {
     constexpr int kActionGroupGap = 18;
     constexpr int kActionFrameHeight = 64;
     constexpr int kActionFrameBottomGap = 14;
+    constexpr int kReferenceNoteHeight = 32;
+    constexpr int kReferenceNoteBottomGap = 8;
     constexpr int kMinProgressBarWidth = 96;
     constexpr int kFrequencyDisplayMinWidth = 82;
     constexpr int kFrequencyDisplayMaxWidth = 118;
@@ -817,6 +917,9 @@ void MeasurementPage::layout() {
         ShowWindow(controls_.actionMetersFrame, SW_SHOW);
     }
 
+    MoveWindow(controls_.labelReferenceNote, contentLeft, graphControlsTop, innerWidth, kReferenceNoteHeight, TRUE);
+    graphControlsTop += kReferenceNoteHeight + kReferenceNoteBottomGap;
+
     const int plotFieldLeft = contentLeft;
     const int plotComboLeft = plotFieldLeft + kWaterfallChannelLabelWidth + 10;
     MoveWindow(controls_.labelPlot, plotFieldLeft, graphControlsTop + 2, kWaterfallChannelLabelWidth, 18, TRUE);
@@ -971,6 +1074,7 @@ void MeasurementPage::setWorkspaceView(const WorkspaceState& workspace) {
     result_ = workspace.result;
     referenceResult_ = workspace.referenceResult;
     refreshActionButtons();
+    refreshReferenceNote();
     refreshPlots();
 }
 
@@ -1468,6 +1572,24 @@ ResponseGraphData MeasurementPage::buildGraphData() const {
         }
     }
     return data;
+}
+
+std::wstring MeasurementPage::buildReferenceNoteText() const {
+    if (!referenceResult_.hasAnyValues()) {
+        return L"Reference: none saved.";
+    }
+
+    const std::wstring interfaceText = describeReferenceInterface(referenceResult_.analysis);
+    const std::wstring staleReason = staleReferenceReason(audioSettings_, measurementSettings_, referenceResult_);
+    std::wstring text = L"Reference saved with " + interfaceText + L".";
+    if (!staleReason.empty() && staleReason != L"missing") {
+        text += L" Current measurement settings differ (" + staleReason + L").";
+    }
+    return text;
+}
+
+void MeasurementPage::refreshReferenceNote() const {
+    setWindowTextValue(controls_.labelReferenceNote, buildReferenceNoteText());
 }
 
 void MeasurementPage::refreshPlots() {

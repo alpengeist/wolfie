@@ -1,5 +1,8 @@
 # Excess Phase Refactor Plan
 
+This is based on the research in deep-research-report.md.
+Consult this document for in-depth details. It also contains valuable scientific references towards the end.
+
 ## Purpose
 
 This note is a handoff plan for refactoring Wolfie's excess-phase preparation path.
@@ -16,6 +19,29 @@ The user explicitly accepted one simplification:
 - display smoothing may remain identical to the data-preparation smoothing used for minimum-phase reconstruction
 
 That means this refactor should separate excess-phase preparation from `SmoothedResponse`, but it does not need a second independent smoothing UI or an additional persisted smoothing profile.
+
+## Progress Update
+
+Status as of the current implementation pass:
+
+- done: Phase 1 reusable smoothing extraction
+- done: Phase 2 matched phase-preparation helper
+- done: most of Phase 3 filter-designer rewiring
+- in progress: Phase 4 diagnostics, naming, and observability cleanup
+
+What is now implemented in code:
+
+- `response_smoother` exposes reusable magnitude smoothing primitives
+- `phase_preparation` selects a matched TF source, removes bulk delay, smooths matched magnitude, rebuilds minimum phase, and derives excess phase
+- `filter_designer` consumes prepared phase data for excess-phase diagnostics, predicted excess phase, and mixed-phase correction input
+- `filter_designer` now publishes phase-preparation metadata and a process log with the major design steps
+- the old ad hoc phase-diagnostics path in `filter_designer.cpp` has been removed so there is one internal phase-preparation path
+
+What still remains after this pass:
+
+- decide whether the current `_response`-first source preference remains the right long-term tradeoff versus native `_spectrum`-first preparation
+- expose phase-preparation source metadata in any additional UI or exported diagnostics if that becomes useful
+- continue tuning mixed-mode behavior only behind the expanded test coverage
 
 ## Reference Basis
 
@@ -389,6 +415,11 @@ Tasks:
 This phase is optional for the first pass, but it will make later debugging much easier.
 
 ## Validation Plan
+
+Progress note:
+
+- the matched-source invariance, direct-source preference, raw fallback, input-group-delay publication, continuous excess-phase continuity, and several mixed-mode behavior tests are now implemented in `tests/filter_design_tests.cpp`
+- the test runner now includes the mixed-mode and mixed-export cases that were previously present but not executed
 
 There is already a good synthetic harness in `tests/filter_design_tests.cpp`.
 

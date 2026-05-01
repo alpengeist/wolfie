@@ -90,6 +90,7 @@ private:
         HWND buttonMeasure = nullptr;
         HWND buttonMeasureReference = nullptr;
         HWND buttonRoomSimulation = nullptr;
+        HWND labelReferenceNote = nullptr;
         HWND leftChannelLabel = nullptr;
         HWND leftProgressBar = nullptr;
         HWND leftProgressText = nullptr;
@@ -164,7 +165,9 @@ private:
     static void setWindowTextValue(HWND control, const std::wstring& text);
 
     ResponseGraphData buildGraphData() const;
+    std::wstring buildReferenceNoteText() const;
     void refreshPlots();
+    void refreshReferenceNote() const;
     void updatePlotControlVisibility() const;
     void updateLegendVisibility() const;
     void setInteractiveControlsEnabled(bool enabled) const;
