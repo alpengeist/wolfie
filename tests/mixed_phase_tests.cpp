@@ -9,6 +9,27 @@
 
 namespace {
 
+double tailEnergyFractionAfter(const std::vector<double>& values, size_t beginIndex) {
+    if (values.empty()) {
+        return 0.0;
+    }
+
+    double totalEnergy = 0.0;
+    double tailEnergy = 0.0;
+    for (size_t index = 0; index < values.size(); ++index) {
+        const double energy = values[index] * values[index];
+        totalEnergy += energy;
+        if (index >= beginIndex) {
+            tailEnergy += energy;
+        }
+    }
+
+    if (totalEnergy <= 1.0e-12) {
+        return 0.0;
+    }
+    return tailEnergy / totalEnergy;
+}
+
 bool expectMixedModeLeavesMinimumPhaseInputAlone() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -675,6 +696,64 @@ bool expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps() {
     return true;
 }
 
+bool expectMixedModeDoesNotPushWrappedEnergyIntoLateTail() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings minimumSettings;
+    minimumSettings.tapCount = 16384;
+
+    wolfie::FilterDesignSettings mixedSettings = minimumSettings;
+    mixedSettings.phaseMode = "mixed";
+    mixedSettings.mixedPhaseMaxCorrectionDegrees = 720.0;
+
+    const wolfie::SmoothedResponse response = wolfie::tests::buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        wolfie::tests::buildPhaseMeasurement(measurement.sampleRate, 0.0, 3.0, 0.0);
+    const wolfie::FilterDesignResult minimumResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           minimumSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult mixedResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           mixedSettings,
+                                           &phaseMeasurement);
+    if (!minimumResult.valid || !mixedResult.valid) {
+        std::cerr << "mixed late-tail regression case did not produce valid filter results\n";
+        return false;
+    }
+
+    const size_t minimumTailBegin =
+        std::min(minimumResult.left.filterTaps.size(),
+                 static_cast<size_t>(std::max(minimumResult.left.impulsePeakIndex, 0)) +
+                     (minimumResult.left.filterTaps.size() / 4));
+    const size_t mixedTailBegin =
+        std::min(mixedResult.left.filterTaps.size(),
+                 static_cast<size_t>(std::max(mixedResult.left.impulsePeakIndex, 0)) +
+                     (mixedResult.left.filterTaps.size() / 4));
+    const double minimumLateTailFraction =
+        tailEnergyFractionAfter(minimumResult.left.filterTaps, minimumTailBegin);
+    const double mixedLateTailFraction =
+        tailEnergyFractionAfter(mixedResult.left.filterTaps, mixedTailBegin);
+    const double allowedLateTailFraction = std::max(0.02, (minimumLateTailFraction * 4.0) + 0.01);
+    if (mixedLateTailFraction > allowedLateTailFraction) {
+        std::cerr << "mixed mode pushed too much energy into the late tail (minimum="
+                  << minimumLateTailFraction << ", mixed=" << mixedLateTailFraction << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int main() {
@@ -690,5 +769,6 @@ int main() {
         {"expectMixedModePreservesStereoLowFrequencyPhaseRelationship", expectMixedModePreservesStereoLowFrequencyPhaseRelationship},
         {"expectInputGroupDelayIsPublishedFromMeasuredPhase", expectInputGroupDelayIsPublishedFromMeasuredPhase},
         {"expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps", expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps},
+        {"expectMixedModeDoesNotPushWrappedEnergyIntoLateTail", expectMixedModeDoesNotPushWrappedEnergyIntoLateTail},
     });
 }

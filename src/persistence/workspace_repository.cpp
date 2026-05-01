@@ -281,6 +281,9 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonString(content, "measurementPlotMode")) {
         ui.measurementPlotMode = *value;
     }
+    if (const auto value = findJsonString(content, "measurementWaterfallSource")) {
+        ui.measurementWaterfallSource = *value;
+    }
     if (const auto value = findJsonString(content, "measurementWaterfallChannel")) {
         ui.measurementWaterfallChannel = *value;
     }
@@ -1387,6 +1390,7 @@ void writeWorkspaceSettingsJsonFile(const WorkspaceState& workspace) {
                   << "    \"measurementGraphVisibleMinFrequencyHz\": " << workspace.ui.measurementGraphVisibleMinFrequencyHz << ",\n"
                   << "    \"measurementGraphVisibleMaxFrequencyHz\": " << workspace.ui.measurementGraphVisibleMaxFrequencyHz << ",\n"
                   << "    \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
+                  << "    \"measurementWaterfallSource\": \"" << escapeJson(workspace.ui.measurementWaterfallSource) << "\",\n"
                   << "    \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
                   << "\",\n"
                   << "    \"measurementWaterfallLowCutoffDb\": " << workspace.ui.measurementWaterfallLowCutoffDb << ",\n"
@@ -1469,6 +1473,7 @@ void writeUiSettingsJsonFile(const WorkspaceState& workspace) {
            << "  \"measurementGraphVisibleMinFrequencyHz\": " << workspace.ui.measurementGraphVisibleMinFrequencyHz << ",\n"
            << "  \"measurementGraphVisibleMaxFrequencyHz\": " << workspace.ui.measurementGraphVisibleMaxFrequencyHz << ",\n"
            << "  \"measurementPlotMode\": \"" << escapeJson(workspace.ui.measurementPlotMode) << "\",\n"
+           << "  \"measurementWaterfallSource\": \"" << escapeJson(workspace.ui.measurementWaterfallSource) << "\",\n"
            << "  \"measurementWaterfallChannel\": \"" << escapeJson(workspace.ui.measurementWaterfallChannel)
            << "\",\n"
            << "  \"measurementWaterfallLowCutoffDb\": " << workspace.ui.measurementWaterfallLowCutoffDb << ",\n"

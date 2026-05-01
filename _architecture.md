@@ -69,7 +69,7 @@ Responsibilities:
 - `target_curve_designer` computes target-curve view data without UI dependencies.
 - `filter_designer` computes correction curves, FIR filters, mixed-phase phase shaping, simulated responses, phase-derived diagnostics, and filter-design view data without UI dependencies.
 - `stereo_diagnostics` computes left/right comparison diagnostics and analysis-plot data from measured transfer functions without UI dependencies.
-- `waterfall_builder` derives waterfall data from measured impulse responses.
+- `waterfall_builder` derives waterfall data from measured impulse responses and predicted post-filter impulse responses.
 
 Reasoning:
 

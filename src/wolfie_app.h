@@ -104,9 +104,12 @@ private:
     void refreshMeasurementStatus();
     void refreshRecentMenu();
     void ensureSmoothedResponseReady();
+    void ensureFilterResultReady();
     void invalidateFilterAnalysis();
     void invalidateFilterDesign();
     void ensureFilterDesignReady();
+    [[nodiscard]] bool shouldBuildExpectedMeasurementWaterfall() const;
+    void refreshMeasurementPageView();
     void setExportInProgress(bool running);
     void showExportProgress(const std::wstring& message) const;
     void updateExportControls();

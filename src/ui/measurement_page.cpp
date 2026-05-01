@@ -550,6 +550,18 @@ void MeasurementPage::createControls() {
                                         reinterpret_cast<HMENU>(kComboPlot),
                                         instance_,
                                         nullptr);
+    controls_.labelWaterfallSource = CreateWindowW(L"STATIC", L"Source", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.comboWaterfallSource = CreateWindowW(L"COMBOBOX",
+                                                   nullptr,
+                                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   window_,
+                                                   reinterpret_cast<HMENU>(kComboWaterfallSource),
+                                                   instance_,
+                                                   nullptr);
     controls_.labelWaterfallChannel = CreateWindowW(L"STATIC", L"Channel", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.comboWaterfallChannel = CreateWindowW(L"COMBOBOX",
                                                     nullptr,
@@ -649,6 +661,7 @@ void MeasurementPage::createControls() {
     SetWindowLongPtrW(controls_.unitTargetLength, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.unitLeadIn, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelPlot, GWL_STYLE, centeredStaticStyle);
+    SetWindowLongPtrW(controls_.labelWaterfallSource, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelWaterfallChannel, GWL_STYLE, centeredStaticStyle);
     SetWindowLongPtrW(controls_.labelWaterfallLowCutoff, GWL_STYLE, centeredStaticStyle);
     helpBubble_.registerLabel(controls_.labelFadeIn, L"Sets how long the sweep fades in at the start to avoid abrupt clicks.");
@@ -680,6 +693,7 @@ void MeasurementPage::createControls() {
     SendMessageW(controls_.sliderWaterfallLowCutoff, TBM_SETTICFREQ, 6, 0);
     populateMeasurementSampleRateCombo(controls_.comboSampleRate);
     populatePlotCombo(controls_.comboPlot);
+    populateWaterfallSourceCombo(controls_.comboWaterfallSource);
     populateWaterfallChannelCombo(controls_.comboWaterfallChannel);
 }
 
@@ -713,6 +727,8 @@ void MeasurementPage::layout() {
     constexpr int kSliderValueWidth = 56;
     constexpr int kGraphComboWidth = 150;
     constexpr int kGraphComboHeight = 220;
+    constexpr int kWaterfallSourceLabelWidth = 72;
+    constexpr int kWaterfallSourceComboWidth = 124;
     constexpr int kWaterfallChannelLabelWidth = 72;
     constexpr int kWaterfallChannelComboWidth = 110;
     constexpr int kWaterfallCutoffLabelWidth = 72;
@@ -920,50 +936,88 @@ void MeasurementPage::layout() {
     MoveWindow(controls_.labelReferenceNote, contentLeft, graphControlsTop, innerWidth, kReferenceNoteHeight, TRUE);
     graphControlsTop += kReferenceNoteHeight + kReferenceNoteBottomGap;
 
-    const int plotFieldLeft = contentLeft;
+    const int controlsRight = contentLeft + innerWidth;
+    const int plotGroupWidth = kWaterfallChannelLabelWidth + 10 + kGraphComboWidth;
+    const int sourceGroupWidth = kWaterfallSourceLabelWidth + 10 + kWaterfallSourceComboWidth;
+    const int channelGroupWidth = kWaterfallChannelLabelWidth + 10 + kWaterfallChannelComboWidth;
+    const int cutoffGroupWidth = kWaterfallCutoffLabelWidth + 10 + kWaterfallCutoffSliderWidth + 10 + kWaterfallCutoffValueWidth;
+    constexpr int kWaterfallControlsGap = 24;
+    constexpr int kWaterfallControlsRowPitch = 34;
+    int waterfallControlsRowTop = graphControlsTop;
+    int waterfallControlsRight = contentLeft;
+    auto beginWaterfallGroup = [&](int groupWidth) {
+        int groupLeft = waterfallControlsRight == contentLeft ? contentLeft : waterfallControlsRight + kWaterfallControlsGap;
+        if (groupLeft + groupWidth > controlsRight && waterfallControlsRight != contentLeft) {
+            waterfallControlsRowTop += kWaterfallControlsRowPitch;
+            waterfallControlsRight = contentLeft;
+            groupLeft = contentLeft;
+        }
+        return groupLeft;
+    };
+
+    const int plotFieldLeft = beginWaterfallGroup(plotGroupWidth);
     const int plotComboLeft = plotFieldLeft + kWaterfallChannelLabelWidth + 10;
-    MoveWindow(controls_.labelPlot, plotFieldLeft, graphControlsTop + 2, kWaterfallChannelLabelWidth, 18, TRUE);
+    MoveWindow(controls_.labelPlot, plotFieldLeft, waterfallControlsRowTop + 2, kWaterfallChannelLabelWidth, 18, TRUE);
     MoveWindow(controls_.comboPlot,
                plotComboLeft,
-               graphControlsTop - 2,
+               waterfallControlsRowTop - 2,
                kGraphComboWidth,
                kGraphComboHeight,
                TRUE);
-    const int waterfallChannelLeft = plotComboLeft + kGraphComboWidth + 32;
+    waterfallControlsRight = plotFieldLeft + plotGroupWidth;
+
+    const int waterfallSourceLeft = beginWaterfallGroup(sourceGroupWidth);
+    MoveWindow(controls_.labelWaterfallSource,
+               waterfallSourceLeft,
+               waterfallControlsRowTop + 2,
+               kWaterfallSourceLabelWidth,
+               18,
+               TRUE);
+    MoveWindow(controls_.comboWaterfallSource,
+               waterfallSourceLeft + kWaterfallSourceLabelWidth + 10,
+               waterfallControlsRowTop,
+               kWaterfallSourceComboWidth,
+               kGraphComboHeight,
+               TRUE);
+    waterfallControlsRight = waterfallSourceLeft + sourceGroupWidth;
+
+    const int waterfallChannelLeft = beginWaterfallGroup(channelGroupWidth);
     MoveWindow(controls_.labelWaterfallChannel,
                waterfallChannelLeft,
-               graphControlsTop + 2,
+               waterfallControlsRowTop + 2,
                kWaterfallChannelLabelWidth,
                18,
                TRUE);
     MoveWindow(controls_.comboWaterfallChannel,
                waterfallChannelLeft + kWaterfallChannelLabelWidth + 10,
-               graphControlsTop - 2,
+               waterfallControlsRowTop - 2,
                kWaterfallChannelComboWidth,
                kGraphComboHeight,
                TRUE);
-    const int waterfallCutoffLeft = waterfallChannelLeft + kWaterfallChannelLabelWidth + 10 + kWaterfallChannelComboWidth + 24;
+    waterfallControlsRight = waterfallChannelLeft + channelGroupWidth;
+
+    const int waterfallCutoffLeft = beginWaterfallGroup(cutoffGroupWidth);
     MoveWindow(controls_.labelWaterfallLowCutoff,
                waterfallCutoffLeft,
-               graphControlsTop + 2,
+               waterfallControlsRowTop + 2,
                kWaterfallCutoffLabelWidth,
                18,
                TRUE);
     MoveWindow(controls_.sliderWaterfallLowCutoff,
                waterfallCutoffLeft + kWaterfallCutoffLabelWidth + 10,
-               graphControlsTop - 2,
+               waterfallControlsRowTop - 2,
                kWaterfallCutoffSliderWidth,
                32,
                TRUE);
     MoveWindow(controls_.valueWaterfallLowCutoff,
                waterfallCutoffLeft + kWaterfallCutoffLabelWidth + 10 + kWaterfallCutoffSliderWidth + 10,
-               graphControlsTop + 2,
+               waterfallControlsRowTop + 2,
                kWaterfallCutoffValueWidth,
                18,
                TRUE);
     const bool waterfallVisible =
         plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0))) == "waterfall";
-    const int graphTop = graphControlsTop + 56;
+    const int graphTop = waterfallControlsRowTop + 56;
     const int availableBottom = contentTop + innerHeight;
     const int graphBottom = std::max(graphTop + 200, availableBottom);
     const int legendLeft = contentLeft + innerWidth - kLegendWidth;
@@ -1022,6 +1076,10 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
                                             workspace.ui.measurementGraphVisibleMinFrequencyHz,
                                             workspace.ui.measurementGraphVisibleMaxFrequencyHz);
     SendMessageW(controls_.comboPlot, CB_SETCURSEL, comboIndexFromPlotMode(workspace.ui.measurementPlotMode), 0);
+    SendMessageW(controls_.comboWaterfallSource,
+                 CB_SETCURSEL,
+                 comboIndexFromWaterfallSource(workspace.ui.measurementWaterfallSource),
+                 0);
     SendMessageW(controls_.comboWaterfallChannel,
                  CB_SETCURSEL,
                  comboIndexFromWaterfallChannel(workspace.ui.measurementWaterfallChannel),
@@ -1058,6 +1116,8 @@ void MeasurementPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.ui.measurementGraphVisibleMaxFrequencyHz = responseGraph_.visibleMaxFrequencyHz();
     workspace.ui.measurementPlotMode =
         plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0)));
+    workspace.ui.measurementWaterfallSource = waterfallSourceFromComboIndex(
+        static_cast<int>(SendMessageW(controls_.comboWaterfallSource, CB_GETCURSEL, 0, 0)));
     workspace.ui.measurementWaterfallChannel = waterfallChannelFromComboIndex(
         static_cast<int>(SendMessageW(controls_.comboWaterfallChannel, CB_GETCURSEL, 0, 0)));
     workspace.ui.measurementWaterfallLowCutoffDb =
@@ -1073,6 +1133,7 @@ void MeasurementPage::setWorkspaceView(const WorkspaceState& workspace) {
     measurementSettings_ = workspace.measurement;
     result_ = workspace.result;
     referenceResult_ = workspace.referenceResult;
+    filterResult_ = workspace.filterResult;
     refreshActionButtons();
     refreshReferenceNote();
     refreshPlots();
@@ -1149,6 +1210,7 @@ void MeasurementPage::setInteractiveControlsEnabled(bool enabled) const {
     EnableWindow(controls_.comboSampleRate, enabled ? TRUE : FALSE);
     EnableWindow(controls_.outputVolumeSlider, enabled ? TRUE : FALSE);
     EnableWindow(controls_.comboPlot, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.comboWaterfallSource, enabled ? TRUE : FALSE);
     EnableWindow(controls_.comboWaterfallChannel, enabled ? TRUE : FALSE);
     EnableWindow(controls_.sliderWaterfallLowCutoff, enabled ? TRUE : FALSE);
     EnableWindow(controls_.checkboxShowRoomLeft, enabled ? TRUE : FALSE);
@@ -1338,7 +1400,10 @@ bool MeasurementPage::handleCommand(WORD commandId,
         return true;
     }
 
-    if ((commandId == kComboPlot || commandId == kComboWaterfallChannel) && notificationCode == CBN_SELCHANGE) {
+    if ((commandId == kComboPlot ||
+         commandId == kComboWaterfallSource ||
+         commandId == kComboWaterfallChannel) &&
+        notificationCode == CBN_SELCHANGE) {
         if (commandId == kComboPlot) {
             updatePlotControlVisibility();
             layout();
@@ -1480,6 +1545,23 @@ std::string MeasurementPage::plotModeFromComboIndex(int index) {
     return index == 1 ? "waterfall" : "magnitude";
 }
 
+void MeasurementPage::populateWaterfallSourceCombo(HWND combo) {
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Measured"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Expected"));
+}
+
+int MeasurementPage::comboIndexFromWaterfallSource(const std::string& source) {
+    if (source == "expected") {
+        return 1;
+    }
+    return 0;
+}
+
+std::string MeasurementPage::waterfallSourceFromComboIndex(int index) {
+    return index == 1 ? "expected" : "measured";
+}
+
 void MeasurementPage::populateWaterfallChannelCombo(HWND combo) {
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
     SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Left"));
@@ -1597,11 +1679,17 @@ void MeasurementPage::refreshPlots() {
     waterfallGraph_.setLowCutoffDb(
         waterfallLowCutoffDbFromSliderPosition(static_cast<int>(SendMessageW(controls_.sliderWaterfallLowCutoff, TBM_GETPOS, 0, 0))));
 
+    const std::string sourceSelection = waterfallSourceFromComboIndex(
+        static_cast<int>(SendMessageW(controls_.comboWaterfallSource, CB_GETCURSEL, 0, 0)));
     const std::string channelSelection = waterfallChannelFromComboIndex(
         static_cast<int>(SendMessageW(controls_.comboWaterfallChannel, CB_GETCURSEL, 0, 0)));
     const MeasurementChannel channel =
         channelSelection == "right" ? MeasurementChannel::Right : MeasurementChannel::Left;
-    waterfallGraph_.setData(measurement::buildWaterfallPlotData(result_, channel));
+    const measurement::WaterfallPlotData waterfallData =
+        sourceSelection == "expected"
+            ? measurement::buildExpectedWaterfallPlotData(result_, filterResult_, channel)
+            : measurement::buildWaterfallPlotData(result_, channel);
+    waterfallGraph_.setData(waterfallData);
 
     updatePlotControlVisibility();
 }
@@ -1612,6 +1700,8 @@ void MeasurementPage::updatePlotControlVisibility() const {
     const bool waterfallVisible = plotMode == "waterfall";
     ShowWindow(responseGraph_.window(), waterfallVisible ? SW_HIDE : SW_SHOW);
     ShowWindow(waterfallGraph_.window(), waterfallVisible ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.labelWaterfallSource, waterfallVisible ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.comboWaterfallSource, waterfallVisible ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.labelWaterfallChannel, waterfallVisible ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.comboWaterfallChannel, waterfallVisible ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.labelWaterfallLowCutoff, waterfallVisible ? SW_SHOW : SW_HIDE);

@@ -101,6 +101,8 @@ private:
         HWND levelMeter = nullptr;
         HWND labelPlot = nullptr;
         HWND comboPlot = nullptr;
+        HWND labelWaterfallSource = nullptr;
+        HWND comboWaterfallSource = nullptr;
         HWND labelWaterfallChannel = nullptr;
         HWND comboWaterfallChannel = nullptr;
         HWND labelWaterfallLowCutoff = nullptr;
@@ -131,6 +133,7 @@ private:
     static constexpr int kResponseGraph = 3014;
     static constexpr int kComboPlot = 3018;
     static constexpr int kComboWaterfallChannel = 3019;
+    static constexpr int kComboWaterfallSource = 3020;
     static constexpr int kButtonMeasureReference = 3021;
     static constexpr int kCheckboxShowRoomLeft = 3022;
     static constexpr int kCheckboxShowRoomRight = 3023;
@@ -152,6 +155,9 @@ private:
     static void populatePlotCombo(HWND combo);
     static int comboIndexFromPlotMode(const std::string& plotMode);
     static std::string plotModeFromComboIndex(int index);
+    static void populateWaterfallSourceCombo(HWND combo);
+    static int comboIndexFromWaterfallSource(const std::string& source);
+    static std::string waterfallSourceFromComboIndex(int index);
     static void populateWaterfallChannelCombo(HWND combo);
     static int comboIndexFromWaterfallChannel(const std::string& channel);
     static std::string waterfallChannelFromComboIndex(int index);
@@ -179,6 +185,7 @@ private:
     Controls controls_;
     MeasurementResult result_;
     MeasurementResult referenceResult_;
+    FilterDesignResult filterResult_;
     AudioSettings audioSettings_;
     MeasurementSettings measurementSettings_;
     MeasurementStatus status_;

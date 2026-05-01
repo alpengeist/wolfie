@@ -744,6 +744,7 @@ void WolfieApp::populateControlsFromState() {
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
     filtersPage_.populate(workspace_);
+    measurementPage_.setWorkspaceView(workspace_);
     populateExportSampleRateControls();
     updateExportControls();
     updateProcessLogSizeButtons();
@@ -995,7 +996,7 @@ void WolfieApp::finishCalibrationReanalysis() {
     if (!taskResult.success) {
         measurementPage_.setCalibrationRefreshInProgress(false);
         appendMeasurementLog(taskResult.errorMessage, LogSeverity::Error);
-        measurementPage_.setWorkspaceView(workspace_);
+        refreshMeasurementPageView();
         analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
         targetCurvePage_.populate(workspace_);
@@ -1009,7 +1010,7 @@ void WolfieApp::finishCalibrationReanalysis() {
     invalidateFilterDesign();
     invalidateFilterAnalysis();
     ensureSmoothedResponseReady();
-    measurementPage_.setWorkspaceView(workspace_);
+    refreshMeasurementPageView();
     analysisPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
@@ -1095,6 +1096,7 @@ void WolfieApp::finishFilterAnalysisRefresh() {
     workspace_.filterResult = std::move(taskResult.filterResult);
     workspace_.filterAnalysis = std::move(taskResult.filterAnalysis);
 
+    refreshMeasurementPageView();
     analysisPage_.populate(workspace_);
     filtersPage_.populate(workspace_);
     syncStateFromControls();
@@ -1251,37 +1253,72 @@ void WolfieApp::invalidateFilterDesign() {
     workspace_.filterResult = {};
 }
 
+void WolfieApp::ensureFilterResultReady() {
+    if (workspace_.filterResult.valid) {
+        return;
+    }
+
+    ensureSmoothedResponseReady();
+    if (workspace_.smoothedResponse.frequencyAxisHz.empty()) {
+        return;
+    }
+
+    measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
+    workspace_.filterResult = measurement::designFilters(workspace_.smoothedResponse,
+                                                         workspace_.measurement,
+                                                         workspace_.targetCurve,
+                                                         workspace_.filters,
+                                                         &workspace_.result);
+    if (!workspace_.filterResult.valid) {
+        appendLog(L"Filter design failed.", LogSeverity::Error);
+        for (const std::string& entry : workspace_.filterResult.processLog) {
+            appendLog(L"Filter design: " + toWide(entry), LogSeverity::Error);
+        }
+        return;
+    }
+
+    for (const std::string& entry : workspace_.filterResult.processLog) {
+        appendLog(L"Filter design: " + toWide(entry));
+    }
+}
+
 void WolfieApp::ensureFilterDesignReady() {
     if (workspace_.filterResult.valid && workspace_.filterAnalysis.available) {
         return;
     }
 
+    ensureFilterResultReady();
     if (!workspace_.filterResult.valid) {
-        ensureSmoothedResponseReady();
-        if (workspace_.smoothedResponse.frequencyAxisHz.empty()) {
-            return;
-        }
-
-        measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
-        workspace_.filterResult = measurement::designFilters(workspace_.smoothedResponse,
-                                                             workspace_.measurement,
-                                                             workspace_.targetCurve,
-                                                             workspace_.filters,
-                                                             &workspace_.result);
-        if (!workspace_.filterResult.valid) {
-            appendLog(L"Filter design failed.", LogSeverity::Error);
-            for (const std::string& entry : workspace_.filterResult.processLog) {
-                appendLog(L"Filter design: " + toWide(entry), LogSeverity::Error);
-            }
-            return;
-        }
-
-        for (const std::string& entry : workspace_.filterResult.processLog) {
-            appendLog(L"Filter design: " + toWide(entry));
-        }
+        return;
     }
 
     workspace_.filterAnalysis = measurement::buildFilterAnalysis(workspace_.result, workspace_.filterResult);
+}
+
+bool WolfieApp::shouldBuildExpectedMeasurementWaterfall() const {
+    return workspace_.ui.measurementPlotMode == "waterfall" &&
+           workspace_.ui.measurementWaterfallSource == "expected";
+}
+
+void WolfieApp::refreshMeasurementPageView() {
+    const bool hadSmoothedResponse = !workspace_.smoothedResponse.frequencyAxisHz.empty();
+    const bool hadFilterResult = workspace_.filterResult.valid;
+    if (shouldBuildExpectedMeasurementWaterfall()) {
+        ensureFilterResultReady();
+    }
+
+    measurementPage_.setWorkspaceView(workspace_);
+
+    const bool smoothedResponseBecameAvailable =
+        !hadSmoothedResponse && !workspace_.smoothedResponse.frequencyAxisHz.empty();
+    const bool filterResultBecameAvailable = !hadFilterResult && workspace_.filterResult.valid;
+    if (smoothedResponseBecameAvailable) {
+        smoothingPage_.populate(workspace_);
+        targetCurvePage_.populate(workspace_);
+    }
+    if (smoothedResponseBecameAvailable || filterResultBecameAvailable) {
+        filtersPage_.populate(workspace_);
+    }
 }
 
 void WolfieApp::setExportInProgress(bool running) {
@@ -1484,7 +1521,7 @@ void WolfieApp::generateRoomSimulationMeasurement(const std::string& name,
         ensureSmoothedResponseReady();
     }
 
-    measurementPage_.setWorkspaceView(workspace_);
+    refreshMeasurementPageView();
     analysisPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
@@ -1520,6 +1557,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             return;
         }
         if (measurementPlotChanged) {
+            refreshMeasurementPageView();
             workspaceRepository_.save(workspace_);
             return;
         }
@@ -1538,7 +1576,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
                 return;
             }
 
-            measurementPage_.setWorkspaceView(workspace_);
+            refreshMeasurementPageView();
             analysisPage_.populate(workspace_);
             smoothingPage_.populate(workspace_);
             targetCurvePage_.populate(workspace_);
@@ -1877,6 +1915,9 @@ void WolfieApp::updateVisibleTab() {
     if (selected == 1) {
         analysisPage_.populate(workspace_);
     }
+    if (selected == 0) {
+        refreshMeasurementPageView();
+    }
 
     measurementPage_.setVisible(selected == 0);
     analysisPage_.setVisible(selected == 1);
@@ -2033,7 +2074,7 @@ void WolfieApp::startMeasurement(MeasurementRunMode runMode) {
         targetCurvePage_.populate(workspace_);
         filtersPage_.populate(workspace_);
     }
-    measurementPage_.setWorkspaceView(workspace_);
+    refreshMeasurementPageView();
     SetTimer(mainWindow_, kMeasurementTimerId, 50, nullptr);
     refreshMeasurementStatus();
 }
@@ -2056,7 +2097,7 @@ void WolfieApp::stopMeasurement() {
         workspace_.filterAnalysis = persistedWorkspace.filterAnalysis;
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
-        measurementPage_.setWorkspaceView(workspace_);
+        refreshMeasurementPageView();
         analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
         targetCurvePage_.populate(workspace_);
@@ -2080,7 +2121,7 @@ void WolfieApp::finalizeMeasurement() {
             ensureSmoothedResponseReady();
         }
     }
-    measurementPage_.setWorkspaceView(workspace_);
+    refreshMeasurementPageView();
     analysisPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);

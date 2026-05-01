@@ -64,6 +64,7 @@ struct UiSettings {
     double measurementGraphVisibleMinFrequencyHz = 20.0;
     double measurementGraphVisibleMaxFrequencyHz = 20000.0;
     std::string measurementPlotMode = "magnitude";
+    std::string measurementWaterfallSource = "measured";
     std::string measurementWaterfallChannel = "left";
     double measurementWaterfallLowCutoffDb = -72.0;
     bool measurementShowRoomLeft = true;

@@ -654,48 +654,6 @@ size_t dominantSampleIndex(const std::vector<double>& values) {
     return bestIndex;
 }
 
-size_t bestCircularWindowStart(const std::vector<double>& impulse, size_t windowLength) {
-    if (impulse.empty() || windowLength == 0) {
-        return 0;
-    }
-
-    const size_t window = std::min(windowLength, impulse.size());
-    double energy = 0.0;
-    for (size_t index = 0; index < window; ++index) {
-        energy += impulse[index] * impulse[index];
-    }
-
-    double bestEnergy = energy;
-    size_t bestStart = 0;
-    for (size_t start = 1; start < impulse.size(); ++start) {
-        const size_t removedIndex = start - 1;
-        const size_t addedIndex = (start + window - 1) % impulse.size();
-        energy += (impulse[addedIndex] * impulse[addedIndex]) -
-                  (impulse[removedIndex] * impulse[removedIndex]);
-        if (energy > bestEnergy) {
-            bestEnergy = energy;
-            bestStart = start;
-        }
-    }
-    return bestStart;
-}
-
-std::vector<double> extractCircularWindow(const std::vector<double>& impulse,
-                                          size_t windowStart,
-                                          size_t windowLength) {
-    std::vector<double> window;
-    if (impulse.empty() || windowLength == 0) {
-        return window;
-    }
-
-    const size_t extractedLength = std::min(windowLength, impulse.size());
-    window.reserve(extractedLength);
-    for (size_t index = 0; index < extractedLength; ++index) {
-        window.push_back(impulse[(windowStart + index) % impulse.size()]);
-    }
-    return window;
-}
-
 void applyTailFade(std::vector<double>& impulse) {
     const size_t fadeCount = std::min(impulse.size() / 8, size_t{4096});
     if (fadeCount < 64) {
@@ -734,23 +692,36 @@ std::vector<double> buildMixedPhaseImpulse(const std::vector<double>& positiveMa
         return {};
     }
 
+    double peakPhaseCorrectionRadians = 0.0;
+    for (const double value : positivePhaseCorrectionRadians) {
+        peakPhaseCorrectionRadians = std::max(peakPhaseCorrectionRadians, std::abs(value));
+    }
+    if (peakPhaseCorrectionRadians <= 1.0e-9) {
+        return buildMinimumPhaseImpulse(positiveMagnitude, fftSize, tapCount);
+    }
+
     std::vector<std::complex<double>> combinedSpectrum =
         buildMinimumPhaseSpectrum(positiveMagnitude, fftSize);
     applyPositivePhaseCorrection(combinedSpectrum, positivePhaseCorrectionRadians);
     const std::vector<double> fullImpulse = buildRealImpulseFromSpectrum(combinedSpectrum);
-    const size_t windowStart = bestCircularWindowStart(fullImpulse, outputLength);
-    std::vector<double> impulse =
-        extractCircularWindow(fullImpulse, windowStart, outputLength);
-    const size_t dominantPeak = dominantSampleIndex(impulse);
-    const size_t preRollSamples = std::max<size_t>(1, outputLength / 8);
-    // Keep the dominant peak close to the front of the FIR so mixed mode does not accumulate
-    // a large bulk delay, but preserve the selected mixed-phase window by rotating it rather than
-    // re-cutting a different slice out of the circular impulse.
-    if (dominantPeak > preRollSamples && dominantPeak < impulse.size()) {
-        std::rotate(impulse.begin(),
-                    impulse.begin() + static_cast<std::ptrdiff_t>(dominantPeak - preRollSamples),
-                    impulse.end());
+    if (fullImpulse.empty()) {
+        return {};
     }
+
+    const size_t dominantPeak = dominantSampleIndex(fullImpulse);
+    const size_t preRollSamples = std::max<size_t>(1, outputLength / 8);
+    // Re-anchor the full mixed-phase impulse so a small amount of preringing can live before the
+    // dominant peak, then truncate to the requested FIR length. Truncating after the full-length
+    // rotation avoids turning wrapped negative-time energy into a synthetic late tail.
+    std::vector<double> rotatedImpulse = fullImpulse;
+    const size_t rotateStart = (dominantPeak + rotatedImpulse.size() - preRollSamples) % rotatedImpulse.size();
+    std::rotate(rotatedImpulse.begin(),
+                rotatedImpulse.begin() + static_cast<std::ptrdiff_t>(rotateStart),
+                rotatedImpulse.end());
+
+    std::vector<double> impulse(rotatedImpulse.begin(),
+                                rotatedImpulse.begin() + static_cast<std::ptrdiff_t>(std::min(outputLength,
+                                                                                                rotatedImpulse.size())));
     applyTailFade(impulse);
     return impulse;
 }
