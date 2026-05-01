@@ -16,6 +16,10 @@ namespace {
 
 constexpr double kSmoothnessSteps[] = {0.1, 1.0, 2.0, 4.0};
 constexpr int kSmoothnessStepCount = static_cast<int>(sizeof(kSmoothnessSteps) / sizeof(kSmoothnessSteps[0]));
+constexpr int kGroupDelayZoomRangesMs[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
+constexpr int kGroupDelayZoomPresetCount =
+    static_cast<int>(sizeof(kGroupDelayZoomRangesMs) / sizeof(kGroupDelayZoomRangesMs[0]));
+constexpr int kGroupDelayZoomFitPreset = kGroupDelayZoomPresetCount;
 constexpr double kImpulseGraphNegativeWindowMs = 10.0;
 constexpr double kImpulseGraphPositiveWindowMs = 50.0;
 constexpr double kImpulseGraphMinZoomFactor = 0.5;
@@ -42,6 +46,19 @@ int smoothnessSliderPositionFromValue(double smoothness) {
 double smoothnessValueFromSliderPosition(LRESULT position) {
     const int index = clampValue(static_cast<int>(position), 0, kSmoothnessStepCount - 1);
     return kSmoothnessSteps[index];
+}
+
+int clampGroupDelayZoomPreset(int preset) {
+    return clampValue(preset, 0, kGroupDelayZoomFitPreset);
+}
+
+std::wstring groupDelayZoomLabelFromPreset(int preset) {
+    const int clampedPreset = clampGroupDelayZoomPreset(preset);
+    if (clampedPreset == kGroupDelayZoomFitPreset) {
+        return L"Fit";
+    }
+
+    return L"+-" + std::to_wstring(kGroupDelayZoomRangesMs[clampedPreset]) + L" ms";
 }
 
 void drawLegendFrame(const DRAWITEMSTRUCT& draw) {
@@ -490,6 +507,23 @@ void FiltersPage::createControls() {
     controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L after", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelGroupDelayZoom = CreateWindowW(L"STATIC", L"Y Range", WS_CHILD | WS_VISIBLE,
+                                                  0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.sliderGroupDelayZoom = CreateWindowW(TRACKBAR_CLASSW,
+                                                   nullptr,
+                                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   window_,
+                                                   reinterpret_cast<HMENU>(kSliderGroupDelayZoom),
+                                                   instance_,
+                                                   nullptr);
+    controls_.valueGroupDelayZoom = CreateWindowW(L"STATIC", L"Fit", WS_CHILD | WS_VISIBLE,
+                                                  0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    helpBubble_.registerLabel(controls_.labelGroupDelayZoom,
+                              L"Sets a fixed vertical range for the group-delay chart, or lets the chart fit automatically.");
     controls_.checkboxAlignGroupDelayLatency = CreateWindowW(L"BUTTON",
                                                              L"Align latency",
                                                              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -615,6 +649,12 @@ void FiltersPage::createControls() {
     SendMessageW(controls_.sliderSmoothness, TBM_SETLINESIZE, 0, 1);
     SendMessageW(controls_.sliderSmoothness, TBM_SETPAGESIZE, 0, 1);
     setSelectedSmoothness(1.0);
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETRANGEMIN, FALSE, 0);
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETRANGEMAX, FALSE, static_cast<LPARAM>(kGroupDelayZoomFitPreset));
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETTICFREQ, 1, 0);
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETLINESIZE, 0, 1);
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETPAGESIZE, 0, 1);
+    setSelectedGroupDelayZoomPreset(groupDelayZoomPreset_);
     syncViewSettingsToControls();
     correctionGraph_.create(window_, instance_, kCorrectionGraph);
     correctedGraph_.create(window_, instance_, kCorrectedGraph);
@@ -745,9 +785,14 @@ void FiltersPage::layout() {
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
     MoveWindow(controls_.checkboxAlignGroupDelayLatency, graphRight - 124, y - 2, 124, 20, TRUE);
-    MoveWindow(controls_.groupDelayLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
-    groupDelayGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
-    const int groupDelayFirstRowTop = y + 24 + 18;
+    MoveWindow(controls_.labelGroupDelayZoom, contentLeft, y + 26, 52, 18, TRUE);
+    MoveWindow(controls_.valueGroupDelayZoom, graphRight - 64, y + 26, 64, 18, TRUE);
+    const int groupDelaySliderLeft = contentLeft + 58;
+    const int groupDelaySliderWidth = std::max(100, (graphRight - 72) - groupDelaySliderLeft);
+    MoveWindow(controls_.sliderGroupDelayZoom, groupDelaySliderLeft, y + 22, groupDelaySliderWidth, 28, TRUE);
+    MoveWindow(controls_.groupDelayLegendFrame, legendLeft, y + 52, legendWidth, graphHeight, TRUE);
+    groupDelayGraph_.layout(RECT{contentLeft, y + 52, graphRight, y + 52 + graphHeight});
+    const int groupDelayFirstRowTop = y + 52 + 18;
     MoveWindow(controls_.checkboxShowInputGroupDelayLeft, checkboxLeft, groupDelayFirstRowTop, checkboxWidth, 20, TRUE);
     MoveWindow(controls_.lineInputGroupDelayLeft, lineLeft, groupDelayFirstRowTop + 8, lineWidth, lineHeight, TRUE);
     MoveWindow(controls_.labelInputGroupDelayLeft, labelLeft, groupDelayFirstRowTop + 2, labelWidth, 18, TRUE);
@@ -767,7 +812,7 @@ void FiltersPage::layout() {
     MoveWindow(controls_.linePredictedGroupDelayRight, lineLeft, groupDelayFirstRowTop + (rowStep * 5) + 8, lineWidth, lineHeight, TRUE);
     MoveWindow(controls_.labelPredictedGroupDelayRight, labelLeft, groupDelayFirstRowTop + (rowStep * 5) + 2, labelWidth, 18, TRUE);
 
-    y += 24 + graphHeight + graphGap;
+    y += 52 + graphHeight + graphGap;
     MoveWindow(controls_.impulseTitle, contentLeft, y, contentWidth, 18, TRUE);
     const int impulseButtonTop = y + 20;
     const int impulseButtonHeight = 24;
@@ -824,6 +869,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
     excessPhaseGraph_.setData(buildExcessPhaseGraphData(workspace));
     groupDelayGraph_.setData(buildGroupDelayGraphData(workspace));
+    applyGroupDelayZoomRange();
     impulseGraph_.setData(buildImpulseGraphData(workspace));
     configureImpulseGraphViewport(workspace);
     applySharedFrequencyHoverMarker();
@@ -882,6 +928,19 @@ void FiltersPage::refreshSmoothnessValue() const {
     setWindowTextValue(controls_.valueSmoothness, formatWideDouble(smoothness, digits));
 }
 
+int FiltersPage::selectedGroupDelayZoomPreset() const {
+    return clampGroupDelayZoomPreset(static_cast<int>(SendMessageW(controls_.sliderGroupDelayZoom, TBM_GETPOS, 0, 0)));
+}
+
+void FiltersPage::setSelectedGroupDelayZoomPreset(int preset) const {
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETPOS, TRUE, clampGroupDelayZoomPreset(preset));
+    refreshGroupDelayZoomValue();
+}
+
+void FiltersPage::refreshGroupDelayZoomValue() const {
+    setWindowTextValue(controls_.valueGroupDelayZoom, groupDelayZoomLabelFromPreset(selectedGroupDelayZoomPreset()));
+}
+
 bool FiltersPage::mixedModeSelected() const {
     return phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0))) == "mixed";
 }
@@ -897,6 +956,17 @@ void FiltersPage::refreshPhaseModeControls() const {
     EnableWindow(controls_.labelMixedPhaseCap, mixedEnabled);
     EnableWindow(controls_.editMixedPhaseCap, mixedEnabled);
     EnableWindow(controls_.unitMixedPhaseCap, mixedEnabled);
+}
+
+void FiltersPage::applyGroupDelayZoomRange() {
+    const int preset = selectedGroupDelayZoomPreset();
+    if (preset == kGroupDelayZoomFitPreset) {
+        groupDelayGraph_.setDefaultYRange(false, -1.0, 1.0);
+        return;
+    }
+
+    const double rangeMs = static_cast<double>(kGroupDelayZoomRangesMs[preset]);
+    groupDelayGraph_.setDefaultYRange(true, -rangeMs, rangeMs);
 }
 
 void FiltersPage::loadViewSettings(const UiSettings& ui) {
@@ -919,6 +989,7 @@ void FiltersPage::loadViewSettings(const UiSettings& ui) {
     showFilterGroupDelayLeft_ = ui.filterShowFilterGroupDelayLeft;
     showFilterGroupDelayRight_ = ui.filterShowFilterGroupDelayRight;
     alignGroupDelayLatency_ = ui.filterAlignGroupDelayLatency;
+    groupDelayZoomPreset_ = clampGroupDelayZoomPreset(ui.filterGroupDelayZoomPreset);
     syncHoverFrequencyEnabled_ = ui.filterSyncHoverFrequency;
     if (!syncHoverFrequencyEnabled_) {
         sharedFrequencyHoverActive_ = false;
@@ -978,6 +1049,7 @@ void FiltersPage::syncViewSettingsToControls() const {
                  BM_SETCHECK,
                  alignGroupDelayLatency_ ? BST_CHECKED : BST_UNCHECKED,
                  0);
+    setSelectedGroupDelayZoomPreset(groupDelayZoomPreset_);
     SendMessageW(controls_.checkboxSyncHoverFrequency,
                  BM_SETCHECK,
                  syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED,
@@ -1014,6 +1086,7 @@ void FiltersPage::syncViewSettingsFromControls() {
     showFilterGroupDelayRight_ =
         SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     alignGroupDelayLatency_ = SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    groupDelayZoomPreset_ = selectedGroupDelayZoomPreset();
     syncHoverFrequencyEnabled_ = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
     if (!syncHoverFrequencyEnabled_) {
         sharedFrequencyHoverActive_ = false;
@@ -1053,6 +1126,7 @@ void FiltersPage::saveViewSettings(UiSettings& ui) const {
         SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterAlignGroupDelayLatency =
         SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterGroupDelayZoomPreset = selectedGroupDelayZoomPreset();
     ui.filterSyncHoverFrequency = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
 }
 
@@ -1320,12 +1394,22 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         }
         break;
     case WM_HSCROLL:
-        if (page != nullptr && reinterpret_cast<HWND>(lParam) == page->controls_.sliderSmoothness) {
-            page->refreshSmoothnessValue();
-            page->refreshRecalculateButton();
+        if (page != nullptr) {
+            const HWND source = reinterpret_cast<HWND>(lParam);
+            if (source == page->controls_.sliderSmoothness) {
+                page->refreshSmoothnessValue();
+                page->refreshRecalculateButton();
+            } else if (source == page->controls_.sliderGroupDelayZoom) {
+                page->refreshGroupDelayZoomValue();
+            }
+        }
+        {
+            HWND root = GetAncestor(window, GA_ROOT);
+            if (root != nullptr) {
+                return SendMessageW(root, message, wParam, lParam);
+            }
             return 0;
         }
-        break;
     case WM_COMMAND: {
         HWND root = GetAncestor(window, GA_ROOT);
         if (root != nullptr) {
@@ -1610,6 +1694,18 @@ bool FiltersPage::handleMouseWheel(WPARAM wParam) {
         return false;
     }
     setScrollOffset(scrollOffset_ - (wheelSteps * 60));
+    return true;
+}
+
+bool FiltersPage::handleHScroll(HWND source, WorkspaceState& workspace) {
+    if (source != controls_.sliderGroupDelayZoom) {
+        return false;
+    }
+
+    groupDelayZoomPreset_ = selectedGroupDelayZoomPreset();
+    refreshGroupDelayZoomValue();
+    applyGroupDelayZoomRange();
+    workspace.ui.filterGroupDelayZoomPreset = groupDelayZoomPreset_;
     return true;
 }
 

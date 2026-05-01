@@ -1758,6 +1758,13 @@ void WolfieApp::onHScroll(HWND source) {
         if (targetCurvePersistencePending) {
             targetCurvePersistencePending_ = true;
         }
+        return;
+    }
+
+    if (filtersPage_.handleHScroll(source, workspace_)) {
+        syncStateFromControls();
+        workspaceRepository_.saveSettings(workspace_);
+        return;
     }
 }
 

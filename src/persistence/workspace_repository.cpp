@@ -398,6 +398,9 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonBool(content, "filterAlignGroupDelayLatency")) {
         ui.filterAlignGroupDelayLatency = *value;
     }
+    if (const auto value = findJsonNumber(content, "filterGroupDelayZoomPreset")) {
+        ui.filterGroupDelayZoomPreset = static_cast<int>(*value);
+    }
     if (const auto value = findJsonBool(content, "filterSyncHoverFrequency")) {
         ui.filterSyncHoverFrequency = *value;
     }
@@ -1441,6 +1444,7 @@ void writeWorkspaceSettingsJsonFile(const WorkspaceState& workspace) {
                   << (workspace.ui.filterShowFilterGroupDelayRight ? "true" : "false") << ",\n"
                   << "    \"filterAlignGroupDelayLatency\": "
                   << (workspace.ui.filterAlignGroupDelayLatency ? "true" : "false") << ",\n"
+                  << "    \"filterGroupDelayZoomPreset\": " << workspace.ui.filterGroupDelayZoomPreset << ",\n"
                   << "    \"filterSyncHoverFrequency\": "
                   << (workspace.ui.filterSyncHoverFrequency ? "true" : "false") << ",\n"
                   << "    \"exportSampleRatesHz\": ";
@@ -1521,6 +1525,7 @@ void writeUiSettingsJsonFile(const WorkspaceState& workspace) {
            << (workspace.ui.filterShowFilterGroupDelayRight ? "true" : "false") << ",\n"
            << "  \"filterAlignGroupDelayLatency\": "
            << (workspace.ui.filterAlignGroupDelayLatency ? "true" : "false") << ",\n"
+           << "  \"filterGroupDelayZoomPreset\": " << workspace.ui.filterGroupDelayZoomPreset << ",\n"
            << "  \"filterSyncHoverFrequency\": " << (workspace.ui.filterSyncHoverFrequency ? "true" : "false") << ",\n"
            << "  \"exportSampleRatesHz\": ";
     writeJsonIntArray(uiJson, workspace.ui.exportSampleRatesHz);

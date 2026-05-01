@@ -25,6 +25,7 @@ public:
     void populate(const WorkspaceState& workspace);
     void syncToWorkspace(WorkspaceState& workspace) const;
     void setRecalculateInProgress(bool running);
+    bool handleHScroll(HWND source, WorkspaceState& workspace);
     bool handleCommand(WORD commandId,
                        WORD notificationCode,
                        WorkspaceState& workspace,
@@ -123,6 +124,9 @@ private:
         HWND lineInputGroupDelayRight = nullptr;
         HWND labelInputGroupDelayRight = nullptr;
         HWND groupDelayTitle = nullptr;
+        HWND labelGroupDelayZoom = nullptr;
+        HWND sliderGroupDelayZoom = nullptr;
+        HWND valueGroupDelayZoom = nullptr;
         HWND checkboxAlignGroupDelayLatency = nullptr;
         HWND groupDelayLegendFrame = nullptr;
         HWND checkboxShowFilterGroupDelayLeft = nullptr;
@@ -185,6 +189,7 @@ private:
     static constexpr int kCheckboxShowInputGroupDelayRight = 3444;
     static constexpr int kCheckboxAlignGroupDelayLatency = 3445;
     static constexpr int kEditMixedPhaseCap = 3446;
+    static constexpr int kSliderGroupDelayZoom = 3447;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static bool tryParseDouble(const std::wstring& text, double& value);
@@ -203,7 +208,11 @@ private:
     void setSelectedSmoothness(double smoothness) const;
     [[nodiscard]] bool mixedModeSelected() const;
     void refreshSmoothnessValue() const;
+    [[nodiscard]] int selectedGroupDelayZoomPreset() const;
+    void setSelectedGroupDelayZoomPreset(int preset) const;
+    void refreshGroupDelayZoomValue() const;
     void refreshPhaseModeControls() const;
+    void applyGroupDelayZoomRange();
     [[nodiscard]] FilterDesignSettings currentSettings() const;
     void loadViewSettings(const UiSettings& ui);
     void syncViewSettingsToControls() const;
@@ -253,6 +262,7 @@ private:
     bool showFilterGroupDelayLeft_ = true;
     bool showFilterGroupDelayRight_ = true;
     bool alignGroupDelayLatency_ = false;
+    int groupDelayZoomPreset_ = 5;
     bool syncHoverFrequencyEnabled_ = false;
     bool sharedFrequencyHoverActive_ = false;
     double sharedFrequencyHoverHz_ = 1000.0;
