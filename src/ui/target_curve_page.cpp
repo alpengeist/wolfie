@@ -529,7 +529,7 @@ bool TargetCurvePage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
     const bool focused = (draw->itemState & ODS_FOCUS) != 0;
     const bool bypassed = SendMessageW(controls_.checkboxBypassAll, BM_GETCHECK, 0, 0) == BST_CHECKED;
     const COLORREF fillColor =
-        !bypassed && selected ? RGB(225, 234, 246) : ui_theme::panelBackgroundColor();
+        !bypassed && selected ? RGB(225, 234, 246) : ui_theme::inputBackgroundColor();
     HBRUSH fillBrush = CreateSolidBrush(fillColor);
     FillRect(draw->hDC, &draw->rcItem, fillBrush);
     DeleteObject(fillBrush);
@@ -561,7 +561,7 @@ bool TargetCurvePage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
         const COLORREF baseDotColor = band != nullptr ? targetCurveBandColor(band->colorIndex)
                                                       : targetCurveBandColor(static_cast<int>(bandIndex));
         const COLORREF dotColor =
-            bypassed ? blendColor(baseDotColor, ui_theme::panelBackgroundColor(), 0.55) : baseDotColor;
+            bypassed ? blendColor(baseDotColor, ui_theme::inputBackgroundColor(), 0.55) : baseDotColor;
         HBRUSH dotBrush = CreateSolidBrush(dotColor);
         HBRUSH previousBrush = reinterpret_cast<HBRUSH>(SelectObject(draw->hDC, dotBrush));
         HPEN dotPen = CreatePen(PS_SOLID, 1, dotColor);
@@ -620,16 +620,16 @@ LRESULT CALLBACK TargetCurvePage::PageWindowProc(HWND window, UINT message, WPAR
     }
     case WM_CTLCOLOREDIT: {
         HDC hdc = reinterpret_cast<HDC>(wParam);
-        SetBkColor(hdc, ui_theme::panelBackgroundColor());
+        SetBkColor(hdc, ui_theme::inputBackgroundColor());
         SetTextColor(hdc, ui_theme::kText);
-        return reinterpret_cast<INT_PTR>(ui_theme::panelBackgroundBrush());
+        return reinterpret_cast<INT_PTR>(ui_theme::inputBackgroundBrush());
     }
     case WM_CTLCOLORLISTBOX: {
         HDC hdc = reinterpret_cast<HDC>(wParam);
-        SetBkMode(hdc, TRANSPARENT);
+        SetBkMode(hdc, OPAQUE);
         SetTextColor(hdc, ui_theme::kText);
-        SetBkColor(hdc, ui_theme::panelBackgroundColor());
-        return reinterpret_cast<INT_PTR>(ui_theme::panelBackgroundBrush());
+        SetBkColor(hdc, ui_theme::inputBackgroundColor());
+        return reinterpret_cast<INT_PTR>(ui_theme::inputBackgroundBrush());
     }
     default:
         return DefWindowProcW(window, message, wParam, lParam);
