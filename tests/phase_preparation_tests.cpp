@@ -394,8 +394,8 @@ bool expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog() {
     if (result.processLog.size() < 6 ||
         !wolfie::tests::processLogContains(result, "Starting filter design") ||
         !wolfie::tests::processLogContains(result, "Prepared matched phase data from measurement.direct") ||
-        (!wolfie::tests::processLogContains(result, "Built per-channel low-frequency mixed-phase correction") &&
-         !wolfie::tests::processLogContains(result, "Built shared low-frequency mixed-phase correction")) ||
+        (!wolfie::tests::processLogContains(result, "Built per-channel low-frequency mixed-phase correction targets from prepared excess phase and inversion effort") &&
+         !wolfie::tests::processLogContains(result, "Built shared low-frequency mixed-phase correction from prepared excess phase and inversion effort")) ||
         !wolfie::tests::processLogContains(result, "Designed left filter channel") ||
         !wolfie::tests::processLogContains(result, "Designed right filter channel") ||
         !wolfie::tests::processLogContains(result, "Completed filter design")) {

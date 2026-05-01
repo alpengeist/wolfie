@@ -237,6 +237,17 @@ std::vector<double> buildGroupDelayMs(const std::vector<double>& frequencyAxisHz
     return groupDelayMs;
 }
 
+std::vector<double> buildResampledGroupDelayMs(const std::vector<double>& sourceFrequencyAxisHz,
+                                               const std::vector<double>& sourceUnwrappedPhaseRadians,
+                                               const std::vector<double>& destinationFrequencyAxisHz) {
+    if (destinationFrequencyAxisHz.empty()) {
+        return {};
+    }
+    const std::vector<double> sourceGroupDelayMs =
+        buildGroupDelayMs(sourceFrequencyAxisHz, sourceUnwrappedPhaseRadians);
+    return resampleLogFrequency(sourceFrequencyAxisHz, sourceGroupDelayMs, destinationFrequencyAxisHz);
+}
+
 bool axesMatch(const MeasurementValueSet& left, const MeasurementValueSet& right) {
     if (left.xValues.size() != right.xValues.size()) {
         return false;
@@ -462,7 +473,10 @@ PreparedPhaseView resamplePreparedPhaseChannel(const PreparedPhaseChannel& chann
                              displayFrequencyAxisHz);
     view.wrappedExcessPhaseDegrees = wrapPhaseRadiansSeriesDegrees(view.excessPhaseRadians);
     view.continuousExcessPhaseDegrees = radiansToDegrees(view.excessPhaseRadians);
-    view.groupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, view.delayCorrectedPhaseRadians);
+    view.groupDelayMs =
+        buildResampledGroupDelayMs(channel.nativeFrequencyAxisHz,
+                                   channel.delayCorrectedPhaseRadians,
+                                   displayFrequencyAxisHz);
     if (!view.valid()) {
         return {};
     }
