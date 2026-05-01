@@ -522,6 +522,7 @@ void FiltersPage::createControls() {
                                                    nullptr);
     controls_.valueGroupDelayZoom = CreateWindowW(L"STATIC", L"Fit", WS_CHILD | WS_VISIBLE,
                                                   0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    SetWindowSubclass(controls_.sliderGroupDelayZoom, GroupDelayZoomSliderProc, 1, reinterpret_cast<DWORD_PTR>(this));
     helpBubble_.registerLabel(controls_.labelGroupDelayZoom,
                               L"Sets a fixed vertical range for the group-delay chart, or lets the chart fit automatically.");
     controls_.checkboxAlignGroupDelayLatency = CreateWindowW(L"BUTTON",
@@ -1570,6 +1571,23 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     }
 
     return DefWindowProcW(window, message, wParam, lParam);
+}
+
+LRESULT CALLBACK FiltersPage::GroupDelayZoomSliderProc(HWND window,
+                                                       UINT message,
+                                                       WPARAM wParam,
+                                                       LPARAM lParam,
+                                                       UINT_PTR subclassId,
+                                                       DWORD_PTR refData) {
+    auto* page = reinterpret_cast<FiltersPage*>(refData);
+    if (message == WM_MOUSEWHEEL) {
+        if (page != nullptr && page->window_ != nullptr) {
+            SendMessageW(page->window_, message, wParam, lParam);
+        }
+        return 0;
+    }
+
+    return DefSubclassProc(window, message, wParam, lParam);
 }
 
 bool FiltersPage::tryParseDouble(const std::wstring& text, double& value) {
