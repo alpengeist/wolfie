@@ -475,6 +475,14 @@ std::vector<double> addSeries(const std::vector<double>& left, const std::vector
     return result;
 }
 
+std::vector<double> subtractConstant(const std::vector<double>& values, double offset) {
+    std::vector<double> result = values;
+    for (double& value : result) {
+        value -= offset;
+    }
+    return result;
+}
+
 std::vector<double> averageSeries(const std::vector<double>& left, const std::vector<double>& right) {
     const size_t count = std::min(left.size(), right.size());
     std::vector<double> result;
@@ -1037,8 +1045,12 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
             if (!useMixedMode) {
                 channel.predictedExcessPhaseDegrees = channel.inputExcessPhaseDegrees;
                 channel.predictedExcessPhaseContinuousDegrees = channel.inputExcessPhaseContinuousDegrees;
+                const double peakDelayMs =
+                    static_cast<double>(std::max(channel.impulsePeakIndex, 0)) * 1000.0 /
+                    static_cast<double>(std::max(sampleRate, 1));
                 channel.predictedGroupDelayMs =
-                    addSeries(inputPhaseView->groupDelayMs, channel.groupDelayMs);
+                    addSeries(inputPhaseView->groupDelayMs,
+                              subtractConstant(channel.groupDelayMs, peakDelayMs));
             }
         }
     }

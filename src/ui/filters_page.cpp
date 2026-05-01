@@ -1936,14 +1936,6 @@ PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& worksp
         alignGroupDelayLatency_
             ? subtractConstant(workspace.filterResult.right.groupDelayMs, rightLatencyMs)
             : workspace.filterResult.right.groupDelayMs;
-    const std::vector<double> leftPredictedGroupDelay =
-        alignGroupDelayLatency_
-            ? subtractConstant(workspace.filterResult.left.predictedGroupDelayMs, leftLatencyMs)
-            : workspace.filterResult.left.predictedGroupDelayMs;
-    const std::vector<double> rightPredictedGroupDelay =
-        alignGroupDelayLatency_
-            ? subtractConstant(workspace.filterResult.right.predictedGroupDelayMs, rightLatencyMs)
-            : workspace.filterResult.right.predictedGroupDelayMs;
     if (showFilterGroupDelayLeft_) {
         data.series.push_back({L"Left filter", ui_theme::kTeal, std::move(leftFilterGroupDelay)});
     }
@@ -1953,12 +1945,12 @@ PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& worksp
     if (showPredictedGroupDelayRight_) {
         data.series.push_back({L"Right predicted",
                                ui_theme::kMagenta,
-                               std::move(rightPredictedGroupDelay)});
+                               workspace.filterResult.right.predictedGroupDelayMs});
     }
     if (showPredictedGroupDelayLeft_) {
         data.series.push_back({L"Left predicted",
                                ui_theme::kGray,
-                               std::move(leftPredictedGroupDelay)});
+                               workspace.filterResult.left.predictedGroupDelayMs});
     }
     return data;
 }
