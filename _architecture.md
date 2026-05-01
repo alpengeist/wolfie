@@ -63,11 +63,11 @@ Files:
 Responsibilities:
 
 - `sweep_generator` creates playback sweep data and exported sweep WAV content.
-- `response_analyzer` turns captured audio into `MeasurementResult` value sets and analysis metadata.
+- `response_analyzer` turns captured audio into `MeasurementResult` value sets and analysis metadata, including direct/room transfer products and optional reference-compensated variants.
 - `room_simulator` generates synthetic room-response `MeasurementResult` data for UI and filter-testing workflows without audio I/O.
-- `measurement_controller` orchestrates a measurement run through an audio backend.
+- `measurement_controller` orchestrates room and reference measurement runs through an audio backend.
 - `target_curve_designer` computes target-curve view data without UI dependencies.
-- `filter_designer` computes correction curves, minimum-phase FIR filters, simulated responses, phase-derived diagnostics, and filter-design view data without UI dependencies.
+- `filter_designer` computes correction curves, FIR filters, mixed-phase phase shaping, simulated responses, phase-derived diagnostics, and filter-design view data without UI dependencies.
 - `stereo_diagnostics` computes left/right comparison diagnostics and analysis-plot data from measured transfer functions without UI dependencies.
 - `waterfall_builder` derives waterfall data from measured impulse responses.
 
@@ -328,19 +328,26 @@ Architectural rule:
 
 ### Current Filter Model
 
-The current implementation is minimum-phase only.
+The current filter workflow is anchored by minimum-phase magnitude correction, with additional low-frequency phase handling layered on top.
 
-Consequences:
+Current phase modes:
 
-- `FilterDesignSettings::phaseMode` is normalized to `"minimum"`.
-- Designed FIR filters are minimum-phase FIRs.
-- Magnitude correction and predicted corrected response are simulated from those filters.
-- Minimum-phase correction does not modify excess phase.
+- `minimum` builds a minimum-phase FIR from the magnitude correction curve
+- `mixed` keeps the same magnitude-correction path and layers in bounded low-frequency excess-phase correction
+- `excess-lf` exists as an internal phase-preview path for diagnostics and tests
 
-That last point is intentional and currently visible in the data model:
+Architectural consequences:
 
-- `predictedExcessPhaseDegrees` is expected to match `inputExcessPhaseDegrees`
-- the excess-phase chart exists as a baseline for future excess-phase correction work, not as proof that excess phase is currently being corrected
+- magnitude correction still starts from `SmoothedResponse`
+- prepared phase data comes from `MeasurementResult`
+- minimum-phase reconstruction and bulk-delay removal happen before excess-phase interpretation
+- mixed-mode phase work is intentionally constrained and stereo-aware rather than treated as full-band free-form inversion
+
+In data-model terms:
+
+- minimum mode usually leaves predicted excess phase close to the measured input excess phase
+- mixed mode may reduce low-frequency excess phase while preserving the same general magnitude-correction workflow
+- the excess-phase and group-delay plots are now part of the active filter-design workflow, not just placeholders
 
 ### Phase And Group-Delay Inputs
 
@@ -445,7 +452,7 @@ Series/color convention:
 Purpose:
 
 - show residual phase after removing bulk delay and minimum-phase contribution
-- provide a before/after comparison even though the current minimum-phase filter leaves excess phase unchanged
+- provide a before/after comparison for the active phase mode, including low-frequency mixed-phase behavior
 
 Current display decisions:
 
@@ -524,9 +531,8 @@ When extending the codebase, keep these rules intact:
 
 ## Future Extensions
 
-This structure supports several likely next steps:
+This structure still supports likely next steps without forcing the app shell or UI modules to absorb DSP logic:
 
-- a true excess-phase correction mode can extend `filter_designer` without redesigning the page module
 - additional filter diagnostics can be added to `FilterDesignResult` and visualized through `PlotGraph`
 - persistence can evolve independently of the page modules
 - new audio backends can plug into the existing controller structure
