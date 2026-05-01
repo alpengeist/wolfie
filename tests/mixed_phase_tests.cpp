@@ -300,6 +300,59 @@ bool expectMixedModePreservesMagnitudeVsMinimum() {
     return true;
 }
 
+bool expectMixedModePreservesLowFrequencyMagnitudeVsMinimum() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings minimumSettings;
+    minimumSettings.tapCount = 16384;
+    minimumSettings.maxBoostDb = 6.0;
+    minimumSettings.maxCutDb = 12.0;
+    minimumSettings.highCorrectionHz = 18000.0;
+
+    wolfie::FilterDesignSettings mixedSettings = minimumSettings;
+    mixedSettings.phaseMode = "mixed";
+    mixedSettings.mixedPhaseMaxCorrectionDegrees = 720.0;
+
+    const wolfie::SmoothedResponse response = wolfie::tests::buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        wolfie::tests::buildPhaseMeasurement(measurement.sampleRate, 0.0, 3.0, 0.0);
+    const wolfie::FilterDesignResult minimumResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           minimumSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult mixedResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           mixedSettings,
+                                           &phaseMeasurement);
+    if (!minimumResult.valid || !mixedResult.valid) {
+        std::cerr << "mixed low-frequency magnitude regression case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double lowBandDelta = wolfie::tests::bandMeanAbsDelta(mixedResult.frequencyAxisHz,
+                                                                minimumResult.left.correctedResponseDb,
+                                                                mixedResult.left.correctedResponseDb,
+                                                                20.0,
+                                                                80.0);
+    if (lowBandDelta > 0.4) {
+        std::cerr << "mixed mode changed low-frequency magnitude too much versus minimum phase (delta="
+                  << lowBandDelta << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectMixedModeStrengthZeroMatchesMinimum() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -542,9 +595,10 @@ bool expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay() {
                   << result.left.impulsePeakIndex << ", right=" << result.right.impulsePeakIndex << ")\n";
         return false;
     }
-    if (result.left.impulsePeakIndex > 768 ||
-        result.right.impulsePeakIndex > 768) {
-        std::cerr << "mixed stereo filter peaks accumulated too much bulk delay (left="
+    const int allowedPeakIndex = std::max(filterSettings.tapCount / 8, 1);
+    if (result.left.impulsePeakIndex > allowedPeakIndex ||
+        result.right.impulsePeakIndex > allowedPeakIndex) {
+        std::cerr << "mixed stereo filter peaks accumulated too much bulk delay for the designed preroll budget (left="
                   << result.left.impulsePeakIndex << ", right=" << result.right.impulsePeakIndex << ")\n";
         return false;
     }
@@ -762,6 +816,7 @@ int main() {
         {"expectMixedModeReducesLowFrequencyExcessPhase", expectMixedModeReducesLowFrequencyExcessPhase},
         {"expectMixedModeContainsCorrectionToLowFrequencies", expectMixedModeContainsCorrectionToLowFrequencies},
         {"expectMixedModePreservesMagnitudeVsMinimum", expectMixedModePreservesMagnitudeVsMinimum},
+        {"expectMixedModePreservesLowFrequencyMagnitudeVsMinimum", expectMixedModePreservesLowFrequencyMagnitudeVsMinimum},
         {"expectMixedModeStrengthZeroMatchesMinimum", expectMixedModeStrengthZeroMatchesMinimum},
         {"expectMixedModePhaseLimitControlsCorrectionExtent", expectMixedModePhaseLimitControlsCorrectionExtent},
         {"expectMixedModePhaseCapControlsLowFrequencyReduction", expectMixedModePhaseCapControlsLowFrequencyReduction},
