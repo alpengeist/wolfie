@@ -142,18 +142,23 @@ std::string describePhasePreparationSource(const PreparedPhaseData& preparedPhas
     return stream.str();
 }
 
-double correctionWeightAt(double frequencyHz, const FilterDesignSettings& settings) {
-    double weight = 1.0;
-
+double lowCorrectionWeightAt(double frequencyHz, const FilterDesignSettings& settings) {
     const double lowCorrectionHz = std::max(settings.lowCorrectionHz, 1.0);
     const double lowStartHz =
         lowCorrectionHz / std::pow(2.0, std::max(settings.lowTaperOctaves, 0.0) * 0.5);
     if (frequencyHz <= lowStartHz) {
-        weight = 0.0;
-    } else if (frequencyHz < lowCorrectionHz) {
-        weight *= smoothRamp((frequencyHz - lowStartHz) / std::max(lowCorrectionHz - lowStartHz, 1.0e-9));
+        return 0.0;
     }
+    if (frequencyHz < lowCorrectionHz) {
+        return smoothRamp((frequencyHz - lowStartHz) / std::max(lowCorrectionHz - lowStartHz, 1.0e-9));
+    }
+    return 1.0;
+}
 
+double correctionWeightAt(double frequencyHz, const FilterDesignSettings& settings) {
+    double weight = lowCorrectionWeightAt(frequencyHz, settings);
+
+    const double lowCorrectionHz = std::max(settings.lowCorrectionHz, 1.0);
     const double highCorrectionHz = std::max(settings.highCorrectionHz, lowCorrectionHz + 1.0);
     const double highEndHz = highCorrectionHz * std::pow(2.0, std::max(settings.highTaperOctaves, 0.0));
     if (frequencyHz >= highEndHz) {
@@ -536,6 +541,11 @@ double meanAbsoluteBandDelta(const std::vector<double>& frequencyAxisHz,
 double excessPhaseCorrectionWeightAt(double frequencyHz,
                                      const FilterDesignSettings& settings,
                                      int sampleRate) {
+    const double lowWeight = lowCorrectionWeightAt(frequencyHz, settings);
+    if (lowWeight <= 0.0) {
+        return 0.0;
+    }
+
     const double nyquist = static_cast<double>(std::max(sampleRate, 1)) * 0.5;
     const double fullCorrectionHz =
         clampValue(settings.mixedPhaseMaxFrequencyHz, 60.0, std::max(120.0, nyquist * 0.25));
@@ -543,13 +553,13 @@ double excessPhaseCorrectionWeightAt(double frequencyHz,
         clampValue(fullCorrectionHz * 2.0, fullCorrectionHz + 40.0, std::max(fullCorrectionHz + 40.0, nyquist * 0.4));
 
     if (frequencyHz <= fullCorrectionHz) {
-        return 1.0;
+        return lowWeight;
     }
     if (frequencyHz >= taperEndHz) {
         return 0.0;
     }
-    return 1.0 - smoothRamp((frequencyHz - fullCorrectionHz) /
-                            std::max(taperEndHz - fullCorrectionHz, 1.0e-9));
+    return lowWeight * (1.0 - smoothRamp((frequencyHz - fullCorrectionHz) /
+                                         std::max(taperEndHz - fullCorrectionHz, 1.0e-9)));
 }
 
 std::vector<double> buildExcessPhaseCorrectionDegrees(const std::vector<double>& displayFrequencyAxisHz,
