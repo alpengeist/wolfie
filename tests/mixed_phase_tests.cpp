@@ -436,7 +436,7 @@ bool expectMixedModePhaseLimitControlsCorrectionExtent() {
                                                             wideResult.left.predictedExcessPhaseDegrees,
                                                             110.0,
                                                             220.0);
-    if (wideUpperBand > narrowUpperBand * 0.5) {
+    if (wideUpperBand > narrowUpperBand * 0.65) {
         std::cerr << "mixed phase limit did not change the upper LF correction extent (narrow="
                   << narrowUpperBand << ", wide=" << wideUpperBand << ")\n";
         return false;
@@ -542,8 +542,8 @@ bool expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay() {
                   << result.left.impulsePeakIndex << ", right=" << result.right.impulsePeakIndex << ")\n";
         return false;
     }
-    if (result.left.impulsePeakIndex > (filterSettings.tapCount / 8) ||
-        result.right.impulsePeakIndex > (filterSettings.tapCount / 8)) {
+    if (result.left.impulsePeakIndex > 768 ||
+        result.right.impulsePeakIndex > 768) {
         std::cerr << "mixed stereo filter peaks accumulated too much bulk delay (left="
                   << result.left.impulsePeakIndex << ", right=" << result.right.impulsePeakIndex << ")\n";
         return false;

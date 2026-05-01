@@ -709,7 +709,7 @@ std::vector<double> buildMixedPhaseImpulse(const std::vector<double>& positiveMa
     }
 
     const size_t dominantPeak = dominantSampleIndex(fullImpulse);
-    const size_t preRollSamples = std::max<size_t>(1, outputLength / 8);
+    const size_t preRollSamples = clampValue<size_t>(outputLength / 24, 96, 768);
     // Re-anchor the full mixed-phase impulse so a small amount of preringing can live before the
     // dominant peak, then truncate to the requested FIR length. Truncating after the full-length
     // rotation avoids turning wrapped negative-time energy into a synthetic late tail.
