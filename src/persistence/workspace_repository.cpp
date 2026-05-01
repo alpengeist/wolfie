@@ -211,6 +211,42 @@ std::optional<std::vector<int>> findJsonIntArray(const std::string& source, std:
     return values;
 }
 
+std::optional<std::vector<double>> findJsonDoubleArray(const std::string& source, std::string_view key) {
+    const std::string pattern = "\"" + std::string(key) + "\"";
+    const size_t keyPos = source.find(pattern);
+    if (keyPos == std::string::npos) {
+        return std::nullopt;
+    }
+
+    const size_t colonPos = source.find(':', keyPos + pattern.size());
+    if (colonPos == std::string::npos) {
+        return std::nullopt;
+    }
+
+    const size_t arrayStart = source.find('[', colonPos + 1);
+    const size_t arrayEnd = source.find(']', arrayStart + 1);
+    if (arrayStart == std::string::npos || arrayEnd == std::string::npos) {
+        return std::nullopt;
+    }
+
+    std::vector<double> values;
+    size_t cursor = arrayStart + 1;
+    while (cursor < arrayEnd) {
+        cursor = source.find_first_of("-0123456789", cursor);
+        if (cursor == std::string::npos || cursor >= arrayEnd) {
+            break;
+        }
+        const size_t valueEnd = source.find_first_not_of("0123456789+-.eE", cursor);
+        values.push_back(std::stod(source.substr(cursor, valueEnd - cursor)));
+        if (valueEnd == std::string::npos || valueEnd >= arrayEnd) {
+            break;
+        }
+        cursor = valueEnd + 1;
+    }
+
+    return values;
+}
+
 void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "measurementSectionHeight")) {
         ui.measurementSectionHeight = static_cast<int>(*value);
@@ -403,6 +439,10 @@ std::filesystem::path referenceResultFilePath(const std::filesystem::path& rootP
 
 std::filesystem::path referenceAnalysisFilePath(const std::filesystem::path& rootPath) {
     return rootPath / "measurement" / "reference-analysis.json";
+}
+
+std::filesystem::path filterAnalysisFilePath(const std::filesystem::path& rootPath) {
+    return rootPath / "measurement" / "filter-analysis.json";
 }
 
 bool hasSuffix(std::string_view value, std::string_view suffix) {
@@ -907,6 +947,73 @@ void loadReferenceAnalysisFile(WorkspaceState& workspace) {
     loadAnalysisFile(referenceAnalysisFilePath(workspace.rootPath), workspace.referenceResult.analysis);
 }
 
+void loadStereoDiagnosticsJson(const std::string& content,
+                               std::string_view prefix,
+                               StereoDiagnosticsResult& diagnostics) {
+    const std::string stem(prefix);
+    if (const auto value = findJsonBool(content, stem + "Available")) {
+        diagnostics.available = *value;
+    }
+    if (const auto value = findJsonString(content, stem + "Window")) {
+        diagnostics.window = *value;
+    }
+    if (const auto value = findJsonBool(content, stem + "SummaryAvailable")) {
+        diagnostics.summary.available = *value;
+    }
+    if (const auto value = findJsonNumber(content, stem + "DelayMismatchMs")) {
+        diagnostics.summary.delayMismatchMs = *value;
+    }
+    if (const auto value = findJsonNumber(content, stem + "DirectImpulseCorrelation")) {
+        diagnostics.summary.directImpulseCorrelation = *value;
+    }
+    if (const auto value = findJsonNumber(content, stem + "LowBandPhaseRmsDegrees")) {
+        diagnostics.summary.lowBandPhaseRmsDegrees = *value;
+    }
+    if (const auto value = findJsonNumber(content, stem + "MidBandPhaseRmsDegrees")) {
+        diagnostics.summary.midBandPhaseRmsDegrees = *value;
+    }
+    if (const auto value = findJsonNumber(content, stem + "LowBandMagnitudeRmsDb")) {
+        diagnostics.summary.lowBandMagnitudeRmsDb = *value;
+    }
+    if (const auto value = findJsonNumber(content, stem + "PhaseSimilarity")) {
+        diagnostics.summary.phaseSimilarity = *value;
+    }
+    if (const auto value = findJsonNumber(content, stem + "Iacc10")) {
+        diagnostics.summary.iacc10 = *value;
+    }
+    if (const auto value = findJsonNumber(content, stem + "Iacc20")) {
+        diagnostics.summary.iacc20 = *value;
+    }
+    if (const auto value = findJsonNumber(content, stem + "Iacc80")) {
+        diagnostics.summary.iacc80 = *value;
+    }
+    if (const auto value = findJsonNumber(content, stem + "IaccLate")) {
+        diagnostics.summary.iaccLate = *value;
+    }
+    if (const auto value = findJsonDoubleArray(content, stem + "FrequencyAxisHz")) {
+        diagnostics.frequencyAxisHz = *value;
+    }
+    if (const auto value = findJsonDoubleArray(content, stem + "PhaseDeltaDegrees")) {
+        diagnostics.phaseDeltaDegrees = *value;
+    }
+    if (const auto value = findJsonDoubleArray(content, stem + "MagnitudeDeltaDb")) {
+        diagnostics.magnitudeDeltaDb = *value;
+    }
+}
+
+void loadFilterAnalysisFile(WorkspaceState& workspace) {
+    workspace.filterAnalysis = {};
+    const auto content = readTextFile(filterAnalysisFilePath(workspace.rootPath));
+    if (!content) {
+        return;
+    }
+
+    loadStereoDiagnosticsJson(*content, "direct", workspace.filterAnalysis.direct);
+    loadStereoDiagnosticsJson(*content, "room", workspace.filterAnalysis.room);
+    workspace.filterAnalysis.available =
+        workspace.filterAnalysis.direct.available || workspace.filterAnalysis.room.available;
+}
+
 void loadTargetCurveBandsFile(WorkspaceState& workspace) {
     workspace.targetCurve.eqBands.clear();
     if (workspace.rootPath.empty()) {
@@ -1141,6 +1248,66 @@ void saveMeasurementAnalysisFile(const WorkspaceState& workspace) {
 
 void saveReferenceAnalysisFile(const WorkspaceState& workspace) {
     saveAnalysisFile(referenceAnalysisFilePath(workspace.rootPath), workspace.referenceResult);
+}
+
+void writeJsonDoubleArray(std::ostringstream& out,
+                          std::string_view key,
+                          const std::vector<double>& values,
+                          bool trailingComma) {
+    out << "  \"" << key << "\": [";
+    for (size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) {
+            out << ", ";
+        }
+        out << values[index];
+    }
+    out << "]";
+    if (trailingComma) {
+        out << ",";
+    }
+    out << "\n";
+}
+
+void writeStereoDiagnosticsJson(std::ostringstream& out,
+                                std::string_view prefix,
+                                const StereoDiagnosticsResult& diagnostics,
+                                bool trailingComma) {
+    const std::string stem(prefix);
+    out << "  \"" << stem << "Available\": " << (diagnostics.available ? "true" : "false") << ",\n"
+        << "  \"" << stem << "Window\": \"" << escapeJson(diagnostics.window) << "\",\n"
+        << "  \"" << stem << "SummaryAvailable\": " << (diagnostics.summary.available ? "true" : "false") << ",\n"
+        << "  \"" << stem << "DelayMismatchMs\": " << diagnostics.summary.delayMismatchMs << ",\n"
+        << "  \"" << stem << "DirectImpulseCorrelation\": " << diagnostics.summary.directImpulseCorrelation << ",\n"
+        << "  \"" << stem << "LowBandPhaseRmsDegrees\": " << diagnostics.summary.lowBandPhaseRmsDegrees << ",\n"
+        << "  \"" << stem << "MidBandPhaseRmsDegrees\": " << diagnostics.summary.midBandPhaseRmsDegrees << ",\n"
+        << "  \"" << stem << "LowBandMagnitudeRmsDb\": " << diagnostics.summary.lowBandMagnitudeRmsDb << ",\n"
+        << "  \"" << stem << "PhaseSimilarity\": " << diagnostics.summary.phaseSimilarity << ",\n"
+        << "  \"" << stem << "Iacc10\": " << diagnostics.summary.iacc10 << ",\n"
+        << "  \"" << stem << "Iacc20\": " << diagnostics.summary.iacc20 << ",\n"
+        << "  \"" << stem << "Iacc80\": " << diagnostics.summary.iacc80 << ",\n"
+        << "  \"" << stem << "IaccLate\": " << diagnostics.summary.iaccLate << ",\n";
+    writeJsonDoubleArray(out, stem + "FrequencyAxisHz", diagnostics.frequencyAxisHz, true);
+    writeJsonDoubleArray(out, stem + "PhaseDeltaDegrees", diagnostics.phaseDeltaDegrees, true);
+    writeJsonDoubleArray(out, stem + "MagnitudeDeltaDb", diagnostics.magnitudeDeltaDb, trailingComma);
+}
+
+void saveFilterAnalysisFile(const WorkspaceState& workspace) {
+    const std::filesystem::path path = filterAnalysisFilePath(workspace.rootPath);
+    if (path.empty()) {
+        return;
+    }
+    if (!workspace.filterAnalysis.available) {
+        std::filesystem::remove(path);
+        return;
+    }
+
+    std::filesystem::create_directories(path.parent_path());
+    std::ostringstream out;
+    out << "{\n";
+    writeStereoDiagnosticsJson(out, "direct", workspace.filterAnalysis.direct, true);
+    writeStereoDiagnosticsJson(out, "room", workspace.filterAnalysis.room, false);
+    out << "}\n";
+    writeTextFile(path, out.str());
 }
 
 void writeWorkspaceSettingsJsonFile(const WorkspaceState& workspace) {
@@ -1601,6 +1768,7 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
     loadMeasurementAnalysisFile(workspace);
     loadReferenceResultFile(workspace);
     loadReferenceAnalysisFile(workspace);
+    loadFilterAnalysisFile(workspace);
     workspace.roomSimulations = roomSimulationRepository().loadAll(path);
     if (workspace.activeRoomSimulationName.empty() && !workspace.roomSimulations.empty()) {
         workspace.activeRoomSimulationName = workspace.roomSimulations.front().name;
@@ -1634,6 +1802,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
     saveMeasurementAnalysisFile(workspace);
     saveReferenceResultFile(workspace);
     saveReferenceAnalysisFile(workspace);
+    saveFilterAnalysisFile(workspace);
     for (const RoomSimulationDefinition& simulation : workspace.roomSimulations) {
         roomSimulationRepository().save(workspace.rootPath, simulation);
     }
@@ -1647,6 +1816,7 @@ void WorkspaceRepository::saveSettings(const WorkspaceState& workspace) const {
 
     writeWorkspaceSettingsJsonFile(workspace);
     writeUiSettingsJsonFile(workspace);
+    saveFilterAnalysisFile(workspace);
 }
 
 void WorkspaceRepository::saveUiSettings(const WorkspaceState& workspace) const {

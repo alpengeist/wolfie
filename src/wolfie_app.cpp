@@ -12,6 +12,7 @@
 
 #include "audio/asio_audio_backend.h"
 #include "core/text_utils.h"
+#include "measurement/filter_analysis.h"
 #include "measurement/response_analyzer.h"
 #include "measurement/filter_designer.h"
 #include "measurement/filter_wav_export.h"
@@ -818,6 +819,67 @@ WolfieApp::buildReanalyzedMeasurementWithCurrentMicCalibration(const WorkspaceSt
     return taskResult;
 }
 
+WolfieApp::FilterAnalysisTaskResult
+WolfieApp::buildFilterAnalysisWithCurrentSettings(const WorkspaceState& workspace,
+                                                  const std::shared_ptr<FilterAnalysisProgress>& progress) {
+    FilterAnalysisTaskResult taskResult;
+    taskResult.success = true;
+
+    auto setStatus = [&](const std::wstring& statusText) {
+        if (progress == nullptr) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(progress->mutex);
+        progress->statusText = statusText;
+    };
+
+    try {
+        WorkspaceState working = workspace;
+
+        if (!working.filterResult.valid) {
+            if (working.smoothedResponse.frequencyAxisHz.empty() && working.result.hasAnyValues()) {
+                setStatus(L"Calculating filter analysis: Preparing smoothed response");
+                measurement::normalizeResponseSmoothingSettings(working.smoothing);
+                working.smoothedResponse = measurement::buildSmoothedResponse(working.result, working.smoothing);
+            }
+
+            if (!working.smoothedResponse.frequencyAxisHz.empty()) {
+                setStatus(L"Calculating filter analysis: Designing filters");
+                measurement::normalizeFilterDesignSettings(working.filters, working.measurement.sampleRate);
+                working.filterResult = measurement::designFilters(working.smoothedResponse,
+                                                                 working.measurement,
+                                                                 working.targetCurve,
+                                                                 working.filters,
+                                                                 &working.result);
+            }
+        }
+
+        if (working.filterResult.valid) {
+            working.filterAnalysis = measurement::buildFilterAnalysis(
+                working.result,
+                working.filterResult,
+                [&](std::string_view window, std::string_view statusLabel) {
+                    std::wstring status = L"Calculating filter analysis: ";
+                    status += (window == "room") ? L"Room / " : L"Direct / ";
+                    status += toWide(std::string(statusLabel));
+                    setStatus(status);
+                });
+        }
+
+        taskResult.smoothedResponse = std::move(working.smoothedResponse);
+        taskResult.filterResult = std::move(working.filterResult);
+        taskResult.filterAnalysis = std::move(working.filterAnalysis);
+    } catch (const std::exception& exception) {
+        taskResult.success = false;
+        taskResult.errorMessage = L"Filter analysis refresh failed: " + toWide(exception.what());
+    } catch (...) {
+        taskResult.success = false;
+        taskResult.errorMessage = L"Filter analysis refresh failed.";
+    }
+
+    return taskResult;
+}
+
 void WolfieApp::beginCalibrationReanalysis() {
     if (calibrationReanalysisInProgress_) {
         return;
@@ -890,6 +952,7 @@ void WolfieApp::finishCalibrationReanalysis() {
     workspace_.result = std::move(taskResult.result);
     workspace_.smoothedResponse = {};
     invalidateFilterDesign();
+    invalidateFilterAnalysis();
     ensureSmoothedResponseReady();
     measurementPage_.setWorkspaceView(workspace_);
     analysisPage_.populate(workspace_);
@@ -900,6 +963,106 @@ void WolfieApp::finishCalibrationReanalysis() {
     measurementPage_.setCalibrationRefreshInProgress(false);
     appendMeasurementLog(L"Reanalyzed the saved measurement with the current microphone calibration.");
     refreshMeasurementStatus();
+}
+
+void WolfieApp::beginFilterAnalysisRefresh() {
+    if (filterAnalysisRefreshInProgress_) {
+        return;
+    }
+
+    syncStateFromControls();
+    invalidateFilterDesign();
+    invalidateFilterAnalysis();
+
+    filterAnalysisRefreshInProgress_ = true;
+    if (tabControl_ != nullptr) {
+        EnableWindow(tabControl_, FALSE);
+    }
+    if (HMENU menuBar = GetMenu(mainWindow_); menuBar != nullptr) {
+        EnableMenuItem(menuBar, 0, MF_BYPOSITION | MF_DISABLED | MF_GRAYED);
+        DrawMenuBar(mainWindow_);
+    }
+
+    const std::wstring initialStatus = L"Calculating filter analysis: Preparing inputs";
+    filterAnalysisProgress_ = std::make_shared<FilterAnalysisProgress>();
+    {
+        std::lock_guard<std::mutex> lock(filterAnalysisProgress_->mutex);
+        filterAnalysisProgress_->statusText = initialStatus;
+    }
+
+    analysisPage_.setCalculationInProgress(true, initialStatus);
+    appendLog(L"Refreshing filter analysis from the current filter settings...");
+
+    const WorkspaceState workspaceSnapshot = workspace_;
+    const auto progress = filterAnalysisProgress_;
+    filterAnalysisFuture_ = std::async(std::launch::async, [workspaceSnapshot, progress]() {
+        return buildFilterAnalysisWithCurrentSettings(workspaceSnapshot, progress);
+    });
+    SetTimer(mainWindow_, kFilterAnalysisTimerId, 50, nullptr);
+}
+
+void WolfieApp::finishFilterAnalysisRefresh() {
+    if (!filterAnalysisFuture_.valid()) {
+        filterAnalysisRefreshInProgress_ = false;
+        filterAnalysisProgress_.reset();
+        analysisPage_.setCalculationInProgress(false);
+        if (tabControl_ != nullptr) {
+            EnableWindow(tabControl_, TRUE);
+        }
+        if (HMENU menuBar = GetMenu(mainWindow_); menuBar != nullptr) {
+            EnableMenuItem(menuBar, 0, MF_BYPOSITION | MF_ENABLED);
+            DrawMenuBar(mainWindow_);
+        }
+        return;
+    }
+
+    analysisPage_.setCalculationInProgress(true, L"Calculating filter analysis: Refreshing views");
+    FilterAnalysisTaskResult taskResult = filterAnalysisFuture_.get();
+    filterAnalysisRefreshInProgress_ = false;
+    filterAnalysisProgress_.reset();
+    if (tabControl_ != nullptr) {
+        EnableWindow(tabControl_, TRUE);
+    }
+    if (HMENU menuBar = GetMenu(mainWindow_); menuBar != nullptr) {
+        EnableMenuItem(menuBar, 0, MF_BYPOSITION | MF_ENABLED);
+        DrawMenuBar(mainWindow_);
+    }
+
+    analysisPage_.setCalculationInProgress(false);
+
+    if (!taskResult.success) {
+        analysisPage_.populate(workspace_);
+        appendLog(taskResult.errorMessage, LogSeverity::Error);
+        return;
+    }
+
+    workspace_.smoothedResponse = std::move(taskResult.smoothedResponse);
+    workspace_.filterResult = std::move(taskResult.filterResult);
+    workspace_.filterAnalysis = std::move(taskResult.filterAnalysis);
+
+    analysisPage_.populate(workspace_);
+    filtersPage_.populate(workspace_);
+    syncStateFromControls();
+    workspaceRepository_.save(workspace_);
+
+    if (!workspace_.filterResult.valid) {
+        appendLog(L"Filter design failed.", LogSeverity::Error);
+        for (const std::string& entry : workspace_.filterResult.processLog) {
+            appendLog(L"Filter design: " + toWide(entry), LogSeverity::Error);
+        }
+        return;
+    }
+
+    for (const std::string& entry : workspace_.filterResult.processLog) {
+        appendLog(L"Filter design: " + toWide(entry));
+    }
+
+    if (workspace_.filterAnalysis.available) {
+        appendLog(L"Refreshed filter analysis from the current filter settings.");
+    } else {
+        appendLog(L"Filter analysis refresh completed, but this workspace still lacks the phase or impulse data needed for post-filter diagnostics.",
+                  LogSeverity::Error);
+    }
 }
 
 void WolfieApp::populateExportSampleRateControls() {
@@ -972,37 +1135,45 @@ void WolfieApp::ensureSmoothedResponseReady() {
     workspace_.smoothedResponse = measurement::buildSmoothedResponse(workspace_.result, workspace_.smoothing);
 }
 
+void WolfieApp::invalidateFilterAnalysis() {
+    workspace_.filterAnalysis = {};
+}
+
 void WolfieApp::invalidateFilterDesign() {
     workspace_.filterResult = {};
 }
 
 void WolfieApp::ensureFilterDesignReady() {
-    if (workspace_.filterResult.valid) {
+    if (workspace_.filterResult.valid && workspace_.filterAnalysis.available) {
         return;
     }
 
-    ensureSmoothedResponseReady();
-    if (workspace_.smoothedResponse.frequencyAxisHz.empty()) {
-        return;
-    }
-
-    measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
-    workspace_.filterResult = measurement::designFilters(workspace_.smoothedResponse,
-                                                         workspace_.measurement,
-                                                         workspace_.targetCurve,
-                                                         workspace_.filters,
-                                                         &workspace_.result);
     if (!workspace_.filterResult.valid) {
-        appendLog(L"Filter design failed.", LogSeverity::Error);
-        for (const std::string& entry : workspace_.filterResult.processLog) {
-            appendLog(L"Filter design: " + toWide(entry), LogSeverity::Error);
+        ensureSmoothedResponseReady();
+        if (workspace_.smoothedResponse.frequencyAxisHz.empty()) {
+            return;
         }
-        return;
+
+        measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
+        workspace_.filterResult = measurement::designFilters(workspace_.smoothedResponse,
+                                                             workspace_.measurement,
+                                                             workspace_.targetCurve,
+                                                             workspace_.filters,
+                                                             &workspace_.result);
+        if (!workspace_.filterResult.valid) {
+            appendLog(L"Filter design failed.", LogSeverity::Error);
+            for (const std::string& entry : workspace_.filterResult.processLog) {
+                appendLog(L"Filter design: " + toWide(entry), LogSeverity::Error);
+            }
+            return;
+        }
+
+        for (const std::string& entry : workspace_.filterResult.processLog) {
+            appendLog(L"Filter design: " + toWide(entry));
+        }
     }
 
-    for (const std::string& entry : workspace_.filterResult.processLog) {
-        appendLog(L"Filter design: " + toWide(entry));
-    }
+    workspace_.filterAnalysis = measurement::buildFilterAnalysis(workspace_.result, workspace_.filterResult);
 }
 
 void WolfieApp::setExportInProgress(bool running) {
@@ -1198,6 +1369,7 @@ void WolfieApp::generateRoomSimulationMeasurement(const std::string& name,
     workspace_.result = measurement::buildSimulatedRoomMeasurement(workspace_.measurement, settings, name);
     workspace_.smoothedResponse = {};
     invalidateFilterDesign();
+    invalidateFilterAnalysis();
 
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
     if (selected == 2 || selected == 3 || selected == 4) {
@@ -1215,7 +1387,7 @@ void WolfieApp::generateRoomSimulationMeasurement(const std::string& name,
 }
 
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
-    if (calibrationReanalysisInProgress_) {
+    if (calibrationReanalysisInProgress_ || filterAnalysisRefreshInProgress_) {
         return;
     }
 
@@ -1269,6 +1441,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         }
         if (sampleRateChanged) {
             invalidateFilterDesign();
+            invalidateFilterAnalysis();
             syncStateFromControls();
             workspaceRepository_.save(workspace_);
             refreshMeasurementStatus();
@@ -1300,6 +1473,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         if (smoothingModelChanged) {
             workspace_.smoothedResponse = {};
             invalidateFilterDesign();
+            invalidateFilterAnalysis();
             ensureSmoothedResponseReady();
             smoothingPage_.populate(workspace_);
             filtersPage_.populate(workspace_);
@@ -1310,7 +1484,15 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     }
 
     bool analysisViewSettingsChanged = false;
-    if (analysisPage_.handleCommand(commandId, notificationCode, workspace_, analysisViewSettingsChanged)) {
+    bool analysisRefreshRequested = false;
+    if (analysisPage_.handleCommand(commandId,
+                                    notificationCode,
+                                    workspace_,
+                                    analysisViewSettingsChanged,
+                                    analysisRefreshRequested)) {
+        if (analysisRefreshRequested) {
+            beginFilterAnalysisRefresh();
+        }
         if (analysisViewSettingsChanged) {
             workspaceRepository_.saveUiSettings(workspace_);
         }
@@ -1328,6 +1510,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
                                        targetCurvePersistNowRequested)) {
         if (targetCurveChanged) {
             invalidateFilterDesign();
+            invalidateFilterAnalysis();
         }
         if (targetCurvePersistencePending) {
             targetCurvePersistencePending_ = true;
@@ -1351,18 +1534,21 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
                                    filterViewSettingsChanged)) {
         if (filterSettingsChanged) {
             invalidateFilterDesign();
+            invalidateFilterAnalysis();
             filtersPage_.populate(workspace_);
             syncStateFromControls();
             workspaceRepository_.saveSettings(workspace_);
         }
         if (filtersRecalculateRequested) {
             invalidateFilterDesign();
+            invalidateFilterAnalysis();
             filtersPage_.setRecalculateInProgress(true);
             ensureFilterDesignReady();
+            analysisPage_.populate(workspace_);
             filtersPage_.populate(workspace_);
             filtersPage_.setRecalculateInProgress(false);
             syncStateFromControls();
-            workspaceRepository_.saveSettings(workspace_);
+            workspaceRepository_.save(workspace_);
         }
         if (filterViewSettingsChanged) {
             workspaceRepository_.saveUiSettings(workspace_);
@@ -1428,7 +1614,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
 }
 
 void WolfieApp::onHScroll(HWND source) {
-    if (calibrationReanalysisInProgress_) {
+    if (calibrationReanalysisInProgress_ || filterAnalysisRefreshInProgress_) {
         return;
     }
 
@@ -1443,6 +1629,7 @@ void WolfieApp::onHScroll(HWND source) {
         if (smoothingResolutionChanged) {
             workspace_.smoothedResponse = {};
             invalidateFilterDesign();
+            invalidateFilterAnalysis();
             ensureSmoothedResponseReady();
             smoothingPage_.populate(workspace_);
             targetCurvePage_.populate(workspace_);
@@ -1458,6 +1645,7 @@ void WolfieApp::onHScroll(HWND source) {
     if (targetCurvePage_.handleHScroll(source, workspace_, targetCurveChanged, targetCurvePersistencePending)) {
         if (targetCurveChanged) {
             invalidateFilterDesign();
+            invalidateFilterAnalysis();
         }
         if (targetCurvePersistencePending) {
             targetCurvePersistencePending_ = true;
@@ -1466,7 +1654,7 @@ void WolfieApp::onHScroll(HWND source) {
 }
 
 void WolfieApp::onNotify(LPARAM lParam) {
-    if (calibrationReanalysisInProgress_) {
+    if (calibrationReanalysisInProgress_ || filterAnalysisRefreshInProgress_) {
         return;
     }
 
@@ -1514,6 +1702,27 @@ void WolfieApp::onTimer(UINT_PTR timerId) {
         if (calibrationReanalysisFuture_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
             KillTimer(mainWindow_, kCalibrationReanalysisTimerId);
             finishCalibrationReanalysis();
+        }
+        return;
+    }
+
+    if (timerId == kFilterAnalysisTimerId) {
+        if (!filterAnalysisRefreshInProgress_ || !filterAnalysisFuture_.valid()) {
+            KillTimer(mainWindow_, kFilterAnalysisTimerId);
+            return;
+        }
+
+        std::wstring statusText = L"Calculating filter analysis: Preparing inputs";
+        if (filterAnalysisProgress_ != nullptr) {
+            std::lock_guard<std::mutex> lock(filterAnalysisProgress_->mutex);
+            if (!filterAnalysisProgress_->statusText.empty()) {
+                statusText = filterAnalysisProgress_->statusText;
+            }
+        }
+        analysisPage_.setCalculationInProgress(true, statusText);
+        if (filterAnalysisFuture_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            KillTimer(mainWindow_, kFilterAnalysisTimerId);
+            finishFilterAnalysisRefresh();
         }
         return;
     }
@@ -1703,6 +1912,7 @@ void WolfieApp::startMeasurement(MeasurementRunMode runMode) {
         workspace_.result = {};
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
+        invalidateFilterAnalysis();
         analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
         targetCurvePage_.populate(workspace_);
@@ -1728,6 +1938,7 @@ void WolfieApp::stopMeasurement() {
         const WorkspaceState persistedWorkspace = workspaceRepository_.load(workspace_.rootPath);
         workspace_.result = persistedWorkspace.result;
         workspace_.referenceResult = persistedWorkspace.referenceResult;
+        workspace_.filterAnalysis = persistedWorkspace.filterAnalysis;
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
         measurementPage_.setWorkspaceView(workspace_);
@@ -1748,6 +1959,7 @@ void WolfieApp::finalizeMeasurement() {
         workspace_.result = measurementController_.result();
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
+        invalidateFilterAnalysis();
         const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
         if (selected == 2 || selected == 3 || selected == 4) {
             ensureSmoothedResponseReady();

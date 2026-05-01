@@ -28,6 +28,8 @@ add_executable(wolfie WIN32
     src/measurement/measurement_controller.h
     src/measurement/filter_designer.cpp
     src/measurement/filter_designer.h
+    src/measurement/filter_analysis.cpp
+    src/measurement/filter_analysis.h
     src/measurement/filter_wav_export.cpp
     src/measurement/filter_wav_export.h
     src/measurement/dsp_utils.cpp
@@ -101,6 +103,8 @@ if(WOLFIE_BUILD_TESTS)
         tests/measurement_loopback_tests.cpp
         src/measurement/filter_designer.cpp
         src/measurement/filter_designer.h
+        src/measurement/filter_analysis.cpp
+        src/measurement/filter_analysis.h
         src/measurement/filter_wav_export.cpp
         src/measurement/filter_wav_export.h
         src/measurement/dsp_utils.cpp

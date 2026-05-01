@@ -345,6 +345,12 @@ struct StereoDiagnosticsResult {
     std::vector<double> magnitudeDeltaDb;
 };
 
+struct FilterAnalysisResult {
+    bool available = false;
+    StereoDiagnosticsResult direct;
+    StereoDiagnosticsResult room;
+};
+
 struct FilterDesignSettings {
     int tapCount = 65536;
     double maxBoostDb = 6.0;
@@ -413,6 +419,7 @@ struct WorkspaceState {
     MeasurementResult referenceResult;
     SmoothedResponse smoothedResponse;
     FilterDesignResult filterResult;
+    FilterAnalysisResult filterAnalysis;
 };
 
 struct AppState {

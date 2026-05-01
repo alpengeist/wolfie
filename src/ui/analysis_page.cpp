@@ -20,6 +20,11 @@ T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
 }
 
+const StereoDiagnosticsResult& selectFilterDiagnostics(const FilterAnalysisResult& filterAnalysis,
+                                                       std::string_view window) {
+    return window == "room" ? filterAnalysis.room : filterAnalysis.direct;
+}
+
 }  // namespace
 
 void AnalysisPage::registerPageWindowClass(HINSTANCE instance) {
@@ -56,6 +61,29 @@ void AnalysisPage::createControls() {
                                           reinterpret_cast<HMENU>(kComboWindow),
                                           instance_,
                                           nullptr);
+    controls_.buttonRefresh = CreateWindowW(L"BUTTON",
+                                            L"Refresh Filter Analysis",
+                                            WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                            0,
+                                            0,
+                                            0,
+                                            0,
+                                            window_,
+                                            reinterpret_cast<HMENU>(kButtonRefresh),
+                                            instance_,
+                                            nullptr);
+    controls_.progressRefresh = CreateWindowExW(0,
+                                                PROGRESS_CLASSW,
+                                                nullptr,
+                                                WS_CHILD | PBS_MARQUEE,
+                                                0,
+                                                0,
+                                                0,
+                                                0,
+                                                window_,
+                                                nullptr,
+                                                instance_,
+                                                nullptr);
     controls_.note = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
 
     constexpr const wchar_t* kMetricLabels[10] = {
@@ -73,8 +101,10 @@ void AnalysisPage::createControls() {
     for (int index = 0; index < 10; ++index) {
         controls_.metrics[index].label =
             CreateWindowW(L"STATIC", kMetricLabels[index], WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-        controls_.metrics[index].value =
-            CreateWindowW(L"STATIC", L"--", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+        controls_.metrics[index].beforeValue =
+            CreateWindowW(L"STATIC", L"Before: --", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+        controls_.metrics[index].afterValue =
+            CreateWindowW(L"STATIC", L"After: --", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     }
 
     controls_.phaseTitle = CreateWindowW(L"STATIC", L"L-R Phase Delta", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -98,10 +128,23 @@ void AnalysisPage::layout() {
     const int innerHeight = std::max(420L, pageRect.bottom - (contentTop * 2));
     const int comboWidth = 180;
     const int labelWidth = 70;
+    const int refreshButtonWidth = 170;
     const int topRowTop = contentTop;
 
     MoveWindow(controls_.labelWindow, contentLeft, topRowTop + 4, labelWidth, 18, TRUE);
     MoveWindow(controls_.comboWindow, contentLeft + labelWidth + 8, topRowTop, comboWidth, 220, TRUE);
+    MoveWindow(controls_.buttonRefresh,
+               contentLeft + labelWidth + 8 + comboWidth + 12,
+               topRowTop,
+               refreshButtonWidth,
+               24,
+               TRUE);
+    MoveWindow(controls_.progressRefresh,
+               contentLeft + labelWidth + 8 + comboWidth + 12,
+               topRowTop + 2,
+               refreshButtonWidth,
+               20,
+               TRUE);
     MoveWindow(controls_.note, contentLeft, topRowTop + 34, innerWidth, 18, TRUE);
 
     const int summaryTop = topRowTop + 64;
@@ -110,14 +153,15 @@ void AnalysisPage::layout() {
     const int summaryColumns = 5;
     const int summaryRows = 2;
     const int metricWidth = (innerWidth - ((summaryColumns - 1) * summaryGapX)) / summaryColumns;
-    const int metricHeight = 52;
+    const int metricHeight = 72;
     for (int index = 0; index < 10; ++index) {
         const int row = index / summaryColumns;
         const int column = index % summaryColumns;
         const int left = contentLeft + (column * (metricWidth + summaryGapX));
         const int top = summaryTop + (row * (metricHeight + summaryGapY));
         MoveWindow(controls_.metrics[index].label, left, top, metricWidth, 18, TRUE);
-        MoveWindow(controls_.metrics[index].value, left, top + 22, metricWidth, 22, TRUE);
+        MoveWindow(controls_.metrics[index].beforeValue, left, top + 22, metricWidth, 18, TRUE);
+        MoveWindow(controls_.metrics[index].afterValue, left, top + 42, metricWidth, 18, TRUE);
     }
 
     const int titlesTop = summaryTop + (summaryRows * metricHeight) + ((summaryRows - 1) * summaryGapY) + 18;
@@ -156,6 +200,13 @@ void AnalysisPage::populate(const WorkspaceState& workspace) {
     refreshDiagnostics(workspace);
 }
 
+void AnalysisPage::setCalculationInProgress(bool running, const std::wstring& statusText) {
+    calculationInProgress_ = running;
+    calculationStatusText_ = running ? statusText : std::wstring();
+    refreshActionControls();
+    refreshNote();
+}
+
 void AnalysisPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.ui.analysisWindow =
         windowFromComboIndex(static_cast<int>(SendMessageW(controls_.comboWindow, CB_GETCURSEL, 0, 0)));
@@ -167,7 +218,8 @@ void AnalysisPage::syncToWorkspace(WorkspaceState& workspace) const {
 bool AnalysisPage::handleCommand(WORD commandId,
                                  WORD notificationCode,
                                  WorkspaceState& workspace,
-                                 bool& viewSettingsChanged) {
+                                 bool& viewSettingsChanged,
+                                 bool& refreshRequested) {
     if (commandId == kComboWindow && notificationCode == CBN_SELCHANGE) {
         if (updatingControls_) {
             return true;
@@ -175,6 +227,11 @@ bool AnalysisPage::handleCommand(WORD commandId,
         syncToWorkspace(workspace);
         refreshDiagnostics(workspace);
         viewSettingsChanged = true;
+        return true;
+    }
+
+    if (commandId == kButtonRefresh && notificationCode == BN_CLICKED) {
+        refreshRequested = true;
         return true;
     }
 
@@ -195,48 +252,101 @@ bool AnalysisPage::handleCommand(WORD commandId,
 void AnalysisPage::refreshDiagnostics(const WorkspaceState& workspace) {
     const std::string window =
         windowFromComboIndex(static_cast<int>(SendMessageW(controls_.comboWindow, CB_GETCURSEL, 0, 0)));
-    diagnostics_ = measurement::buildStereoDiagnostics(workspace.result, window);
+    beforeDiagnostics_ = measurement::buildStereoDiagnostics(workspace.result, window);
+    afterDiagnostics_ = selectFilterDiagnostics(workspace.filterAnalysis, window);
+    hasMeasurementData_ = workspace.result.hasAnyValues();
 
-    if (!workspace.result.hasAnyValues()) {
+    if (!hasMeasurementData_) {
         noteText_ = L"No measurement data available.";
+    } else if (!afterDiagnostics_.available) {
+        noteText_ = L"Post-filter analysis is not available for this workspace. Refresh Filter Analysis to build it.";
     } else {
         noteText_.clear();
     }
-    SetWindowTextW(controls_.note, noteText_.c_str());
+    refreshActionControls();
+    refreshNote();
 
     refreshSummary();
     refreshGraphs();
 }
 
-void AnalysisPage::refreshSummary() {
-    const wchar_t* unavailable = L"--";
-    if (!diagnostics_.summary.available) {
-        for (const MetricControls& metric : controls_.metrics) {
-            SetWindowTextW(metric.value, unavailable);
-        }
-        return;
+void AnalysisPage::refreshActionControls() {
+    if (controls_.comboWindow != nullptr) {
+        EnableWindow(controls_.comboWindow, calculationInProgress_ ? FALSE : TRUE);
     }
+    if (controls_.buttonRefresh != nullptr) {
+        const bool showButton = !calculationInProgress_;
+        ShowWindow(controls_.buttonRefresh, showButton ? SW_SHOW : SW_HIDE);
+        EnableWindow(controls_.buttonRefresh, (hasMeasurementData_ && showButton) ? TRUE : FALSE);
+    }
+    if (controls_.progressRefresh != nullptr) {
+        ShowWindow(controls_.progressRefresh, calculationInProgress_ ? SW_SHOW : SW_HIDE);
+        SendMessageW(controls_.progressRefresh, PBM_SETMARQUEE, calculationInProgress_ ? TRUE : FALSE, 0);
+        RedrawWindow(controls_.progressRefresh, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+    }
+}
 
-    SetWindowTextW(controls_.metrics[0].value,
-                   formatMetricValue(diagnostics_.summary.delayMismatchMs, L" ms", 3, true).c_str());
-    SetWindowTextW(controls_.metrics[1].value,
-                   formatMetricValue(diagnostics_.summary.directImpulseCorrelation, L"", 3).c_str());
-    SetWindowTextW(controls_.metrics[2].value,
-                   formatMetricValue(diagnostics_.summary.lowBandPhaseRmsDegrees, L" deg", 1).c_str());
-    SetWindowTextW(controls_.metrics[3].value,
-                   formatMetricValue(diagnostics_.summary.midBandPhaseRmsDegrees, L" deg", 1).c_str());
-    SetWindowTextW(controls_.metrics[4].value,
-                   formatMetricValue(diagnostics_.summary.lowBandMagnitudeRmsDb, L" dB", 2).c_str());
-    SetWindowTextW(controls_.metrics[5].value,
-                   formatMetricValue(diagnostics_.summary.phaseSimilarity, L"", 3).c_str());
-    SetWindowTextW(controls_.metrics[6].value,
-                   formatMetricValue(diagnostics_.summary.iacc10, L"", 3).c_str());
-    SetWindowTextW(controls_.metrics[7].value,
-                   formatMetricValue(diagnostics_.summary.iacc20, L"", 3).c_str());
-    SetWindowTextW(controls_.metrics[8].value,
-                   formatMetricValue(diagnostics_.summary.iacc80, L"", 3).c_str());
-    SetWindowTextW(controls_.metrics[9].value,
-                   formatMetricValue(diagnostics_.summary.iaccLate, L"", 3).c_str());
+void AnalysisPage::refreshNote() {
+    const std::wstring displayedNote = calculationInProgress_ ? calculationStatusText_ : noteText_;
+    if (controls_.note != nullptr) {
+        SetWindowTextW(controls_.note, displayedNote.c_str());
+        RedrawWindow(controls_.note, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+    }
+}
+
+void AnalysisPage::refreshSummary() {
+    auto metricLine = [&](const wchar_t* prefix,
+                          const StereoDiagnosticsResult& diagnostics,
+                          double StereoDiagnosticsSummary::* member,
+                          const wchar_t* unit,
+                          int decimals,
+                          bool signedValue = false) {
+        const std::wstring value = diagnostics.summary.available
+                                       ? formatMetricValue(diagnostics.summary.*member, unit, decimals, signedValue)
+                                       : L"--";
+        return std::wstring(prefix) + value;
+    };
+
+    SetWindowTextW(controls_.metrics[0].beforeValue,
+                   metricLine(L"Before: ", beforeDiagnostics_, &StereoDiagnosticsSummary::delayMismatchMs, L" ms", 3, true).c_str());
+    SetWindowTextW(controls_.metrics[0].afterValue,
+                   metricLine(L"After: ", afterDiagnostics_, &StereoDiagnosticsSummary::delayMismatchMs, L" ms", 3, true).c_str());
+    SetWindowTextW(controls_.metrics[1].beforeValue,
+                   metricLine(L"Before: ", beforeDiagnostics_, &StereoDiagnosticsSummary::directImpulseCorrelation, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[1].afterValue,
+                   metricLine(L"After: ", afterDiagnostics_, &StereoDiagnosticsSummary::directImpulseCorrelation, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[2].beforeValue,
+                   metricLine(L"Before: ", beforeDiagnostics_, &StereoDiagnosticsSummary::lowBandPhaseRmsDegrees, L" deg", 1).c_str());
+    SetWindowTextW(controls_.metrics[2].afterValue,
+                   metricLine(L"After: ", afterDiagnostics_, &StereoDiagnosticsSummary::lowBandPhaseRmsDegrees, L" deg", 1).c_str());
+    SetWindowTextW(controls_.metrics[3].beforeValue,
+                   metricLine(L"Before: ", beforeDiagnostics_, &StereoDiagnosticsSummary::midBandPhaseRmsDegrees, L" deg", 1).c_str());
+    SetWindowTextW(controls_.metrics[3].afterValue,
+                   metricLine(L"After: ", afterDiagnostics_, &StereoDiagnosticsSummary::midBandPhaseRmsDegrees, L" deg", 1).c_str());
+    SetWindowTextW(controls_.metrics[4].beforeValue,
+                   metricLine(L"Before: ", beforeDiagnostics_, &StereoDiagnosticsSummary::lowBandMagnitudeRmsDb, L" dB", 2).c_str());
+    SetWindowTextW(controls_.metrics[4].afterValue,
+                   metricLine(L"After: ", afterDiagnostics_, &StereoDiagnosticsSummary::lowBandMagnitudeRmsDb, L" dB", 2).c_str());
+    SetWindowTextW(controls_.metrics[5].beforeValue,
+                   metricLine(L"Before: ", beforeDiagnostics_, &StereoDiagnosticsSummary::phaseSimilarity, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[5].afterValue,
+                   metricLine(L"After: ", afterDiagnostics_, &StereoDiagnosticsSummary::phaseSimilarity, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[6].beforeValue,
+                   metricLine(L"Before: ", beforeDiagnostics_, &StereoDiagnosticsSummary::iacc10, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[6].afterValue,
+                   metricLine(L"After: ", afterDiagnostics_, &StereoDiagnosticsSummary::iacc10, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[7].beforeValue,
+                   metricLine(L"Before: ", beforeDiagnostics_, &StereoDiagnosticsSummary::iacc20, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[7].afterValue,
+                   metricLine(L"After: ", afterDiagnostics_, &StereoDiagnosticsSummary::iacc20, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[8].beforeValue,
+                   metricLine(L"Before: ", beforeDiagnostics_, &StereoDiagnosticsSummary::iacc80, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[8].afterValue,
+                   metricLine(L"After: ", afterDiagnostics_, &StereoDiagnosticsSummary::iacc80, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[9].beforeValue,
+                   metricLine(L"Before: ", beforeDiagnostics_, &StereoDiagnosticsSummary::iaccLate, L"", 3).c_str());
+    SetWindowTextW(controls_.metrics[9].afterValue,
+                   metricLine(L"After: ", afterDiagnostics_, &StereoDiagnosticsSummary::iaccLate, L"", 3).c_str());
 }
 
 void AnalysisPage::refreshGraphs() {
@@ -281,9 +391,15 @@ PlotGraphData AnalysisPage::buildPhaseGraphData() const {
     data.yAxisMode = PlotGraphYAxisMode::SymmetricAroundZero;
     data.xUnit = L"Hz";
     data.yUnit = L"deg";
-    data.xValues = diagnostics_.frequencyAxisHz;
-    if (!diagnostics_.phaseDeltaDegrees.empty()) {
-        data.series.push_back({L"L-R phase", ui_theme::kAccent, diagnostics_.phaseDeltaDegrees});
+    if (!beforeDiagnostics_.phaseDeltaDegrees.empty()) {
+        data.xValues = beforeDiagnostics_.frequencyAxisHz;
+        data.series.push_back({L"Before L-R phase", ui_theme::kAccent, beforeDiagnostics_.phaseDeltaDegrees});
+    }
+    if (!afterDiagnostics_.phaseDeltaDegrees.empty()) {
+        if (data.xValues.empty()) {
+            data.xValues = afterDiagnostics_.frequencyAxisHz;
+        }
+        data.series.push_back({L"After L-R phase", ui_theme::kTeal, afterDiagnostics_.phaseDeltaDegrees});
     }
     return data;
 }
@@ -294,9 +410,15 @@ PlotGraphData AnalysisPage::buildMagnitudeGraphData() const {
     data.yAxisMode = PlotGraphYAxisMode::SymmetricAroundZero;
     data.xUnit = L"Hz";
     data.yUnit = L"dB";
-    data.xValues = diagnostics_.frequencyAxisHz;
-    if (!diagnostics_.magnitudeDeltaDb.empty()) {
-        data.series.push_back({L"L-R magnitude", ui_theme::kAccent, diagnostics_.magnitudeDeltaDb});
+    if (!beforeDiagnostics_.magnitudeDeltaDb.empty()) {
+        data.xValues = beforeDiagnostics_.frequencyAxisHz;
+        data.series.push_back({L"Before L-R magnitude", ui_theme::kAccent, beforeDiagnostics_.magnitudeDeltaDb});
+    }
+    if (!afterDiagnostics_.magnitudeDeltaDb.empty()) {
+        if (data.xValues.empty()) {
+            data.xValues = afterDiagnostics_.frequencyAxisHz;
+        }
+        data.series.push_back({L"After L-R magnitude", ui_theme::kTeal, afterDiagnostics_.magnitudeDeltaDb});
     }
     return data;
 }

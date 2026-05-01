@@ -55,6 +55,18 @@ struct ComplexSpectrumPair {
     }
 };
 
+struct TimeDomainPair {
+    std::vector<double> timeSeconds;
+    std::vector<double> left;
+    std::vector<double> right;
+
+    [[nodiscard]] bool valid() const {
+        return !timeSeconds.empty() &&
+               left.size() == timeSeconds.size() &&
+               right.size() == timeSeconds.size();
+    }
+};
+
 const MeasurementValueSet* findValidValueSet(const MeasurementResult& result, std::string_view key) {
     const MeasurementValueSet* valueSet = result.findValueSet(key);
     return valueSet != nullptr && valueSet->valid() ? valueSet : nullptr;
@@ -68,6 +80,10 @@ ComplexSpectrumPair loadSpectrumPair(const MeasurementResult& result,
                                    : "measurement." + std::string(window);
     const MeasurementValueSet* magnitude = findValidValueSet(result, prefix + "_magnitude_spectrum");
     const MeasurementValueSet* phase = findValidValueSet(result, prefix + "_phase_spectrum");
+    if (magnitude == nullptr || phase == nullptr) {
+        magnitude = findValidValueSet(result, prefix + "_magnitude_response");
+        phase = findValidValueSet(result, prefix + "_phase_response");
+    }
     if (magnitude == nullptr || phase == nullptr ||
         magnitude->xValues.size() != phase->xValues.size() ||
         magnitude->leftValues.size() != phase->leftValues.size() ||
@@ -85,6 +101,18 @@ ComplexSpectrumPair loadSpectrumPair(const MeasurementResult& result,
         pair.right.push_back(std::polar(dbToAmplitude(magnitude->rightValues[index]),
                                         phase->rightValues[index] * kDegreesToRadians));
     }
+    return pair;
+}
+
+TimeDomainPair loadImpulsePair(const MeasurementResult& result, std::string_view key) {
+    TimeDomainPair pair;
+    const MeasurementValueSet* impulse = findValidValueSet(result, key);
+    if (impulse == nullptr) {
+        return pair;
+    }
+    pair.timeSeconds = impulse->xValues;
+    pair.left = impulse->leftValues;
+    pair.right = impulse->rightValues;
     return pair;
 }
 
@@ -268,15 +296,20 @@ double computePhaseSimilarity(const std::vector<double>& frequencyAxisHz,
     return std::abs(phaseSum) / static_cast<double>(usedCount);
 }
 
-double computeImpulseCorrelation(const MeasurementResult& result) {
-    const MeasurementValueSet* impulse = findValidValueSet(result, "measurement.direct_impulse_response");
-    if (impulse == nullptr || impulse->leftValues.empty() || impulse->leftValues.size() != impulse->rightValues.size()) {
+double computeImpulseCorrelation(const TimeDomainPair& impulse) {
+    if (!impulse.valid()) {
         return 0.0;
     }
 
-    const std::vector<double>& left = impulse->leftValues;
-    const std::vector<double>& right = impulse->rightValues;
-    const int sampleRate = std::max(result.analysis.sampleRate, 1);
+    const std::vector<double>& left = impulse.left;
+    const std::vector<double>& right = impulse.right;
+    double sampleStepSeconds = 0.0;
+    if (impulse.timeSeconds.size() >= 2) {
+        sampleStepSeconds = impulse.timeSeconds[1] - impulse.timeSeconds[0];
+    }
+    const int sampleRate = sampleStepSeconds > 1.0e-12
+                               ? std::max(1, static_cast<int>(std::lround(1.0 / sampleStepSeconds)))
+                               : 1;
     const int maxLagSamples = std::max(1, sampleRate / 500);
     double bestCorrelation = 0.0;
     double bestMagnitude = -1.0;
@@ -308,26 +341,25 @@ double computeImpulseCorrelation(const MeasurementResult& result) {
     return bestCorrelation;
 }
 
-double computeIaccWindow(const MeasurementValueSet& impulse,
+double computeIaccWindow(const TimeDomainPair& impulse,
                          int sampleRate,
                          double startTimeSeconds,
                          double endTimeSeconds) {
-    if (sampleRate <= 0 || impulse.xValues.size() != impulse.leftValues.size() ||
-        impulse.leftValues.size() != impulse.rightValues.size()) {
+    if (sampleRate <= 0 || !impulse.valid()) {
         return std::numeric_limits<double>::quiet_NaN();
     }
 
     std::vector<double> leftWindow;
     std::vector<double> rightWindow;
-    leftWindow.reserve(impulse.xValues.size());
-    rightWindow.reserve(impulse.xValues.size());
-    for (size_t index = 0; index < impulse.xValues.size(); ++index) {
-        const double timeSeconds = impulse.xValues[index];
+    leftWindow.reserve(impulse.timeSeconds.size());
+    rightWindow.reserve(impulse.timeSeconds.size());
+    for (size_t index = 0; index < impulse.timeSeconds.size(); ++index) {
+        const double timeSeconds = impulse.timeSeconds[index];
         if (!std::isfinite(timeSeconds) || timeSeconds < startTimeSeconds || timeSeconds >= endTimeSeconds) {
             continue;
         }
-        leftWindow.push_back(impulse.leftValues[index]);
-        rightWindow.push_back(impulse.rightValues[index]);
+        leftWindow.push_back(impulse.left[index]);
+        rightWindow.push_back(impulse.right[index]);
     }
 
     if (leftWindow.size() < 4) {
@@ -361,15 +393,24 @@ double computeIaccWindow(const MeasurementValueSet& impulse,
     return bestMagnitude >= 0.0 ? bestMagnitude : std::numeric_limits<double>::quiet_NaN();
 }
 
-StereoDiagnosticsResult buildResultFromSpectrum(const MeasurementResult& result,
-                                                std::string_view window,
-                                                const ComplexSpectrumPair& pair) {
+StereoDiagnosticsResult buildResultFromData(std::string_view window,
+                                            const ComplexSpectrumPair& pair,
+                                            double delayMismatchMs,
+                                            const TimeDomainPair& directImpulse,
+                                            const TimeDomainPair& windowImpulse,
+                                            int sampleRate,
+                                            const StereoDiagnosticsProgressCallback& progressCallback) {
     StereoDiagnosticsResult diagnostics;
     diagnostics.available = pair.valid();
     diagnostics.window = std::string(window);
-    diagnostics.summary.delayMismatchMs =
-        (result.analysis.left.onsetTimeSeconds - result.analysis.right.onsetTimeSeconds) * 1000.0;
-    diagnostics.summary.directImpulseCorrelation = computeImpulseCorrelation(result);
+    if (progressCallback) {
+        progressCallback("Direct L-R Delay");
+    }
+    diagnostics.summary.delayMismatchMs = delayMismatchMs;
+    if (progressCallback) {
+        progressCallback("Direct Impulse Corr");
+    }
+    diagnostics.summary.directImpulseCorrelation = computeImpulseCorrelation(directImpulse);
     if (!pair.valid()) {
         return diagnostics;
     }
@@ -395,27 +436,52 @@ StereoDiagnosticsResult buildResultFromSpectrum(const MeasurementResult& result,
         resampleLogFrequency(pair.frequencyAxisHz, magnitudeDifferenceDb, diagnostics.frequencyAxisHz);
 
     diagnostics.summary.available = true;
+    if (progressCallback) {
+        progressCallback("Phase RMS 40-120");
+    }
     diagnostics.summary.lowBandPhaseRmsDegrees =
         computeBandRms(pair.frequencyAxisHz, correctedPhaseDifferenceDegrees, kLowBandStartHz, kLowBandEndHz);
+    if (progressCallback) {
+        progressCallback("Phase RMS 120-300");
+    }
     diagnostics.summary.midBandPhaseRmsDegrees =
         computeBandRms(pair.frequencyAxisHz, correctedPhaseDifferenceDegrees, kMidBandStartHz, kMidBandEndHz);
+    if (progressCallback) {
+        progressCallback("Mag RMS 40-300");
+    }
     diagnostics.summary.lowBandMagnitudeRmsDb =
         computeBandRms(pair.frequencyAxisHz, magnitudeDifferenceDb, kLowBandStartHz, kMagnitudeBandEndHz);
+    if (progressCallback) {
+        progressCallback("Phase Similarity");
+    }
     diagnostics.summary.phaseSimilarity =
         computePhaseSimilarity(pair.frequencyAxisHz,
                                correctedPhaseDifferenceRadians,
                                kLowBandStartHz,
                                kSimilarityBandEndHz);
 
-    const MeasurementValueSet* impulse =
-        findValidValueSet(result, "measurement." + std::string(window) + "_impulse_response");
-    if (impulse != nullptr) {
-        const int sampleRate = std::max(result.analysis.sampleRate, 1);
-        diagnostics.summary.iacc10 = computeIaccWindow(*impulse, sampleRate, 0.0, kIacc10EndSeconds);
-        diagnostics.summary.iacc20 = computeIaccWindow(*impulse, sampleRate, 0.0, kIacc20EndSeconds);
-        diagnostics.summary.iacc80 = computeIaccWindow(*impulse, sampleRate, 0.0, kIacc80EndSeconds);
+    if (windowImpulse.valid()) {
+        const int safeSampleRate = std::max(sampleRate, 1);
+        if (progressCallback) {
+            progressCallback("IACC10");
+        }
+        diagnostics.summary.iacc10 = computeIaccWindow(windowImpulse, safeSampleRate, 0.0, kIacc10EndSeconds);
+        if (progressCallback) {
+            progressCallback("IACC20");
+        }
+        diagnostics.summary.iacc20 = computeIaccWindow(windowImpulse, safeSampleRate, 0.0, kIacc20EndSeconds);
+        if (progressCallback) {
+            progressCallback("IACC80");
+        }
+        diagnostics.summary.iacc80 = computeIaccWindow(windowImpulse, safeSampleRate, 0.0, kIacc80EndSeconds);
+        if (progressCallback) {
+            progressCallback("IACC Late");
+        }
         diagnostics.summary.iaccLate =
-            computeIaccWindow(*impulse, sampleRate, kIacc80EndSeconds, std::numeric_limits<double>::infinity());
+            computeIaccWindow(windowImpulse,
+                              safeSampleRate,
+                              kIacc80EndSeconds,
+                              std::numeric_limits<double>::infinity());
     } else {
         diagnostics.summary.iacc10 = std::numeric_limits<double>::quiet_NaN();
         diagnostics.summary.iacc20 = std::numeric_limits<double>::quiet_NaN();
@@ -428,9 +494,46 @@ StereoDiagnosticsResult buildResultFromSpectrum(const MeasurementResult& result,
 }  // namespace
 
 StereoDiagnosticsResult buildStereoDiagnostics(const MeasurementResult& result,
-                                               std::string_view window) {
+                                               std::string_view window,
+                                               const StereoDiagnosticsProgressCallback& progressCallback) {
     const ComplexSpectrumPair rawPair = loadSpectrumPair(result, window, false);
-    return buildResultFromSpectrum(result, window, rawPair);
+    const TimeDomainPair directImpulse = loadImpulsePair(result, "measurement.direct_impulse_response");
+    const TimeDomainPair windowImpulse =
+        loadImpulsePair(result, "measurement." + std::string(window) + "_impulse_response");
+    return buildResultFromData(window,
+                               rawPair,
+                               (result.analysis.left.onsetTimeSeconds - result.analysis.right.onsetTimeSeconds) * 1000.0,
+                               directImpulse,
+                               windowImpulse,
+                               result.analysis.sampleRate,
+                               progressCallback);
+}
+
+StereoDiagnosticsResult buildStereoDiagnostics(const StereoDiagnosticsInput& input,
+                                               std::string_view window,
+                                               const StereoDiagnosticsProgressCallback& progressCallback) {
+    ComplexSpectrumPair pair;
+    pair.frequencyAxisHz = input.frequencyAxisHz;
+    pair.left = input.leftSpectrum;
+    pair.right = input.rightSpectrum;
+
+    TimeDomainPair directImpulse;
+    directImpulse.timeSeconds = input.directImpulseTimeSeconds;
+    directImpulse.left = input.directImpulseLeft;
+    directImpulse.right = input.directImpulseRight;
+
+    TimeDomainPair windowImpulse;
+    windowImpulse.timeSeconds = input.windowImpulseTimeSeconds;
+    windowImpulse.left = input.windowImpulseLeft;
+    windowImpulse.right = input.windowImpulseRight;
+
+    return buildResultFromData(window,
+                               pair,
+                               input.delayMismatchMs,
+                               directImpulse,
+                               windowImpulse,
+                               input.sampleRate,
+                               progressCallback);
 }
 
 }  // namespace wolfie::measurement

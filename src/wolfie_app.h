@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <vector>
 
@@ -53,8 +54,22 @@ private:
         std::atomic<int> currentStep{0};
     };
 
+    struct FilterAnalysisTaskResult {
+        bool success = false;
+        SmoothedResponse smoothedResponse;
+        FilterDesignResult filterResult;
+        FilterAnalysisResult filterAnalysis;
+        std::wstring errorMessage;
+    };
+
+    struct FilterAnalysisProgress {
+        std::mutex mutex;
+        std::wstring statusText;
+    };
+
     static constexpr UINT_PTR kMeasurementTimerId = 101;
     static constexpr UINT_PTR kCalibrationReanalysisTimerId = 102;
+    static constexpr UINT_PTR kFilterAnalysisTimerId = 103;
     static constexpr int kContentMargin = 20;
 
     static LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -76,13 +91,19 @@ private:
     static CalibrationReanalysisTaskResult buildReanalyzedMeasurementWithCurrentMicCalibration(
         const WorkspaceState& workspace,
         const std::shared_ptr<CalibrationReanalysisProgress>& progress);
+    static FilterAnalysisTaskResult buildFilterAnalysisWithCurrentSettings(
+        const WorkspaceState& workspace,
+        const std::shared_ptr<FilterAnalysisProgress>& progress);
     void beginCalibrationReanalysis();
     void finishCalibrationReanalysis();
+    void beginFilterAnalysisRefresh();
+    void finishFilterAnalysisRefresh();
     void saveCurrentWorkspaceIfOpen();
     void refreshWindowTitle();
     void refreshMeasurementStatus();
     void refreshRecentMenu();
     void ensureSmoothedResponseReady();
+    void invalidateFilterAnalysis();
     void invalidateFilterDesign();
     void ensureFilterDesignReady();
     void setExportInProgress(bool running);
@@ -136,6 +157,7 @@ private:
     bool exportRunning_ = false;
     bool measurementCompletionHandled_ = true;
     bool calibrationReanalysisInProgress_ = false;
+    bool filterAnalysisRefreshInProgress_ = false;
     int activeTabIndex_ = 0;
     bool targetCurvePersistencePending_ = false;
     WorkspaceState workspace_;
@@ -154,6 +176,8 @@ private:
     audio::WasapiService wasapiService_;
     std::future<CalibrationReanalysisTaskResult> calibrationReanalysisFuture_;
     std::shared_ptr<CalibrationReanalysisProgress> calibrationReanalysisProgress_;
+    std::future<FilterAnalysisTaskResult> filterAnalysisFuture_;
+    std::shared_ptr<FilterAnalysisProgress> filterAnalysisProgress_;
 };
 
 }  // namespace wolfie
