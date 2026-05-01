@@ -4,12 +4,12 @@
 #include <iostream>
 #include <vector>
 
+#include "test_harness.h"
+
 #include "core/models.h"
 #include "measurement/response_analyzer.h"
 #include "measurement/sweep_generator.h"
 #include "measurement/waterfall_builder.h"
-
-bool runFilterDesignTests();
 
 namespace {
 
@@ -459,11 +459,12 @@ bool expectWaterfallPlotData() {
 }  // namespace
 
 int main() {
-    return expectMeasurementResultValueSets() &&
-           expectSweepDeconvolutionProducesImpulseLikePeak() &&
-           expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts() &&
-           expectMeasurementPublishesReferenceCompensatedTransferProducts() &&
-           expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment() &&
-           expectWaterfallPlotData() &&
-           runFilterDesignTests() ? 0 : 1;
+    return wolfie::tests::runTestCases({
+        {"expectMeasurementResultValueSets", expectMeasurementResultValueSets},
+        {"expectSweepDeconvolutionProducesImpulseLikePeak", expectSweepDeconvolutionProducesImpulseLikePeak},
+        {"expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts", expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts},
+        {"expectMeasurementPublishesReferenceCompensatedTransferProducts", expectMeasurementPublishesReferenceCompensatedTransferProducts},
+        {"expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment", expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment},
+        {"expectWaterfallPlotData", expectWaterfallPlotData},
+    });
 }

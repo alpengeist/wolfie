@@ -34,6 +34,15 @@ namespace wolfie {
 
 namespace {
 
+HFONT createMenuFont() {
+    NONCLIENTMETRICSW metrics{};
+    metrics.cbSize = sizeof(metrics);
+    if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0) == FALSE) {
+        return static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    }
+    return CreateFontIndirectW(&metrics.lfMenuFont);
+}
+
 std::string sanitizeFileComponent(std::string_view value) {
     std::string sanitized;
     sanitized.reserve(value.size());
@@ -215,6 +224,11 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
             return TRUE;
         }
         if (app->targetCurvePage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
+            return TRUE;
+        }
+        break;
+    case WM_MEASUREITEM:
+        if (app->handleMeasureItem(reinterpret_cast<MEASUREITEMSTRUCT*>(lParam))) {
             return TRUE;
         }
         break;
@@ -505,6 +519,47 @@ void WolfieApp::layoutMainWindow() {
 bool WolfieApp::handleDrawItem(const DRAWITEMSTRUCT* drawItem) const {
     if (drawItem == nullptr) {
         return false;
+    }
+
+    if (drawItem->CtlType == ODT_MENU &&
+        drawItem->itemID >= kMenuFileRecentBase &&
+        drawItem->itemID < kMenuFileRecentBase + 8) {
+        const wchar_t* label = reinterpret_cast<const wchar_t*>(drawItem->itemData);
+        if (label == nullptr) {
+            return false;
+        }
+
+        const bool selected = (drawItem->itemState & ODS_SELECTED) != 0;
+        const bool disabled = (drawItem->itemState & ODS_DISABLED) != 0;
+        const COLORREF background = selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_MENU);
+        const COLORREF textColor = disabled ? GetSysColor(COLOR_GRAYTEXT)
+                                            : (selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_MENUTEXT));
+
+        HBRUSH backgroundBrush = CreateSolidBrush(background);
+        FillRect(drawItem->hDC, &drawItem->rcItem, backgroundBrush);
+        DeleteObject(backgroundBrush);
+
+        HFONT font = createMenuFont();
+        HGDIOBJ previousFont = nullptr;
+        if (font != nullptr) {
+            previousFont = SelectObject(drawItem->hDC, font);
+        }
+
+        RECT textRect = drawItem->rcItem;
+        textRect.left += 12;
+        textRect.right -= 12;
+
+        SetBkMode(drawItem->hDC, TRANSPARENT);
+        SetTextColor(drawItem->hDC, textColor);
+        DrawTextW(drawItem->hDC, label, -1, &textRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+        if (previousFont != nullptr) {
+            SelectObject(drawItem->hDC, previousFont);
+        }
+        if (font != nullptr && font != GetStockObject(DEFAULT_GUI_FONT)) {
+            DeleteObject(font);
+        }
+        return true;
     }
 
     if (drawItem->CtlID != kProcessLogSizeCompact &&
@@ -1107,6 +1162,46 @@ void WolfieApp::refreshMeasurementStatus() {
     measurementPage_.refreshStatus(measurementController_.status(), workspace_.result.hasAnyValues());
 }
 
+bool WolfieApp::handleMeasureItem(MEASUREITEMSTRUCT* measureItem) const {
+    if (measureItem == nullptr || measureItem->CtlType != ODT_MENU) {
+        return false;
+    }
+
+    if (measureItem->itemID < kMenuFileRecentBase || measureItem->itemID >= kMenuFileRecentBase + 8) {
+        return false;
+    }
+
+    const wchar_t* label = reinterpret_cast<const wchar_t*>(measureItem->itemData);
+    if (label == nullptr) {
+        return false;
+    }
+
+    HDC screen = GetDC(mainWindow_);
+    if (screen == nullptr) {
+        return false;
+    }
+
+    HFONT font = createMenuFont();
+    HGDIOBJ previousFont = nullptr;
+    if (font != nullptr) {
+        previousFont = SelectObject(screen, font);
+    }
+
+    SIZE textSize{};
+    GetTextExtentPoint32W(screen, label, static_cast<int>(wcslen(label)), &textSize);
+    measureItem->itemWidth = static_cast<UINT>(textSize.cx + 24);
+    measureItem->itemHeight = static_cast<UINT>(std::max<LONG>(GetSystemMetrics(SM_CYMENU), textSize.cy + 8));
+
+    if (previousFont != nullptr) {
+        SelectObject(screen, previousFont);
+    }
+    if (font != nullptr && font != GetStockObject(DEFAULT_GUI_FONT)) {
+        DeleteObject(font);
+    }
+    ReleaseDC(mainWindow_, screen);
+    return true;
+}
+
 void WolfieApp::refreshRecentMenu() {
     HMENU menuBar = GetMenu(mainWindow_);
     HMENU fileMenu = GetSubMenu(menuBar, 0);
@@ -1115,13 +1210,26 @@ void WolfieApp::refreshRecentMenu() {
         DeleteMenu(recentMenu, 0, MF_BYPOSITION);
     }
 
+    recentMenuLabels_.clear();
+
     if (appState_.recentWorkspaces.empty()) {
-        AppendMenuW(recentMenu, MF_GRAYED | MF_STRING, kMenuFileRecentBase, L"(none)");
+        recentMenuLabels_.push_back(L"(none)");
+        AppendMenuW(recentMenu,
+                    MF_GRAYED | MF_OWNERDRAW,
+                    kMenuFileRecentBase,
+                    reinterpret_cast<LPCWSTR>(recentMenuLabels_.back().c_str()));
         return;
     }
 
     for (size_t i = 0; i < appState_.recentWorkspaces.size() && i < 8; ++i) {
-        AppendMenuW(recentMenu, MF_STRING, kMenuFileRecentBase + static_cast<UINT>(i), appState_.recentWorkspaces[i].wstring().c_str());
+        recentMenuLabels_.push_back(appState_.recentWorkspaces[i].wstring());
+    }
+
+    for (size_t i = 0; i < recentMenuLabels_.size(); ++i) {
+        AppendMenuW(recentMenu,
+                    MF_OWNERDRAW,
+                    kMenuFileRecentBase + static_cast<UINT>(i),
+                    reinterpret_cast<LPCWSTR>(recentMenuLabels_[i].c_str()));
     }
 }
 

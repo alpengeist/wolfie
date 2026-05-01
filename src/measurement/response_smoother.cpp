@@ -59,46 +59,87 @@ double powerFromAmplitudeDb(double valueDb) {
     return std::pow(10.0, valueDb / 10.0);
 }
 
+std::vector<double> buildPowerSeries(const std::vector<double>& sourceDb, size_t count) {
+    std::vector<double> power;
+    power.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        power.push_back(powerFromAmplitudeDb(sourceDb[index]));
+    }
+    return power;
+}
+
+std::vector<double> buildPrefixSums(const std::vector<double>& values) {
+    std::vector<double> prefixSums(values.size() + 1, 0.0);
+    for (size_t index = 0; index < values.size(); ++index) {
+        prefixSums[index + 1] = prefixSums[index] + values[index];
+    }
+    return prefixSums;
+}
+
+std::vector<double> buildErbAxis(const std::vector<double>& frequencyAxisHz, size_t count) {
+    std::vector<double> erbAxis;
+    erbAxis.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        erbAxis.push_back(erbRate(frequencyAxisHz[index]));
+    }
+    return erbAxis;
+}
+
 double averagePowerBand(const std::vector<double>& frequencyAxisHz,
                         const std::vector<double>& sourceDb,
+                        const std::vector<double>& powerPrefixSums,
                         double lowFrequencyHz,
                         double highFrequencyHz,
-                        size_t centerIndex) {
-    double totalPower = 0.0;
-    double totalWeight = 0.0;
-    for (size_t i = 0; i < frequencyAxisHz.size() && i < sourceDb.size(); ++i) {
-        if (frequencyAxisHz[i] < lowFrequencyHz || frequencyAxisHz[i] > highFrequencyHz) {
-            continue;
-        }
-
-        totalPower += powerFromAmplitudeDb(sourceDb[i]);
-        totalWeight += 1.0;
-    }
-
-    if (totalWeight <= 1.0e-9) {
+                        size_t centerIndex,
+                        size_t count) {
+    const auto bandBegin = std::lower_bound(frequencyAxisHz.begin(),
+                                            frequencyAxisHz.begin() + static_cast<std::ptrdiff_t>(count),
+                                            lowFrequencyHz);
+    const auto bandEnd = std::upper_bound(frequencyAxisHz.begin(),
+                                          frequencyAxisHz.begin() + static_cast<std::ptrdiff_t>(count),
+                                          highFrequencyHz);
+    const size_t beginIndex = static_cast<size_t>(std::distance(frequencyAxisHz.begin(), bandBegin));
+    const size_t endIndex = static_cast<size_t>(std::distance(frequencyAxisHz.begin(), bandEnd));
+    if (beginIndex >= endIndex) {
         return powerFromAmplitudeDb(sourceDb[centerIndex]);
     }
-    return totalPower / totalWeight;
+
+    const double totalPower = powerPrefixSums[endIndex] - powerPrefixSums[beginIndex];
+    return totalPower / static_cast<double>(endIndex - beginIndex);
 }
 
 double smoothedValueAt(const std::vector<double>& frequencyAxisHz,
                        const std::vector<double>& sourceDb,
+                       const std::vector<double>& erbAxis,
+                       const std::vector<double>& power,
+                       size_t count,
                        size_t centerIndex,
                        double lowWindowCycles,
                        double highWindowCycles) {
     const double centerFrequencyHz = std::max(1.0, frequencyAxisHz[centerIndex]);
     const double lowWidthHz = std::max(1.0, centerFrequencyHz / std::max(1.0, lowWindowCycles));
     const double highWidthHz = std::max(1.0, centerFrequencyHz / std::max(1.0, highWindowCycles));
-    const double centerErb = erbRate(centerFrequencyHz);
+    const double centerErb = erbAxis[centerIndex];
     const double lowWindowErb = std::max(1.0e-6, centerErb - erbRate(std::max(1.0, centerFrequencyHz - lowWidthHz)));
     const double highWindowErb = std::max(1.0e-6, erbRate(centerFrequencyHz + highWidthHz) - centerErb);
     const double lowSigma = std::max(1.0e-6, lowWindowErb / kErbWindowEdgeSigma);
     const double highSigma = std::max(1.0e-6, highWindowErb / kErbWindowEdgeSigma);
+    const double leftErbLimit = centerErb - lowWindowErb;
+    const double rightErbLimit = centerErb + highWindowErb;
+
+    const auto windowBegin = std::lower_bound(erbAxis.begin(),
+                                              erbAxis.begin() + static_cast<std::ptrdiff_t>(count),
+                                              leftErbLimit);
+    const auto windowEnd = std::upper_bound(erbAxis.begin(),
+                                            erbAxis.begin() + static_cast<std::ptrdiff_t>(count),
+                                            rightErbLimit);
+    const size_t beginIndex = static_cast<size_t>(std::distance(erbAxis.begin(), windowBegin));
+    const size_t endIndex = static_cast<size_t>(std::distance(erbAxis.begin(), windowEnd));
 
     double totalWeight = 0.0;
     double totalPower = 0.0;
-    for (size_t i = 0; i < frequencyAxisHz.size() && i < sourceDb.size(); ++i) {
-        const double deltaErb = erbRate(frequencyAxisHz[i]) - centerErb;
+    for (size_t i = beginIndex; i < endIndex; ++i) {
+        const double deltaErb = erbAxis[i] - centerErb;
         const double sigma = deltaErb < 0.0 ? lowSigma : highSigma;
         const double windowErb = deltaErb < 0.0 ? lowWindowErb : highWindowErb;
         if (std::abs(deltaErb) > windowErb) {
@@ -108,7 +149,7 @@ double smoothedValueAt(const std::vector<double>& frequencyAxisHz,
         const double normalized = deltaErb / sigma;
         const double weight = std::exp(-0.5 * normalized * normalized);
         totalWeight += weight;
-        totalPower += weight * powerFromAmplitudeDb(sourceDb[i]);
+        totalPower += weight * power[i];
     }
 
     if (totalWeight <= 1.0e-9) {
@@ -121,11 +162,21 @@ std::vector<double> smoothChannel(const std::vector<double>& frequencyAxisHz,
                                   const std::vector<double>& sourceDb,
                                   double lowWindowCycles,
                                   double highWindowCycles) {
+    const size_t count = std::min(frequencyAxisHz.size(), sourceDb.size());
     std::vector<double> smoothed;
-    smoothed.reserve(std::min(frequencyAxisHz.size(), sourceDb.size()));
-    for (size_t i = 0; i < frequencyAxisHz.size() && i < sourceDb.size(); ++i) {
+    smoothed.reserve(count);
+    if (count == 0) {
+        return smoothed;
+    }
+
+    const std::vector<double> erbAxis = buildErbAxis(frequencyAxisHz, count);
+    const std::vector<double> power = buildPowerSeries(sourceDb, count);
+    for (size_t i = 0; i < count; ++i) {
         smoothed.push_back(smoothedValueAt(frequencyAxisHz,
                                            sourceDb,
+                                           erbAxis,
+                                           power,
+                                           count,
                                            i,
                                            lowWindowCycles,
                                            highWindowCycles));
@@ -136,10 +187,17 @@ std::vector<double> smoothChannel(const std::vector<double>& frequencyAxisHz,
 std::vector<double> smoothChannelTwelfthOctaveSlidingWindow(const std::vector<double>& frequencyAxisHz,
                                                             const std::vector<double>& sourceDb,
                                                             double octaveDenominator) {
+    const size_t count = std::min(frequencyAxisHz.size(), sourceDb.size());
     std::vector<double> smoothed;
-    smoothed.reserve(std::min(frequencyAxisHz.size(), sourceDb.size()));
+    smoothed.reserve(count);
+    if (count == 0) {
+        return smoothed;
+    }
+
+    const std::vector<double> power = buildPowerSeries(sourceDb, count);
+    const std::vector<double> powerPrefixSums = buildPrefixSums(power);
     constexpr double kOctaveToRatio = 0.6931471805599453;
-    for (size_t i = 0; i < frequencyAxisHz.size() && i < sourceDb.size(); ++i) {
+    for (size_t i = 0; i < count; ++i) {
         const double centerFrequencyHz = std::max(1.0, frequencyAxisHz[i]);
         const double halfWindowOctaves = 0.5 / std::max(1.0, octaveDenominator);
         const double ratio = std::exp(kOctaveToRatio * halfWindowOctaves);
@@ -147,9 +205,11 @@ std::vector<double> smoothChannelTwelfthOctaveSlidingWindow(const std::vector<do
         const double highFrequencyHz = centerFrequencyHz * ratio;
         smoothed.push_back(amplitudeDbFromPower(averagePowerBand(frequencyAxisHz,
                                                                  sourceDb,
+                                                                 powerPrefixSums,
                                                                  lowFrequencyHz,
                                                                  highFrequencyHz,
-                                                                 i)));
+                                                                 i,
+                                                                 count)));
     }
     return smoothed;
 }

@@ -79,6 +79,7 @@ private:
     void createLayout();
     void layoutMainWindow();
     void layoutContent();
+    bool handleMeasureItem(MEASUREITEMSTRUCT* measureItem) const;
     bool handleDrawItem(const DRAWITEMSTRUCT* drawItem) const;
     void updateProcessLogSizeButtons() const;
     void setProcessLogSize(ProcessLogSize size);
@@ -154,6 +155,7 @@ private:
     HWND logSizeCompactButton_ = nullptr;
     HWND logSizeMediumButton_ = nullptr;
     HWND logSizeExpandedButton_ = nullptr;
+    std::vector<std::wstring> recentMenuLabels_;
     bool exportRunning_ = false;
     bool measurementCompletionHandled_ = true;
     bool calibrationReanalysisInProgress_ = false;

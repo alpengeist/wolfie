@@ -194,6 +194,40 @@ Reasoning:
 - `WolfieApp` is where modules are wired together.
 - It should move data between modules, not reimplement module internals.
 
+### `tests`
+
+Purpose: focused native test executables for measurement-domain behavior.
+
+Files:
+
+- `test_harness.h`
+- `filter_test_support.h/.cpp`
+- `measurement_loopback_tests.cpp`
+- `filter_design_basics_tests.cpp`
+- `phase_preparation_tests.cpp`
+- `excess_phase_mode_tests.cpp`
+- `mixed_phase_tests.cpp`
+- `filter_analysis_tests.cpp`
+- `filter_export_tests.cpp`
+
+Responsibilities:
+
+- `test_harness` provides the small shared runner used by the custom native test executables.
+- `filter_test_support` owns reusable synthetic fixtures and numeric helpers shared by filter-related tests.
+- `measurement_loopback_tests` covers sweep playback planning, synthetic capture analysis, direct/room result publication, reference compensation, latency retention, and waterfall generation.
+- `filter_design_basics_tests` covers baseline filter-design behavior such as target evaluation, correction-shape behavior, and general result sanity.
+- `phase_preparation_tests` covers bulk-delay removal, source selection, fallback rules, and phase-preparation metadata/process logging.
+- `excess_phase_mode_tests` covers the isolated `excess-lf` phase-correction mode.
+- `mixed_phase_tests` covers the heavier mixed-phase design path, including correction limits, stereo alignment, and published phase diagnostics.
+- `filter_analysis_tests` covers before/after stereo diagnostics derived from a designed filter result.
+- `filter_export_tests` covers Roon WAV/config export behavior.
+
+Reasoning:
+
+- The test suite is intentionally split by behavior, not kept as one large executable.
+- This keeps `ctest` output attributable when runtime regresses, especially for the heavy mixed-phase and export paths.
+- Shared synthetic fixtures stay in `tests`, not in `src/measurement`, so production modules do not absorb test-only helpers.
+
 ## Dependency Direction
 
 The intended dependency flow is:
@@ -204,6 +238,7 @@ The intended dependency flow is:
 - `persistence` depends on `core`.
 - `ui` depends on `core` and prepared view data.
 - `wolfie_app` depends on all modules and composes them.
+- `tests` depends on `core` and the measurement modules it exercises.
 
 Practical examples:
 
@@ -211,6 +246,7 @@ Practical examples:
 - `workspace_repository` does not know about tabs or graph widgets.
 - `measurement_controller` does not know how pages are drawn.
 - `filter_designer` does not call Win32 APIs.
+- `filter_test_support` may build synthetic `MeasurementResult` fixtures, but it does not become a production dependency.
 
 ## Persistence Timing
 

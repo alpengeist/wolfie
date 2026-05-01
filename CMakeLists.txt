@@ -98,9 +98,10 @@ target_link_libraries(wolfie PRIVATE comctl32 comdlg32 gdiplus msimg32 ole32 she
 option(WOLFIE_BUILD_TESTS "Build Wolfie tests" ON)
 if(WOLFIE_BUILD_TESTS)
     enable_testing()
-    add_executable(wolfie_measurement_tests
-        tests/filter_design_tests.cpp
-        tests/measurement_loopback_tests.cpp
+
+    add_library(wolfie_measurement_test_common OBJECT
+        tests/filter_test_support.cpp
+        tests/filter_test_support.h
         src/measurement/filter_designer.cpp
         src/measurement/filter_designer.h
         src/measurement/filter_analysis.cpp
@@ -125,6 +126,49 @@ if(WOLFIE_BUILD_TESTS)
         src/measurement/target_curve_designer.h
         src/core/models.h
     )
-    target_include_directories(wolfie_measurement_tests PRIVATE src)
-    add_test(NAME wolfie_measurement_tests COMMAND wolfie_measurement_tests)
+    target_include_directories(wolfie_measurement_test_common PUBLIC src tests)
+
+    function(add_wolfie_measurement_test target_name label)
+        add_executable(${target_name}
+            ${ARGN}
+            tests/test_harness.h
+            $<TARGET_OBJECTS:wolfie_measurement_test_common>
+        )
+        target_include_directories(${target_name} PRIVATE src tests)
+        add_test(NAME ${target_name} COMMAND ${target_name})
+        set_tests_properties(${target_name} PROPERTIES LABELS ${label})
+    endfunction()
+
+    add_wolfie_measurement_test(wolfie_measurement_pipeline_tests measurement
+        tests/measurement_loopback_tests.cpp
+    )
+    add_wolfie_measurement_test(wolfie_filter_design_basics_tests filter_design
+        tests/filter_design_basics_tests.cpp
+    )
+    add_wolfie_measurement_test(wolfie_phase_preparation_tests phase
+        tests/phase_preparation_tests.cpp
+    )
+    add_wolfie_measurement_test(wolfie_excess_phase_mode_tests phase
+        tests/excess_phase_mode_tests.cpp
+    )
+    add_wolfie_measurement_test(wolfie_mixed_phase_tests mixed_phase
+        tests/mixed_phase_tests.cpp
+    )
+    add_wolfie_measurement_test(wolfie_filter_analysis_tests analysis
+        tests/filter_analysis_tests.cpp
+    )
+    add_wolfie_measurement_test(wolfie_filter_export_tests export
+        tests/filter_export_tests.cpp
+    )
+
+    add_custom_target(wolfie_measurement_tests
+        DEPENDS
+            wolfie_measurement_pipeline_tests
+            wolfie_filter_design_basics_tests
+            wolfie_phase_preparation_tests
+            wolfie_excess_phase_mode_tests
+            wolfie_mixed_phase_tests
+            wolfie_filter_analysis_tests
+            wolfie_filter_export_tests
+    )
 endif()
