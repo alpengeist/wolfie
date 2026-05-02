@@ -341,6 +341,38 @@ double computeImpulseCorrelation(const TimeDomainPair& impulse) {
     return bestCorrelation;
 }
 
+double peakTimeSeconds(const std::vector<double>& timeSeconds,
+                       const std::vector<double>& samples) {
+    if (timeSeconds.size() != samples.size() || timeSeconds.empty()) {
+        return 0.0;
+    }
+
+    double bestMagnitude = -1.0;
+    double bestTimeSeconds = timeSeconds.front();
+    for (size_t index = 0; index < samples.size(); ++index) {
+        const double timeSecondsValue = timeSeconds[index];
+        const double sampleValue = samples[index];
+        if (!std::isfinite(timeSecondsValue) || !std::isfinite(sampleValue)) {
+            continue;
+        }
+
+        const double magnitude = std::abs(sampleValue);
+        if (magnitude > bestMagnitude) {
+            bestMagnitude = magnitude;
+            bestTimeSeconds = timeSecondsValue;
+        }
+    }
+    return bestTimeSeconds;
+}
+
+double iaccReferenceTimeSeconds(const TimeDomainPair& impulse) {
+    if (!impulse.valid()) {
+        return 0.0;
+    }
+    return std::min(peakTimeSeconds(impulse.timeSeconds, impulse.left),
+                    peakTimeSeconds(impulse.timeSeconds, impulse.right));
+}
+
 double computeIaccWindow(const TimeDomainPair& impulse,
                          int sampleRate,
                          double startTimeSeconds,
@@ -349,13 +381,16 @@ double computeIaccWindow(const TimeDomainPair& impulse,
         return std::numeric_limits<double>::quiet_NaN();
     }
 
+    const double referenceTimeSeconds = iaccReferenceTimeSeconds(impulse);
     std::vector<double> leftWindow;
     std::vector<double> rightWindow;
     leftWindow.reserve(impulse.timeSeconds.size());
     rightWindow.reserve(impulse.timeSeconds.size());
     for (size_t index = 0; index < impulse.timeSeconds.size(); ++index) {
-        const double timeSeconds = impulse.timeSeconds[index];
-        if (!std::isfinite(timeSeconds) || timeSeconds < startTimeSeconds || timeSeconds >= endTimeSeconds) {
+        const double relativeTimeSeconds = impulse.timeSeconds[index] - referenceTimeSeconds;
+        if (!std::isfinite(relativeTimeSeconds) ||
+            relativeTimeSeconds < startTimeSeconds ||
+            relativeTimeSeconds >= endTimeSeconds) {
             continue;
         }
         leftWindow.push_back(impulse.left[index]);

@@ -45,6 +45,12 @@ std::wstring formatRtAudioError(std::wstring_view operation, const std::string& 
     return message;
 }
 
+bool hasConcreteAsioDriver(const AudioSettings& settings) {
+    return !settings.driver.empty() &&
+           settings.driver != "ASIO driver" &&
+           settings.driver != "Windows Audio (WASAPI)";
+}
+
 class RtAudioAsioMeasurementSession final : public IAudioMeasurementSession {
 public:
     ~RtAudioAsioMeasurementSession() override {
@@ -384,7 +390,32 @@ public:
         if (settings.backend == "winmm") {
             return winMmBackend_->startSession(settings, measurementSettings, runMode, errorMessage);
         }
-        return wasapiBackend_->startSession(settings, measurementSettings, runMode, errorMessage);
+
+        // Older workspaces could persist "windows" while still carrying a concrete ASIO driver.
+        // Prefer WASAPI for current configs, but recover those legacy setups if WASAPI rejects them.
+        std::wstring wasapiError;
+        if (auto session = wasapiBackend_->startSession(settings, measurementSettings, runMode, wasapiError)) {
+            return session;
+        }
+
+        if (!hasConcreteAsioDriver(settings)) {
+            errorMessage = std::move(wasapiError);
+            return nullptr;
+        }
+
+        std::wstring asioError;
+        if (auto session = asioBackend_->startSession(settings, measurementSettings, runMode, asioError)) {
+            return session;
+        }
+
+        errorMessage = std::move(wasapiError);
+        if (!errorMessage.empty() && !asioError.empty()) {
+            errorMessage += L" Legacy ASIO fallback also failed: ";
+            errorMessage += asioError;
+        } else if (!asioError.empty()) {
+            errorMessage = std::move(asioError);
+        }
+        return nullptr;
     }
 
 private:
