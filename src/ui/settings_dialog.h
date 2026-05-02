@@ -58,7 +58,6 @@ private:
     HWND windowsOutput_ = nullptr;
     HWND driver_ = nullptr;
     HWND mic_ = nullptr;
-    HWND loopbackEnabled_ = nullptr;
     HWND loopback_ = nullptr;
     HWND left_ = nullptr;
     HWND right_ = nullptr;

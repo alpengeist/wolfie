@@ -290,8 +290,8 @@ std::wstring RoomSimulationDialog::requestSimulationName(HWND owner, HINSTANCE i
                                  nullptr,
                                  instance,
                                  nullptr);
-    CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 168, 78, 72, 26, dialog, reinterpret_cast<HMENU>(IDOK), instance, nullptr);
-    CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 256, 78, 72, 26, dialog, reinterpret_cast<HMENU>(IDCANCEL), instance, nullptr);
+    CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 168, 78, 72, 26, dialog, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)), instance, nullptr);
+    CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 256, 78, 72, 26, dialog, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), instance, nullptr);
 
     EnableWindow(owner, FALSE);
     ShowWindow(dialog, SW_SHOW);
@@ -372,7 +372,7 @@ void RoomSimulationDialog::createControls() {
                                                0,
                                                0,
                                                window_,
-                                               reinterpret_cast<HMENU>(kComboSimulations),
+                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboSimulations)),
                                                instance_,
                                                nullptr);
     controls_.buttonNew = CreateWindowW(L"BUTTON",
@@ -383,7 +383,7 @@ void RoomSimulationDialog::createControls() {
                                         0,
                                         0,
                                         window_,
-                                        reinterpret_cast<HMENU>(kButtonNew),
+                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonNew)),
                                         instance_,
                                         nullptr);
     controls_.buttonGenerate = CreateWindowW(L"BUTTON",
@@ -394,7 +394,7 @@ void RoomSimulationDialog::createControls() {
                                              0,
                                              0,
                                              window_,
-                                             reinterpret_cast<HMENU>(kButtonGenerate),
+                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonGenerate)),
                                              instance_,
                                              nullptr);
 
@@ -443,7 +443,7 @@ void RoomSimulationDialog::createControls() {
                                       0,
                                       0,
                                       window_,
-                                      reinterpret_cast<HMENU>(field.controlId),
+                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(field.controlId)),
                                       instance_,
                                       nullptr);
         if (field.unit != nullptr && field.unit[0] != L'\0') {
@@ -754,3 +754,4 @@ void RoomSimulationDialog::onGenerate() {
 }
 
 }  // namespace wolfie::ui
+

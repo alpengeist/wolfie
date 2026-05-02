@@ -89,6 +89,7 @@ private:
         HWND actionMetersFrame = nullptr;
         HWND buttonMeasure = nullptr;
         HWND buttonMeasureReference = nullptr;
+        HWND checkboxEnableReference = nullptr;
         HWND buttonRoomSimulation = nullptr;
         HWND labelReferenceNote = nullptr;
         HWND leftChannelLabel = nullptr;
@@ -144,6 +145,7 @@ private:
     static constexpr int kSliderWaterfallLowCutoff = 3028;
     static constexpr int kFrequencyDisplay = 3029;
     static constexpr int kLevelMeter = 3030;
+    static constexpr int kCheckboxEnableReference = 3031;
     static constexpr int kOutputVolumeSliderMax = 61;
     static constexpr int kWaterfallLowCutoffMinDb = -72;
     static constexpr int kWaterfallLowCutoffMaxDb = -24;

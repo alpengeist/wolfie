@@ -399,7 +399,7 @@ void MeasurementPage::createControls() {
                                                          0,
                                                          0,
                                                          window_,
-                                                         reinterpret_cast<HMENU>(kButtonMicCalibrationBrowse),
+                                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonMicCalibrationBrowse)),
                                                          instance_,
                                                          nullptr);
     controls_.buttonMicCalibrationClear = CreateWindowW(L"BUTTON",
@@ -410,7 +410,7 @@ void MeasurementPage::createControls() {
                                                         0,
                                                         0,
                                                         window_,
-                                                         reinterpret_cast<HMENU>(kButtonMicCalibrationClear),
+                                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonMicCalibrationClear)),
                                                          instance_,
                                                          nullptr);
     controls_.calibrationActivityLabel = CreateWindowW(L"STATIC",
@@ -451,14 +451,14 @@ void MeasurementPage::createControls() {
     controls_.unitEndFrequency = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.unitTargetLength = CreateWindowW(L"STATIC", L"samples", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.unitLeadIn = CreateWindowW(L"STATIC", L"samples", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.editFadeIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditFadeIn), instance_, nullptr);
-    controls_.editFadeOut = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditFadeOut), instance_, nullptr);
-    controls_.editDuration = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditDuration), instance_, nullptr);
-    controls_.editStartFrequency = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditStartFrequency), instance_, nullptr);
-    controls_.editEndFrequency = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditEndFrequency), instance_, nullptr);
-    controls_.editTargetLength = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditTargetLength), instance_, nullptr);
-    controls_.editLeadIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditLeadIn), instance_, nullptr);
-    controls_.comboSampleRate = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kComboMeasurementSampleRate), instance_, nullptr);
+    controls_.editFadeIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditFadeIn)), instance_, nullptr);
+    controls_.editFadeOut = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditFadeOut)), instance_, nullptr);
+    controls_.editDuration = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditDuration)), instance_, nullptr);
+    controls_.editStartFrequency = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditStartFrequency)), instance_, nullptr);
+    controls_.editEndFrequency = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditEndFrequency)), instance_, nullptr);
+    controls_.editTargetLength = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditTargetLength)), instance_, nullptr);
+    controls_.editLeadIn = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditLeadIn)), instance_, nullptr);
+    controls_.comboSampleRate = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboMeasurementSampleRate)), instance_, nullptr);
     controls_.labelOutputVolume = CreateWindowW(L"STATIC", L"Output level", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.outputVolumeValue = CreateWindowW(L"STATIC", L"-30 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.outputVolumeSlider = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS | TBS_HORZ, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -476,7 +476,7 @@ void MeasurementPage::createControls() {
                                                   nullptr,
                                                   instance_,
                                                   nullptr);
-    controls_.buttonMeasure = CreateWindowW(L"BUTTON", L"START", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonMeasure), instance_, nullptr);
+    controls_.buttonMeasure = CreateWindowW(L"BUTTON", L"START", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonMeasure)), instance_, nullptr);
     controls_.buttonMeasureReference = CreateWindowW(L"BUTTON",
                                                      L"REFERENCE",
                                                      WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
@@ -485,9 +485,20 @@ void MeasurementPage::createControls() {
                                                      0,
                                                      0,
                                                      window_,
-                                                     reinterpret_cast<HMENU>(kButtonMeasureReference),
+                                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonMeasureReference)),
                                                      instance_,
                                                      nullptr);
+    controls_.checkboxEnableReference = CreateWindowW(L"BUTTON",
+                                                      L"Enable Ref",
+                                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                                                      0,
+                                                      0,
+                                                      0,
+                                                      0,
+                                                      window_,
+                                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxEnableReference)),
+                                                      instance_,
+                                                      nullptr);
     controls_.buttonRoomSimulation = CreateWindowW(L"BUTTON",
                                                    L"Sim",
                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
@@ -496,7 +507,7 @@ void MeasurementPage::createControls() {
                                                    0,
                                                    0,
                                                    window_,
-                                                   reinterpret_cast<HMENU>(kButtonRoomSimulation),
+                                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonRoomSimulation)),
                                                    instance_,
                                                    nullptr);
     controls_.labelReferenceNote = CreateWindowW(L"STATIC",
@@ -524,7 +535,7 @@ void MeasurementPage::createControls() {
                                                0,
                                                0,
                                                window_,
-                                               reinterpret_cast<HMENU>(kFrequencyDisplay),
+                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFrequencyDisplay)),
                                                instance_,
                                                nullptr);
     controls_.levelMeter = CreateWindowW(L"STATIC",
@@ -535,7 +546,7 @@ void MeasurementPage::createControls() {
                                          0,
                                          0,
                                          window_,
-                                         reinterpret_cast<HMENU>(kLevelMeter),
+                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLevelMeter)),
                                          instance_,
                                          nullptr);
     controls_.labelPlot = CreateWindowW(L"STATIC", L"Plot", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -547,7 +558,7 @@ void MeasurementPage::createControls() {
                                         0,
                                         0,
                                         window_,
-                                        reinterpret_cast<HMENU>(kComboPlot),
+                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboPlot)),
                                         instance_,
                                         nullptr);
     controls_.labelWaterfallSource = CreateWindowW(L"STATIC", L"Source", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -559,7 +570,7 @@ void MeasurementPage::createControls() {
                                                    0,
                                                    0,
                                                    window_,
-                                                   reinterpret_cast<HMENU>(kComboWaterfallSource),
+                                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboWaterfallSource)),
                                                    instance_,
                                                    nullptr);
     controls_.labelWaterfallChannel = CreateWindowW(L"STATIC", L"Channel", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -571,7 +582,7 @@ void MeasurementPage::createControls() {
                                                     0,
                                                     0,
                                                     window_,
-                                                    reinterpret_cast<HMENU>(kComboWaterfallChannel),
+                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboWaterfallChannel)),
                                                     instance_,
                                                     nullptr);
     controls_.labelWaterfallLowCutoff = CreateWindowW(L"STATIC", L"Low Cutoff", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -584,7 +595,7 @@ void MeasurementPage::createControls() {
                                                          0,
                                                          0,
                                                          window_,
-                                                         reinterpret_cast<HMENU>(kSliderWaterfallLowCutoff),
+                                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSliderWaterfallLowCutoff)),
                                                          instance_,
                                                          nullptr);
     controls_.valueWaterfallLowCutoff = CreateWindowW(L"STATIC", L"-72 dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -607,7 +618,7 @@ void MeasurementPage::createControls() {
                                                    0,
                                                    0,
                                                    window_,
-                                                   reinterpret_cast<HMENU>(kCheckboxShowRoomLeft),
+                                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowRoomLeft)),
                                                    instance_,
                                                    nullptr);
     controls_.lineRoomLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -620,7 +631,7 @@ void MeasurementPage::createControls() {
                                                     0,
                                                     0,
                                                     window_,
-                                                    reinterpret_cast<HMENU>(kCheckboxShowRoomRight),
+                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowRoomRight)),
                                                     instance_,
                                                     nullptr);
     controls_.lineRoomRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -633,7 +644,7 @@ void MeasurementPage::createControls() {
                                                     0,
                                                     0,
                                                     window_,
-                                                    reinterpret_cast<HMENU>(kCheckboxShowReference),
+                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowReference)),
                                                     instance_,
                                                     nullptr);
     controls_.lineReference = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -741,6 +752,7 @@ void MeasurementPage::layout() {
     constexpr int kCalibrationClearWidth = 58;
     constexpr int kCalibrationGap = 10;
     constexpr int kReferenceButtonWidth = 138;
+    constexpr int kEnableReferenceWidth = 92;
     constexpr int kSimButtonWidth = 56;
     constexpr int kActionFramePaddingX = 12;
     constexpr int kActionGroupGap = 18;
@@ -815,7 +827,7 @@ void MeasurementPage::layout() {
     MoveWindow(controls_.outputVolumeMaxLabel, contentLeft + 100 + kSliderValueWidth + 12 + kSliderWidth - 40, volumeTop + 32, 40, 18, TRUE);
 
     const int metricsTop = volumeTop + 66;
-    const int buttonsBlockWidth = kButtonWidth + 10 + kReferenceButtonWidth + 8 + kSimButtonWidth;
+    const int buttonsBlockWidth = kButtonWidth + 10 + kReferenceButtonWidth + 10 + kEnableReferenceWidth + 8 + kSimButtonWidth;
     const int dataRowTop = metricsTop;
     const int progressRowTop = dataRowTop + 30;
     const int legacyButtonTop = dataRowTop - 4;
@@ -854,8 +866,14 @@ void MeasurementPage::layout() {
                    kReferenceButtonWidth,
                    buttonHeight,
                    TRUE);
+        MoveWindow(controls_.checkboxEnableReference,
+                   buttonLeft + kButtonWidth + 10 + kReferenceButtonWidth + 10,
+                   buttonTop + 5,
+                   kEnableReferenceWidth,
+                   22,
+                   TRUE);
         MoveWindow(controls_.buttonRoomSimulation,
-                   buttonLeft + kButtonWidth + 10 + kReferenceButtonWidth + 8,
+                   buttonLeft + kButtonWidth + 10 + kReferenceButtonWidth + 10 + kEnableReferenceWidth + 8,
                    buttonTop,
                    kSimButtonWidth,
                    buttonHeight,
@@ -905,8 +923,14 @@ void MeasurementPage::layout() {
                    kReferenceButtonWidth,
                    legacyButtonHeight,
                    TRUE);
+        MoveWindow(controls_.checkboxEnableReference,
+                   contentLeft + kButtonWidth + 10 + kReferenceButtonWidth + 10,
+                   dataRowTop + 5,
+                   kEnableReferenceWidth,
+                   20,
+                   TRUE);
         MoveWindow(controls_.buttonRoomSimulation,
-                   contentLeft + kButtonWidth + 10 + kReferenceButtonWidth + 8,
+                   contentLeft + kButtonWidth + 10 + kReferenceButtonWidth + 10 + kEnableReferenceWidth + 8,
                    legacyButtonTop,
                    kSimButtonWidth,
                    legacyButtonHeight,
@@ -1094,6 +1118,10 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
     showRoomLeft_ = workspace.ui.measurementShowRoomLeft;
     showRoomRight_ = workspace.ui.measurementShowRoomRight;
     showReference_ = workspace.ui.measurementShowReference;
+    SendMessageW(controls_.checkboxEnableReference,
+                 BM_SETCHECK,
+                 workspace.audio.loopbackEnabled ? BST_CHECKED : BST_UNCHECKED,
+                 0);
     SendMessageW(controls_.checkboxShowRoomLeft, BM_SETCHECK, showRoomLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowRoomRight, BM_SETCHECK, showRoomRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowReference, BM_SETCHECK, showReference_ ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -1102,6 +1130,7 @@ void MeasurementPage::populate(const WorkspaceState& workspace) {
 
 void MeasurementPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.audio.microphoneCalibrationPath = std::filesystem::path(getWindowTextValue(controls_.editMicCalibrationPath));
+    workspace.audio.loopbackEnabled = SendMessageW(controls_.checkboxEnableReference, BM_GETCHECK, 0, 0) == BST_CHECKED;
     workspace.measurement.sampleRate = measurementSampleRateFromComboIndex(static_cast<int>(SendMessageW(controls_.comboSampleRate, CB_GETCURSEL, 0, 0)));
     workspace.measurement.fadeInSeconds = std::stod(getWindowTextValue(controls_.editFadeIn));
     workspace.measurement.fadeOutSeconds = std::stod(getWindowTextValue(controls_.editFadeOut));
@@ -1134,6 +1163,10 @@ void MeasurementPage::setWorkspaceView(const WorkspaceState& workspace) {
     result_ = workspace.result;
     referenceResult_ = workspace.referenceResult;
     filterResult_ = workspace.filterResult;
+    SendMessageW(controls_.checkboxEnableReference,
+                 BM_SETCHECK,
+                 audioSettings_.loopbackEnabled ? BST_CHECKED : BST_UNCHECKED,
+                 0);
     refreshActionButtons();
     refreshReferenceNote();
     refreshPlots();
@@ -1216,6 +1249,7 @@ void MeasurementPage::setInteractiveControlsEnabled(bool enabled) const {
     EnableWindow(controls_.checkboxShowRoomLeft, enabled ? TRUE : FALSE);
     EnableWindow(controls_.checkboxShowRoomRight, enabled ? TRUE : FALSE);
     EnableWindow(controls_.checkboxShowReference, enabled ? TRUE : FALSE);
+    EnableWindow(controls_.checkboxEnableReference, enabled ? TRUE : FALSE);
     EnableWindow(controls_.buttonRoomSimulation, enabled ? TRUE : FALSE);
     EnableWindow(responseGraph_.window(), enabled ? TRUE : FALSE);
     EnableWindow(waterfallGraph_.window(), enabled ? TRUE : FALSE);
@@ -1423,6 +1457,13 @@ bool MeasurementPage::handleCommand(WORD commandId,
         showReference_ = SendMessageW(controls_.checkboxShowReference, BM_GETCHECK, 0, 0) == BST_CHECKED;
         syncToWorkspace(workspace);
         refreshPlots();
+        plotSelectionChanged = true;
+        return true;
+    }
+
+    if (commandId == kCheckboxEnableReference && notificationCode == BN_CLICKED) {
+        syncToWorkspace(workspace);
+        setWorkspaceView(workspace);
         plotSelectionChanged = true;
         return true;
     }
@@ -1639,7 +1680,10 @@ ResponseGraphData MeasurementPage::buildGraphData() const {
     }
 
     const MeasurementValueSet* referenceResponse = referenceResult_.magnitudeResponse();
-    if (showReference_ && referenceResponse != nullptr && referenceResponse->valid()) {
+    if (audioSettings_.loopbackEnabled &&
+        showReference_ &&
+        referenceResponse != nullptr &&
+        referenceResponse->valid()) {
         if (data.frequencyAxisHz.empty()) {
             data.frequencyAxisHz = referenceResponse->xValues;
         }
@@ -1657,6 +1701,9 @@ ResponseGraphData MeasurementPage::buildGraphData() const {
 }
 
 std::wstring MeasurementPage::buildReferenceNoteText() const {
+    if (!audioSettings_.loopbackEnabled) {
+        return L"Reference disabled.";
+    }
     if (!referenceResult_.hasAnyValues()) {
         return L"Reference: none saved.";
     }
@@ -1714,7 +1761,7 @@ void MeasurementPage::updateLegendVisibility() const {
     const std::string plotMode =
         plotModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPlot, CB_GETCURSEL, 0, 0)));
     const bool showLegend = plotMode != "waterfall";
-    const bool hasReference = referenceResult_.magnitudeResponse() != nullptr;
+    const bool hasReference = audioSettings_.loopbackEnabled && referenceResult_.magnitudeResponse() != nullptr;
     ShowWindow(controls_.responseLegendFrame, showLegend ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.checkboxShowRoomLeft, showLegend ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.lineRoomLeft, showLegend ? SW_SHOW : SW_HIDE);
@@ -1735,6 +1782,7 @@ void MeasurementPage::refreshActionButtons() const {
     const bool busy = running || calibrationRefreshInProgress_;
     EnableWindow(controls_.buttonMicCalibrationBrowse, busy ? FALSE : TRUE);
     EnableWindow(controls_.buttonMicCalibrationClear, busy ? FALSE : TRUE);
+    EnableWindow(controls_.checkboxEnableReference, busy ? FALSE : TRUE);
     EnableWindow(controls_.buttonMeasure,
                  calibrationRefreshInProgress_ ? FALSE
                                                : (((running && status_.runMode == MeasurementRunMode::Room) || !running) ? TRUE : FALSE));
@@ -1750,3 +1798,4 @@ void MeasurementPage::refreshActionButtons() const {
 }
 
 }  // namespace wolfie::ui
+

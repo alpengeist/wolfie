@@ -138,19 +138,19 @@ void TargetCurvePage::createControls() {
                                             0,
                                             0,
                                             window_,
-                                            reinterpret_cast<HMENU>(kComboProfiles),
+                                            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboProfiles)),
                                             instance_,
                                             nullptr);
     controls_.buttonNewProfile = CreateWindowW(L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonNewProfile), instance_, nullptr);
+                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonNewProfile)), instance_, nullptr);
     controls_.graphLabel = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.graphHint = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.bandsLabel = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.buttonNew = CreateWindowW(L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonNew), instance_, nullptr);
-    controls_.buttonDelete = CreateWindowW(L"BUTTON", L"Delete", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonDelete), instance_, nullptr);
-    controls_.buttonReset = CreateWindowW(L"BUTTON", L"Reset", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonReset), instance_, nullptr);
+    controls_.buttonNew = CreateWindowW(L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonNew)), instance_, nullptr);
+    controls_.buttonDelete = CreateWindowW(L"BUTTON", L"Delete", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonDelete)), instance_, nullptr);
+    controls_.buttonReset = CreateWindowW(L"BUTTON", L"Reset", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonReset)), instance_, nullptr);
     controls_.checkboxBypassAll = CreateWindowW(L"BUTTON", L"Bypass", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kCheckboxBypassAll), instance_, nullptr);
+                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxBypassAll)), instance_, nullptr);
     controls_.listBands = CreateWindowExW(WS_EX_CLIENTEDGE,
                                           L"LISTBOX",
                                           nullptr,
@@ -160,30 +160,30 @@ void TargetCurvePage::createControls() {
                                           0,
                                           0,
                                           window_,
-                                          reinterpret_cast<HMENU>(kListBands),
+                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(kListBands)),
                                           instance_,
                                           nullptr);
     controls_.detailLabel = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxEnabled = CreateWindowW(L"BUTTON", L"Enabled", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                              0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kCheckboxBandEnabled), instance_, nullptr);
+                                              0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxBandEnabled)), instance_, nullptr);
     controls_.typeValue = CreateWindowW(L"STATIC", L"Bell", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.frequencyLabel = CreateWindowW(L"STATIC", L"Frequency", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.frequencySlider = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kFrequencySlider), instance_, nullptr);
+                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFrequencySlider)), instance_, nullptr);
     controls_.frequencyValue = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kFrequencyEdit), instance_, nullptr);
+                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFrequencyEdit)), instance_, nullptr);
     controls_.frequencyUnit = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.gainLabel = CreateWindowW(L"STATIC", L"Gain", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.gainSlider = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-                                           0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kGainSlider), instance_, nullptr);
+                                           0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGainSlider)), instance_, nullptr);
     controls_.gainValue = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                                          0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kGainEdit), instance_, nullptr);
+                                          0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGainEdit)), instance_, nullptr);
     controls_.gainUnit = CreateWindowW(L"STATIC", L"dB", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.qLabel = CreateWindowW(L"STATIC", L"Q", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.qSlider = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-                                        0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kQSlider), instance_, nullptr);
+                                        0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kQSlider)), instance_, nullptr);
     controls_.qValue = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kQEdit), instance_, nullptr);
+                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kQEdit)), instance_, nullptr);
     controls_.commentLabel = CreateWindowW(L"STATIC", L"Comment", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.commentValue = CreateWindowExW(WS_EX_CLIENTEDGE,
                                              L"EDIT",
@@ -194,7 +194,7 @@ void TargetCurvePage::createControls() {
                                              0,
                                              0,
                                              window_,
-                                             reinterpret_cast<HMENU>(kCommentEdit),
+                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCommentEdit)),
                                              instance_,
                                              nullptr);
 
@@ -754,8 +754,8 @@ std::wstring TargetCurvePage::requestProfileName(HWND owner, HINSTANCE instance)
                                  nullptr,
                                  instance,
                                  nullptr);
-    CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 168, 78, 72, 26, dialog, reinterpret_cast<HMENU>(IDOK), instance, nullptr);
-    CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 256, 78, 72, 26, dialog, reinterpret_cast<HMENU>(IDCANCEL), instance, nullptr);
+    CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 168, 78, 72, 26, dialog, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)), instance, nullptr);
+    CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 256, 78, 72, 26, dialog, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), instance, nullptr);
 
     EnableWindow(owner, FALSE);
     ShowWindow(dialog, SW_SHOW);
@@ -1116,3 +1116,4 @@ void TargetCurvePage::toggleBandEnabled(int index, WorkspaceState& workspace) {
 }
 
 }  // namespace wolfie::ui
+

@@ -190,6 +190,7 @@ void MeasurementController::tick() {
                                                              snapshot_.audio,
                                                              activeMeasurementSettings_,
                                                              runMode_ == MeasurementRunMode::Room &&
+                                                                     snapshot_.audio.loopbackEnabled &&
                                                                      snapshot_.referenceResult.hasAnyValues()
                                                                  ? &snapshot_.referenceResult
                                                                  : nullptr);

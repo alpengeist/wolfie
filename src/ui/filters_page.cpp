@@ -229,7 +229,7 @@ void FiltersPage::createControls() {
                                             0,
                                             0,
                                             window_,
-                                            reinterpret_cast<HMENU>(kComboTapCount),
+                                            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboTapCount)),
                                             instance_,
                                             nullptr);
     controls_.labelPhaseMode = CreateWindowW(L"STATIC", L"Phase Mode", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -241,24 +241,24 @@ void FiltersPage::createControls() {
                                              0,
                                              0,
                                              window_,
-                                             reinterpret_cast<HMENU>(kComboPhaseMode),
+                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboPhaseMode)),
                                              instance_,
                                              nullptr);
     controls_.labelLowCorrection = CreateWindowW(L"STATIC", L"Low Bound", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editLowCorrection = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditLowCorrection), instance_, nullptr);
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditLowCorrection)), instance_, nullptr);
     controls_.unitLowCorrection = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelHighCorrection = CreateWindowW(L"STATIC", L"High Bound", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editHighCorrection = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditHighCorrection), instance_, nullptr);
+                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditHighCorrection)), instance_, nullptr);
     controls_.unitHighCorrection = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMaxBoost = CreateWindowW(L"STATIC", L"Max Boost", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMaxBoost = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                             0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMaxBoost), instance_, nullptr);
+                                             0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMaxBoost)), instance_, nullptr);
     controls_.unitMaxBoost = CreateWindowW(L"STATIC", L"dB", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMaxCut = CreateWindowW(L"STATIC", L"Max Cut", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMaxCut = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                           0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMaxCut), instance_, nullptr);
+                                           0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMaxCut)), instance_, nullptr);
     controls_.unitMaxCut = CreateWindowW(L"STATIC", L"dB", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelSmoothness = CreateWindowW(L"STATIC", L"Smoothness", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.sliderSmoothness = CreateWindowW(TRACKBAR_CLASSW,
@@ -269,24 +269,24 @@ void FiltersPage::createControls() {
                                                0,
                                                0,
                                                window_,
-                                               reinterpret_cast<HMENU>(kSliderSmoothness),
+                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSliderSmoothness)),
                                                instance_,
                                                nullptr);
     controls_.valueSmoothness = CreateWindowW(L"STATIC", L"1", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMixedPhaseMax = CreateWindowW(L"STATIC", L"Phase Limit", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseMax = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMixedPhaseMax), instance_, nullptr);
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseMax)), instance_, nullptr);
     controls_.unitMixedPhaseMax = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMixedPhaseStrength = CreateWindowW(L"STATIC", L"Phase Strength", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseStrength = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMixedPhaseStrength), instance_, nullptr);
+                                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseStrength)), instance_, nullptr);
     controls_.unitMixedPhaseStrength = CreateWindowW(L"STATIC", L"0..1", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMixedPhaseCap = CreateWindowW(L"STATIC", L"Phase Cap", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseCap = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMixedPhaseCap), instance_, nullptr);
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseCap)), instance_, nullptr);
     controls_.unitMixedPhaseCap = CreateWindowW(L"STATIC", L"deg", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | kHelpBubbleChildClipStyle,
-                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonRecalculate), instance_, nullptr);
+                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonRecalculate)), instance_, nullptr);
     helpBubble_.registerLabel(controls_.labelTapCount, L"Sets the FIR length. More taps allow finer correction but increase latency and processing cost.");
     helpBubble_.registerLabel(controls_.labelPhaseMode, L"Chooses the phase correction mode used when calculating the filter design.");
     helpBubble_.registerLabel(controls_.labelLowCorrection, L"Sets the lowest frequency where correction is allowed to operate.");
@@ -305,7 +305,7 @@ void FiltersPage::createControls() {
                                                          0,
                                                          0,
                                                          window_,
-                                                         reinterpret_cast<HMENU>(kCheckboxSyncHoverFrequency),
+                                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxSyncHoverFrequency)),
                                                          instance_,
                                                          nullptr);
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
@@ -329,7 +329,7 @@ void FiltersPage::createControls() {
                                                      0,
                                                      0,
                                                      window_,
-                                                     reinterpret_cast<HMENU>(kCheckboxShowInputRight),
+                                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInputRight)),
                                                      instance_,
                                                      nullptr);
     controls_.lineInputRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -342,7 +342,7 @@ void FiltersPage::createControls() {
                                                     0,
                                                     0,
                                                     window_,
-                                                    reinterpret_cast<HMENU>(kCheckboxShowInputLeft),
+                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInputLeft)),
                                                     instance_,
                                                     nullptr);
     controls_.lineInputLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -355,7 +355,7 @@ void FiltersPage::createControls() {
                                                          0,
                                                          0,
                                                          window_,
-                                                         reinterpret_cast<HMENU>(kCheckboxShowInversionRight),
+                                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInversionRight)),
                                                          instance_,
                                                          nullptr);
     controls_.lineInversionRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -368,7 +368,7 @@ void FiltersPage::createControls() {
                                                         0,
                                                         0,
                                                         window_,
-                                                        reinterpret_cast<HMENU>(kCheckboxShowInversionLeft),
+                                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInversionLeft)),
                                                         instance_,
                                                         nullptr);
     controls_.lineInversionLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -396,7 +396,7 @@ void FiltersPage::createControls() {
                                                              0,
                                                              0,
                                                              window_,
-                                                             reinterpret_cast<HMENU>(kCheckboxShowCorrectedInputLeft),
+                                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowCorrectedInputLeft)),
                                                              instance_,
                                                              nullptr);
     controls_.lineCorrectedInputLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -409,7 +409,7 @@ void FiltersPage::createControls() {
                                                               0,
                                                               0,
                                                               window_,
-                                                              reinterpret_cast<HMENU>(kCheckboxShowCorrectedInputRight),
+                                                              reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowCorrectedInputRight)),
                                                               instance_,
                                                               nullptr);
     controls_.lineCorrectedInputRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -422,7 +422,7 @@ void FiltersPage::createControls() {
                                                         0,
                                                         0,
                                                          window_,
-                                                         reinterpret_cast<HMENU>(kCheckboxShowCorrectedLeft),
+                                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowCorrectedLeft)),
                                                          instance_,
                                                          nullptr);
     controls_.lineCorrectedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -435,7 +435,7 @@ void FiltersPage::createControls() {
                                                          0,
                                                          0,
                                                           window_,
-                                                          reinterpret_cast<HMENU>(kCheckboxShowCorrectedRight),
+                                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowCorrectedRight)),
                                                           instance_,
                                                           nullptr);
     controls_.lineCorrectedRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -461,7 +461,7 @@ void FiltersPage::createControls() {
                                                                 0,
                                                                 0,
                                                                 window_,
-                                                                reinterpret_cast<HMENU>(kCheckboxShowExcessPhaseInputRight),
+                                                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowExcessPhaseInputRight)),
                                                                 instance_,
                                                                 nullptr);
     controls_.lineExcessPhaseInputRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -474,7 +474,7 @@ void FiltersPage::createControls() {
                                                                0,
                                                                0,
                                                                window_,
-                                                               reinterpret_cast<HMENU>(kCheckboxShowExcessPhaseInputLeft),
+                                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowExcessPhaseInputLeft)),
                                                                instance_,
                                                                nullptr);
     controls_.lineExcessPhaseInputLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -487,7 +487,7 @@ void FiltersPage::createControls() {
                                                                     0,
                                                                     0,
                                                                     window_,
-                                                                    reinterpret_cast<HMENU>(kCheckboxShowExcessPhasePredictedRight),
+                                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowExcessPhasePredictedRight)),
                                                                     instance_,
                                                                     nullptr);
     controls_.lineExcessPhasePredictedRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -500,7 +500,7 @@ void FiltersPage::createControls() {
                                                                    0,
                                                                    0,
                                                                    window_,
-                                                                   reinterpret_cast<HMENU>(kCheckboxShowExcessPhasePredictedLeft),
+                                                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowExcessPhasePredictedLeft)),
                                                                    instance_,
                                                                    nullptr);
     controls_.lineExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -517,7 +517,7 @@ void FiltersPage::createControls() {
                                                    0,
                                                    0,
                                                    window_,
-                                                   reinterpret_cast<HMENU>(kSliderGroupDelayZoom),
+                                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSliderGroupDelayZoom)),
                                                    instance_,
                                                    nullptr);
     controls_.valueGroupDelayZoom = CreateWindowW(L"STATIC", L"Fit", WS_CHILD | WS_VISIBLE,
@@ -533,7 +533,7 @@ void FiltersPage::createControls() {
                                                              0,
                                                              0,
                                                              window_,
-                                                             reinterpret_cast<HMENU>(kCheckboxAlignGroupDelayLatency),
+                                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxAlignGroupDelayLatency)),
                                                              instance_,
                                                              nullptr);
     controls_.groupDelayLegendFrame = CreateWindowW(L"STATIC",
@@ -555,7 +555,7 @@ void FiltersPage::createControls() {
                                                               0,
                                                               0,
                                                               window_,
-                                                              reinterpret_cast<HMENU>(kCheckboxShowInputGroupDelayLeft),
+                                                              reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInputGroupDelayLeft)),
                                                               instance_,
                                                               nullptr);
     controls_.lineInputGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -568,7 +568,7 @@ void FiltersPage::createControls() {
                                                                0,
                                                                0,
                                                                window_,
-                                                               reinterpret_cast<HMENU>(kCheckboxShowInputGroupDelayRight),
+                                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInputGroupDelayRight)),
                                                                instance_,
                                                                nullptr);
     controls_.lineInputGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -581,7 +581,7 @@ void FiltersPage::createControls() {
                                                                0,
                                                                0,
                                                                window_,
-                                                               reinterpret_cast<HMENU>(kCheckboxShowFilterGroupDelayLeft),
+                                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowFilterGroupDelayLeft)),
                                                                instance_,
                                                                nullptr);
     controls_.lineGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -594,7 +594,7 @@ void FiltersPage::createControls() {
                                                                 0,
                                                                 0,
                                                                 window_,
-                                                                reinterpret_cast<HMENU>(kCheckboxShowFilterGroupDelayRight),
+                                                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowFilterGroupDelayRight)),
                                                                 instance_,
                                                                 nullptr);
     controls_.lineGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -607,7 +607,7 @@ void FiltersPage::createControls() {
                                                                    0,
                                                                    0,
                                                                    window_,
-                                                                   reinterpret_cast<HMENU>(kCheckboxShowPredictedGroupDelayRight),
+                                                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowPredictedGroupDelayRight)),
                                                                    instance_,
                                                                    nullptr);
     controls_.linePredictedGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -620,7 +620,7 @@ void FiltersPage::createControls() {
                                                                   0,
                                                                   0,
                                                                   window_,
-                                                                  reinterpret_cast<HMENU>(kCheckboxShowPredictedGroupDelayLeft),
+                                                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowPredictedGroupDelayLeft)),
                                                                   instance_,
                                                                   nullptr);
     controls_.linePredictedGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -628,19 +628,19 @@ void FiltersPage::createControls() {
     controls_.impulseTitle = CreateWindowW(L"STATIC", L"Filter Impulse", WS_CHILD | WS_VISIBLE,
                                            0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonImpulseZoomOutX = CreateWindowW(L"BUTTON", L"X-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                    0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomOutX), instance_, nullptr);
+                                                    0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseZoomOutX)), instance_, nullptr);
     controls_.buttonImpulseZoomInX = CreateWindowW(L"BUTTON", L"X+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomInX), instance_, nullptr);
+                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseZoomInX)), instance_, nullptr);
     controls_.buttonImpulseResetX = CreateWindowW(L"BUTTON", L"Reset X", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseResetX), instance_, nullptr);
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseResetX)), instance_, nullptr);
     controls_.buttonImpulseZoomOutY = CreateWindowW(L"BUTTON", L"Y-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                    0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomOutY), instance_, nullptr);
+                                                    0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseZoomOutY)), instance_, nullptr);
     controls_.buttonImpulseZoomInY = CreateWindowW(L"BUTTON", L"Y+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomInY), instance_, nullptr);
+                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseZoomInY)), instance_, nullptr);
     controls_.buttonImpulseResetY = CreateWindowW(L"BUTTON", L"Reset Y", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseResetY), instance_, nullptr);
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseResetY)), instance_, nullptr);
     controls_.buttonImpulseFit = CreateWindowW(L"BUTTON", L"Fit", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseFit), instance_, nullptr);
+                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseFit)), instance_, nullptr);
 
     populateTapCountCombo(controls_.comboTapCount);
     populatePhaseModeCombo(controls_.comboPhaseMode);
@@ -2107,3 +2107,4 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
 }
 
 }  // namespace wolfie::ui
+

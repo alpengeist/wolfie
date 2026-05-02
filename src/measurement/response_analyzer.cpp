@@ -380,6 +380,30 @@ std::complex<double> interpolateSpectrumAtFrequency(const std::vector<std::compl
     return spectrum[lowIndex] + ((spectrum[highIndex] - spectrum[lowIndex]) * blend);
 }
 
+double interpolateSpectrumMagnitudeAtFrequency(const std::vector<std::complex<double>>& spectrum,
+                                               int sampleRate,
+                                               double frequencyHz) {
+    if (spectrum.empty()) {
+        return 0.0;
+    }
+
+    const size_t positiveBinCount = (spectrum.size() / 2) + 1;
+    const double maxFrequencyHz = static_cast<double>(std::max(sampleRate, 1)) * 0.5;
+    const double clampedFrequencyHz = clampValue(frequencyHz, 0.0, maxFrequencyHz);
+    const double scaledBin = clampedFrequencyHz * static_cast<double>(spectrum.size()) /
+                             static_cast<double>(std::max(sampleRate, 1));
+    const size_t lowIndex = clampValue<size_t>(static_cast<size_t>(scaledBin), 0, positiveBinCount - 1);
+    const size_t highIndex = clampValue<size_t>(lowIndex + 1, 0, positiveBinCount - 1);
+    const double lowMagnitude = std::abs(spectrum[lowIndex]);
+    if (highIndex == lowIndex) {
+        return lowMagnitude;
+    }
+
+    const double highMagnitude = std::abs(spectrum[highIndex]);
+    const double blend = clampValue(scaledBin - static_cast<double>(lowIndex), 0.0, 1.0);
+    return lowMagnitude + ((highMagnitude - lowMagnitude) * blend);
+}
+
 MeasurementValueSet buildMagnitudeResponseValueSet(const std::string& key,
                                                    const std::vector<double>& frequencyAxisHz,
                                                    const std::vector<std::complex<double>>& leftSpectrum,
@@ -391,8 +415,8 @@ MeasurementValueSet buildMagnitudeResponseValueSet(const std::string& key,
     valueSet.leftValues.reserve(frequencyAxisHz.size());
     valueSet.rightValues.reserve(frequencyAxisHz.size());
     for (const double frequencyHz : frequencyAxisHz) {
-        valueSet.leftValues.push_back(amplitudeToDb(std::abs(interpolateSpectrumAtFrequency(leftSpectrum, sampleRate, frequencyHz))));
-        valueSet.rightValues.push_back(amplitudeToDb(std::abs(interpolateSpectrumAtFrequency(rightSpectrum, sampleRate, frequencyHz))));
+        valueSet.leftValues.push_back(amplitudeToDb(interpolateSpectrumMagnitudeAtFrequency(leftSpectrum, sampleRate, frequencyHz)));
+        valueSet.rightValues.push_back(amplitudeToDb(interpolateSpectrumMagnitudeAtFrequency(rightSpectrum, sampleRate, frequencyHz)));
     }
     return valueSet;
 }
@@ -547,6 +571,34 @@ StoredSpectrum loadStoredSpectrum(const MeasurementResult* result,
                                   std::string_view magnitudePrimaryKey,
                                   std::string_view magnitudeFallbackKey,
                                   std::string_view phasePrimaryKey,
+                                  std::string_view phaseFallbackKey);
+
+StoredSpectrum loadReferenceCompensationSpectrum(const MeasurementResult* result,
+                                                 std::string_view windowKey) {
+    if (result == nullptr) {
+        return {};
+    }
+
+    if (result->analysis.measurementKind == "reference") {
+        return loadStoredSpectrum(result,
+                                  "measurement.direct_magnitude_spectrum",
+                                  "measurement.raw_magnitude_spectrum",
+                                  "measurement.direct_phase_spectrum",
+                                  "measurement.raw_phase_spectrum");
+    }
+
+    const std::string window(windowKey);
+    return loadStoredSpectrum(result,
+                              "measurement." + window + "_magnitude_spectrum",
+                              "measurement.raw_magnitude_spectrum",
+                              "measurement." + window + "_phase_spectrum",
+                              "measurement.raw_phase_spectrum");
+}
+
+StoredSpectrum loadStoredSpectrum(const MeasurementResult* result,
+                                  std::string_view magnitudePrimaryKey,
+                                  std::string_view magnitudeFallbackKey,
+                                  std::string_view phasePrimaryKey,
                                   std::string_view phaseFallbackKey) {
     StoredSpectrum spectrum;
     const MeasurementValueSet* magnitude = findValidValueSet(result, magnitudePrimaryKey, magnitudeFallbackKey);
@@ -656,11 +708,7 @@ bool appendReferenceCompensatedTransferValueSets(MeasurementResult& result,
     }
 
     const std::string window(windowKey);
-    const StoredSpectrum referenceSpectrum = loadStoredSpectrum(referenceResult,
-                                                                "measurement." + window + "_magnitude_spectrum",
-                                                                "measurement.raw_magnitude_spectrum",
-                                                                "measurement." + window + "_phase_spectrum",
-                                                                "measurement.raw_phase_spectrum");
+    const StoredSpectrum referenceSpectrum = loadReferenceCompensationSpectrum(referenceResult, window);
     if (!referenceSpectrum.valid()) {
         return false;
     }

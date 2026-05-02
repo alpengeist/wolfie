@@ -231,6 +231,13 @@ struct MeasurementResult {
     }
 
     [[nodiscard]] const MeasurementValueSet* magnitudeResponse() const {
+        if (analysis.measurementKind == "reference") {
+            if (const MeasurementValueSet* direct = findValueSet("measurement.direct_magnitude_response")) {
+                if (direct->valid()) {
+                    return direct;
+                }
+            }
+        }
         if (const MeasurementValueSet* canonical = findValueSet("measurement.magnitude_response")) {
             if (canonical->valid()) {
                 return canonical;

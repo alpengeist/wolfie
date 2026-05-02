@@ -333,7 +333,7 @@ void WolfieApp::createMenus() {
 
 void WolfieApp::createLayout() {
     tabControl_ = CreateWindowExW(0, WC_TABCONTROLW, nullptr, WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
-                                  0, 0, 0, 0, mainWindow_, reinterpret_cast<HMENU>(kTabMain), instance_, nullptr);
+                                  0, 0, 0, 0, mainWindow_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTabMain)), instance_, nullptr);
 
     TCITEMW item{};
     item.mask = TCIF_TEXT;
@@ -371,7 +371,7 @@ void WolfieApp::createLayout() {
                                       0,
                                       0,
                                       pageExport_,
-                                      reinterpret_cast<HMENU>(kExportSampleRateCheckboxBase + static_cast<int>(index)),
+                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kExportSampleRateCheckboxBase + static_cast<int>(index))),
                                       instance_,
                                       nullptr);
         SendMessageW(checkbox, BM_SETCHECK, BST_CHECKED, 0);
@@ -385,7 +385,7 @@ void WolfieApp::createLayout() {
                                   0,
                                   0,
                                   pageExport_,
-                                  reinterpret_cast<HMENU>(kButtonExportRoon),
+                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonExportRoon)),
                                   instance_,
                                   nullptr);
     exportProgress_ = CreateWindowW(L"STATIC",
@@ -413,7 +413,7 @@ void WolfieApp::createLayout() {
                                           0,
                                           0,
                                           mainWindow_,
-                                          reinterpret_cast<HMENU>(kProcessLogSizeCompact),
+                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProcessLogSizeCompact)),
                                           instance_,
                                           nullptr);
     logSizeMediumButton_ = CreateWindowW(L"BUTTON",
@@ -424,7 +424,7 @@ void WolfieApp::createLayout() {
                                          0,
                                          0,
                                          mainWindow_,
-                                         reinterpret_cast<HMENU>(kProcessLogSizeMedium),
+                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProcessLogSizeMedium)),
                                          instance_,
                                          nullptr);
     logSizeExpandedButton_ = CreateWindowW(L"BUTTON",
@@ -435,7 +435,7 @@ void WolfieApp::createLayout() {
                                            0,
                                            0,
                                            mainWindow_,
-                                           reinterpret_cast<HMENU>(kProcessLogSizeExpanded),
+                                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProcessLogSizeExpanded)),
                                            instance_,
                                            nullptr);
     LoadLibraryW(L"Msftedit.dll");
@@ -448,7 +448,7 @@ void WolfieApp::createLayout() {
                                0,
                                0,
                                mainWindow_,
-                               reinterpret_cast<HMENU>(kProcessLog),
+                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProcessLog)),
                                instance_,
                                nullptr);
     SendMessageW(logEdit_, EM_SETLIMITTEXT, 0, 0);
@@ -857,7 +857,8 @@ WolfieApp::buildReanalyzedMeasurementWithCurrentMicCalibration(const WorkspaceSt
                                                                                   captureSampleRate,
                                                                                   analysisAudio,
                                                                                   analysisSettings,
-                                                                                  workspace.referenceResult.hasAnyValues()
+                                                                                  workspace.audio.loopbackEnabled &&
+                                                                                          workspace.referenceResult.hasAnyValues()
                                                                                       ? &workspace.referenceResult
                                                                                       : nullptr);
 
@@ -2189,3 +2190,4 @@ RECT WolfieApp::clientRect(HWND window) const {
 }
 
 }  // namespace wolfie
+

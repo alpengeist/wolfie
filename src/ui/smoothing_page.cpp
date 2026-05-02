@@ -40,7 +40,7 @@ void SmoothingPage::createControls() {
                                          0,
                                          0,
                                          window_,
-                                         reinterpret_cast<HMENU>(kComboModel),
+                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboModel)),
                                          instance_,
                                          nullptr);
     controls_.labelResolution = CreateWindowW(L"STATIC", L"Resolution", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -285,3 +285,4 @@ ResponseGraphData SmoothingPage::buildGraphData(const SmoothedResponse& response
 }
 
 }  // namespace wolfie::ui
+
