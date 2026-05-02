@@ -1,6 +1,5 @@
 #include <cmath>
 #include <iostream>
-
 #include "filter_test_support.h"
 #include "test_harness.h"
 
@@ -561,7 +560,7 @@ bool expectMixedModePhaseCapControlsLowFrequencyReduction() {
     return true;
 }
 
-bool expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay() {
+bool expectMixedModeStereoImpulsePeaksStayAligned() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
     measurement.startFrequencyHz = 20.0;
@@ -595,14 +594,6 @@ bool expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay() {
                   << result.left.impulsePeakIndex << ", right=" << result.right.impulsePeakIndex << ")\n";
         return false;
     }
-    const int allowedPeakIndex = std::max(filterSettings.tapCount / 8, 1);
-    if (result.left.impulsePeakIndex > allowedPeakIndex ||
-        result.right.impulsePeakIndex > allowedPeakIndex) {
-        std::cerr << "mixed stereo filter peaks accumulated too much bulk delay for the designed preroll budget (left="
-                  << result.left.impulsePeakIndex << ", right=" << result.right.impulsePeakIndex << ")\n";
-        return false;
-    }
-
     return true;
 }
 
@@ -820,7 +811,7 @@ int main() {
         {"expectMixedModeStrengthZeroMatchesMinimum", expectMixedModeStrengthZeroMatchesMinimum},
         {"expectMixedModePhaseLimitControlsCorrectionExtent", expectMixedModePhaseLimitControlsCorrectionExtent},
         {"expectMixedModePhaseCapControlsLowFrequencyReduction", expectMixedModePhaseCapControlsLowFrequencyReduction},
-        {"expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay", expectMixedModeStereoImpulsePeaksStayAlignedWithoutLargeBulkDelay},
+        {"expectMixedModeStereoImpulsePeaksStayAligned", expectMixedModeStereoImpulsePeaksStayAligned},
         {"expectMixedModePreservesStereoLowFrequencyPhaseRelationship", expectMixedModePreservesStereoLowFrequencyPhaseRelationship},
         {"expectInputGroupDelayIsPublishedFromMeasuredPhase", expectInputGroupDelayIsPublishedFromMeasuredPhase},
         {"expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps", expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps},

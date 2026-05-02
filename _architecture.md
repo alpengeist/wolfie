@@ -228,6 +228,15 @@ Reasoning:
 - This keeps `ctest` output attributable when runtime regresses, especially for the heavy mixed-phase and export paths.
 - Shared synthetic fixtures stay in `tests`, not in `src/measurement`, so production modules do not absorb test-only helpers.
 
+Real-workspace regression rule:
+
+- synthetic fixtures remain the first line of coverage for small, attributable DSP behavior
+- when a regression is reported from an actual saved workspace and the synthetic tests do not reproduce it, verification must also include a persisted workspace from `workspaces/`
+- the real-workspace check should load the workspace through `WorkspaceRepository`, rebuild `SmoothedResponse`, and rerun `measurement::designFilters(...)` with the saved `MeasurementResult`, smoothing settings, target curve, and filter settings
+- for mixed-phase regressions, compare minimum and mixed mode on that real workspace using realized outputs such as `filterResponseDb`, `correctedResponseDb`, filter peak location, post-peak FIR level, and expected waterfall data rather than relying only on synthetic phase fixtures
+- when the complaint is artifact level rather than basic correctness, also verify the same workspace across at least two tap counts so the acceptance check captures whether a larger FIR budget actually improves the realized result
+- temporary probe executables are acceptable for diagnosis, but the lasting protection should end up in focused native tests and documented acceptance criteria rather than leaving ad hoc tooling in the tree
+
 ## Dependency Direction
 
 The intended dependency flow is:
@@ -348,6 +357,12 @@ In data-model terms:
 - minimum mode usually leaves predicted excess phase close to the measured input excess phase
 - mixed mode may reduce low-frequency excess phase while preserving the same general magnitude-correction workflow
 - the excess-phase and group-delay plots are now part of the active filter-design workflow, not just placeholders
+
+Mixed-phase regression policy:
+
+- evaluate mixed-mode changes against both synthetic fixtures and at least one persisted real workspace when the reported failure involves audible artifacts, waterfall decay, or narrow low-frequency magnitude loss
+- treat the realized FIR as the load-bearing artifact, not just the predicted plots: regressions may hide if only the correction target or averaged band metrics are inspected
+- when balancing bass preservation against late artifacts, the acceptance check is the combined result on the real workspace: low-frequency corrected-response drift versus minimum phase must stay bounded, and the realized mixed FIR plus expected waterfall must improve in the expected direction when tap count is increased for that regression
 
 ### Phase And Group-Delay Inputs
 
