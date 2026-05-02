@@ -4,6 +4,20 @@ project(wolfie LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(FetchContent)
+
+set(RTAUDIO_BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+set(RTAUDIO_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(RTAUDIO_API_ASIO ON CACHE BOOL "" FORCE)
+set(RTAUDIO_API_WASAPI OFF CACHE BOOL "" FORCE)
+set(RTAUDIO_API_DS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    rtaudio
+    GIT_REPOSITORY https://github.com/thestk/rtaudio.git
+    GIT_TAG 6.0.1
+)
+FetchContent_MakeAvailable(rtaudio)
+
 add_executable(wolfie WIN32
     src/main.cpp
     src/wolfie.rc
@@ -93,7 +107,7 @@ add_executable(wolfie WIN32
 
 target_include_directories(wolfie PRIVATE src)
 target_compile_definitions(wolfie PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(wolfie PRIVATE comctl32 comdlg32 gdiplus msimg32 ole32 shell32 shlwapi uuid winmm)
+target_link_libraries(wolfie PRIVATE rtaudio comctl32 comdlg32 gdiplus msimg32 ole32 shell32 shlwapi uuid winmm)
 
 option(WOLFIE_BUILD_TESTS "Build Wolfie tests" ON)
 if(WOLFIE_BUILD_TESTS)
