@@ -237,12 +237,19 @@ InverseSweepFilter buildInverseSweepFilter(const std::vector<double>& sweepSampl
     const double endHz = std::max(startHz + 1.0e-6, settings.endFrequencyHz);
     const double logSpan = std::log(endHz / startHz);
     const double growth = logSpan > 1.0e-9 ? durationSeconds / logSpan : 0.0;
+    constexpr double twoPi = 2.0 * kPi;
+    const double phaseScale = logSpan > 1.0e-9 ? twoPi * startHz * growth : 0.0;
 
     filter.samples.assign(sweepSamples.size(), 0.0);
     for (size_t i = 0; i < sweepSamples.size(); ++i) {
         const double t = static_cast<double>(i) / static_cast<double>(std::max(sampleRate, 1));
         const double weight = growth > 0.0 ? std::exp(-t / growth) : 1.0;
-        filter.samples[i] = sweepSamples[sweepSamples.size() - 1 - i] * weight;
+        const double reverseTimeSeconds =
+            static_cast<double>(sweepSamples.size() - 1 - i) / static_cast<double>(std::max(sampleRate, 1));
+        const double phase = logSpan > 1.0e-9
+            ? phaseScale * (std::exp(reverseTimeSeconds / growth) - 1.0)
+            : twoPi * startHz * reverseTimeSeconds;
+        filter.samples[i] = std::sin(phase) * weight;
     }
 
     const std::vector<double> selfDeconvolved = convolveReal(sweepSamples, filter.samples);
@@ -256,6 +263,32 @@ InverseSweepFilter buildInverseSweepFilter(const std::vector<double>& sweepSampl
         }
     }
     return filter;
+}
+
+std::vector<double> buildDeconvolutionKernelImpulseResponse(const SweepPlaybackPlan& playbackPlan,
+                                                            const InverseSweepFilter& inverseFilter,
+                                                            const MeasurementSettings& settings) {
+    if (playbackPlan.playedSweep.empty() || inverseFilter.samples.empty()) {
+        return {};
+    }
+
+    const std::vector<double> selfDeconvolved = convolveReal(playbackPlan.playedSweep, inverseFilter.samples);
+    if (selfDeconvolved.empty()) {
+        return {};
+    }
+
+    const size_t peakIndex = std::min(inverseFilter.referencePeakIndex, selfDeconvolved.size() - 1);
+    const size_t requestedTargetLength = static_cast<size_t>(std::max(settings.targetLengthSamples, 512));
+    const size_t targetLength = std::min(requestedTargetLength, selfDeconvolved.size());
+    if (targetLength == 0) {
+        return {};
+    }
+
+    const size_t preRollFrames = std::min<size_t>(std::min(targetLength / 8, size_t{512}), peakIndex);
+    const size_t impulseStart = peakIndex - preRollFrames;
+    const size_t availableLength = std::min(targetLength, selfDeconvolved.size() - impulseStart);
+    return std::vector<double>(selfDeconvolved.begin() + static_cast<std::ptrdiff_t>(impulseStart),
+                               selfDeconvolved.begin() + static_cast<std::ptrdiff_t>(impulseStart + availableLength));
 }
 
 std::vector<double> extractCaptureSegment(const std::vector<int16_t>& capturedSamples,
@@ -587,6 +620,27 @@ std::vector<std::complex<double>> buildHermitianSpectrumFromPositiveBins(
     return fullSpectrum;
 }
 
+std::vector<std::complex<double>> compensateTransferSpectrum(const std::vector<std::complex<double>>& measuredSpectrum,
+                                                             const std::vector<std::complex<double>>& kernelSpectrum) {
+    if (measuredSpectrum.empty() || kernelSpectrum.empty() || measuredSpectrum.size() != kernelSpectrum.size()) {
+        return measuredSpectrum;
+    }
+
+    double maxKernelNorm = 0.0;
+    for (const std::complex<double>& value : kernelSpectrum) {
+        maxKernelNorm = std::max(maxKernelNorm, std::norm(value));
+    }
+    const double regularization = std::max(maxKernelNorm * 1.0e-6, 1.0e-12);
+
+    std::vector<std::complex<double>> compensated(measuredSpectrum.size(), {0.0, 0.0});
+    for (size_t index = 0; index < measuredSpectrum.size(); ++index) {
+        const std::complex<double>& kernelValue = kernelSpectrum[index];
+        compensated[index] = measuredSpectrum[index] *
+                             (std::conj(kernelValue) / (std::norm(kernelValue) + regularization));
+    }
+    return compensated;
+}
+
 bool appendReferenceCompensatedTransferValueSets(MeasurementResult& result,
                                                  const MeasurementResult* referenceResult,
                                                  std::string_view windowKey,
@@ -890,6 +944,13 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
     trimChannelAnalysisToPreRoll(leftAnalysis, commonPreRollFrames);
     trimChannelAnalysisToPreRoll(rightAnalysis, commonPreRollFrames);
 
+    std::vector<double> deconvolutionKernelImpulse =
+        buildDeconvolutionKernelImpulseResponse(playbackPlan, inverseFilter, settings);
+    size_t kernelPreRollFrames =
+        std::min<size_t>(std::min(static_cast<size_t>(std::max(settings.targetLengthSamples, 512)) / 8, size_t{512}),
+                         inverseFilter.referencePeakIndex);
+    trimImpulseToPreRoll(deconvolutionKernelImpulse, kernelPreRollFrames, commonPreRollFrames);
+
     const size_t impulseLength = std::min(leftAnalysis.impulseResponse.size(), rightAnalysis.impulseResponse.size());
     if (impulseLength == 0) {
         return result;
@@ -897,6 +958,9 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
 
     leftAnalysis.impulseResponse.resize(impulseLength);
     rightAnalysis.impulseResponse.resize(impulseLength);
+    if (!deconvolutionKernelImpulse.empty()) {
+        deconvolutionKernelImpulse.resize(std::min(deconvolutionKernelImpulse.size(), impulseLength));
+    }
 
     MeasurementValueSet rawImpulseResponse;
     rawImpulseResponse.key = "measurement.raw_impulse_response";
@@ -939,6 +1003,18 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                     directWindowLength,
                                     commonPreRollFrames,
                                     rightDirectFadeFrames);
+    size_t kernelRoomFadeFrames = 0;
+    size_t kernelDirectFadeFrames = 0;
+    const std::vector<double> kernelRoomWindowedImpulse =
+        buildWindowedImpulseSegment(deconvolutionKernelImpulse,
+                                    deconvolutionKernelImpulse.size(),
+                                    commonPreRollFrames,
+                                    kernelRoomFadeFrames);
+    const std::vector<double> kernelDirectWindowedImpulse =
+        buildWindowedImpulseSegment(deconvolutionKernelImpulse,
+                                    std::min(directWindowLength, deconvolutionKernelImpulse.size()),
+                                    commonPreRollFrames,
+                                    kernelDirectFadeFrames);
 
     appendValueSetIfValid(result,
                           buildImpulseValueSet("measurement.room_impulse_response",
@@ -955,11 +1031,23 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                     rightRoomWindowedImpulse.size(),
                                                     leftDirectWindowedImpulse.size(),
                                                     rightDirectWindowedImpulse.size(),
+                                                    kernelRoomWindowedImpulse.size(),
+                                                    kernelDirectWindowedImpulse.size(),
                                                     size_t{4096}}));
-    const std::vector<std::complex<double>> leftRoomSpectrum = fftOfRealSignal(leftRoomWindowedImpulse, fftSize);
-    const std::vector<std::complex<double>> rightRoomSpectrum = fftOfRealSignal(rightRoomWindowedImpulse, fftSize);
-    const std::vector<std::complex<double>> leftDirectSpectrum = fftOfRealSignal(leftDirectWindowedImpulse, fftSize);
-    const std::vector<std::complex<double>> rightDirectSpectrum = fftOfRealSignal(rightDirectWindowedImpulse, fftSize);
+    const std::vector<std::complex<double>> rawLeftRoomSpectrum = fftOfRealSignal(leftRoomWindowedImpulse, fftSize);
+    const std::vector<std::complex<double>> rawRightRoomSpectrum = fftOfRealSignal(rightRoomWindowedImpulse, fftSize);
+    const std::vector<std::complex<double>> rawLeftDirectSpectrum = fftOfRealSignal(leftDirectWindowedImpulse, fftSize);
+    const std::vector<std::complex<double>> rawRightDirectSpectrum = fftOfRealSignal(rightDirectWindowedImpulse, fftSize);
+    const std::vector<std::complex<double>> kernelRoomSpectrum = fftOfRealSignal(kernelRoomWindowedImpulse, fftSize);
+    const std::vector<std::complex<double>> kernelDirectSpectrum = fftOfRealSignal(kernelDirectWindowedImpulse, fftSize);
+    const std::vector<std::complex<double>> leftRoomSpectrum =
+        compensateTransferSpectrum(rawLeftRoomSpectrum, kernelRoomSpectrum);
+    const std::vector<std::complex<double>> rightRoomSpectrum =
+        compensateTransferSpectrum(rawRightRoomSpectrum, kernelRoomSpectrum);
+    const std::vector<std::complex<double>> leftDirectSpectrum =
+        compensateTransferSpectrum(rawLeftDirectSpectrum, kernelDirectSpectrum);
+    const std::vector<std::complex<double>> rightDirectSpectrum =
+        compensateTransferSpectrum(rawRightDirectSpectrum, kernelDirectSpectrum);
     if (leftRoomSpectrum.empty() || rightRoomSpectrum.empty() ||
         leftDirectSpectrum.empty() || rightDirectSpectrum.empty()) {
         return result;

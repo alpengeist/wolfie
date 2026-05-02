@@ -163,6 +163,23 @@ double meanBandDelta(const std::vector<double>& leftValues,
     return used == 0 ? 0.0 : sum / static_cast<double>(used);
 }
 
+double meanBandLevel(const std::vector<double>& values,
+                     const std::vector<double>& frequencyAxisHz,
+                     double minFrequencyHz,
+                     double maxFrequencyHz) {
+    const size_t count = std::min(values.size(), frequencyAxisHz.size());
+    double sum = 0.0;
+    size_t used = 0;
+    for (size_t index = 0; index < count; ++index) {
+        if (frequencyAxisHz[index] < minFrequencyHz || frequencyAxisHz[index] > maxFrequencyHz) {
+            continue;
+        }
+        sum += values[index];
+        ++used;
+    }
+    return used == 0 ? 0.0 : sum / static_cast<double>(used);
+}
+
 bool expectMeasurementResultValueSets() {
     wolfie::MeasurementSettings settings;
     settings.sampleRate = 48000;
@@ -341,6 +358,52 @@ bool expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts() {
     return true;
 }
 
+bool expectReferenceLoopbackStaysFlatIntoLowBass() {
+    wolfie::MeasurementSettings settings;
+    settings.sampleRate = 48000;
+    settings.durationSeconds = 15.0;
+    settings.fadeInSeconds = 0.05;
+    settings.fadeOutSeconds = 0.1;
+    settings.leadInSamples = 6000;
+    settings.targetLengthSamples = 65536;
+
+    const int delaySamples = 180;
+    const wolfie::measurement::SweepPlaybackPlan plan =
+        wolfie::measurement::buildSweepPlaybackPlan(settings, -12.0, wolfie::MeasurementRunMode::Reference);
+    const std::vector<int16_t> capture = synthesizeMeasurementCapture(plan,
+                                                                      delaySamples,
+                                                                      0.8,
+                                                                      0.8);
+    const wolfie::MeasurementResult result =
+        wolfie::measurement::buildMeasurementResultFromCapture(capture,
+                                                               plan,
+                                                               settings.sampleRate,
+                                                               wolfie::AudioSettings{},
+                                                               settings);
+
+    const wolfie::MeasurementValueSet* magnitude = result.findValueSet("measurement.magnitude_response");
+    if (magnitude == nullptr || !magnitude->valid()) {
+        std::cerr << "reference loopback magnitude response is missing\n";
+        return false;
+    }
+
+    const double midBandDb = meanBandLevel(magnitude->leftValues, magnitude->xValues, 200.0, 1000.0);
+    const double bassBandDb = meanBandLevel(magnitude->leftValues, magnitude->xValues, 30.0, 100.0);
+    const double edgeBandDb = meanBandLevel(magnitude->leftValues, magnitude->xValues, 20.0, 25.0);
+    if (std::abs(bassBandDb - midBandDb) > 0.75) {
+        std::cerr << "reference loopback lost low-bass flatness (bass-mid delta="
+                  << (bassBandDb - midBandDb) << " dB)\n";
+        return false;
+    }
+    if (std::abs(edgeBandDb - midBandDb) > 1.5) {
+        std::cerr << "reference loopback rolled off at the sweep start (20-25 Hz delta="
+                  << (edgeBandDb - midBandDb) << " dB)\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectMeasurementPublishesReferenceCompensatedTransferProducts() {
     wolfie::MeasurementSettings settings;
     settings.sampleRate = 48000;
@@ -463,6 +526,7 @@ int main() {
         {"expectMeasurementResultValueSets", expectMeasurementResultValueSets},
         {"expectSweepDeconvolutionProducesImpulseLikePeak", expectSweepDeconvolutionProducesImpulseLikePeak},
         {"expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts", expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts},
+        {"expectReferenceLoopbackStaysFlatIntoLowBass", expectReferenceLoopbackStaysFlatIntoLowBass},
         {"expectMeasurementPublishesReferenceCompensatedTransferProducts", expectMeasurementPublishesReferenceCompensatedTransferProducts},
         {"expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment", expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment},
         {"expectWaterfallPlotData", expectWaterfallPlotData},

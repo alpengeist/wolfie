@@ -39,7 +39,7 @@ struct AudioSettings {
 
 struct MeasurementSettings {
     int sampleRate = 44100;
-    double fadeInSeconds = 0.5;
+    double fadeInSeconds = 0.05;
     double fadeOutSeconds = 0.1;
     double durationSeconds = 20.0;
     double startFrequencyHz = 20.0;
