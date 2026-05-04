@@ -799,6 +799,25 @@ bool expectAlignmentPlaybackBurstStartsAndEndsQuietly() {
     return true;
 }
 
+bool expectAlignmentPlaybackCycleIsResponsive() {
+    const wolfie::MeasurementSettings settings = buildAlignmentSettings(48000);
+    const wolfie::measurement::SweepPlaybackPlan plan =
+        wolfie::measurement::buildSweepPlaybackPlan(settings, -12.0, wolfie::MeasurementRunMode::Alignment);
+
+    const double cycleDurationSeconds =
+        static_cast<double>(plan.totalFrames) / static_cast<double>(std::max(settings.sampleRate, 1));
+    if (cycleDurationSeconds > 0.32) {
+        std::cerr << "alignment playback cycle is still too slow (" << cycleDurationSeconds << " s)\n";
+        return false;
+    }
+    if (plan.postRollFrames < static_cast<size_t>(settings.targetLengthSamples)) {
+        std::cerr << "alignment playback cycle shortened below the target impulse window\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectSweetSpotAlignmentViewHandlesAbsoluteImpulseTimeAxis() {
     wolfie::MeasurementResult result;
     result.analysis.sampleRate = 48000;
@@ -1161,6 +1180,11 @@ bool expectAlignmentMatchedCorrelationHandlesPolarityInversion() {
                   << view.delayMismatchSamples << ")\n";
         return false;
     }
+    if (*std::min_element(view.leftImpulse.begin(), view.leftImpulse.end()) < -1.0e-6 ||
+        *std::min_element(view.rightImpulse.begin(), view.rightImpulse.end()) < -1.0e-6) {
+        std::cerr << "alignment view still displays negative pulse lobes under polarity inversion\n";
+        return false;
+    }
 
     return true;
 }
@@ -1219,6 +1243,7 @@ int main() {
         {"expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment", expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment},
         {"expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker", expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker},
         {"expectAlignmentPlaybackBurstStartsAndEndsQuietly", expectAlignmentPlaybackBurstStartsAndEndsQuietly},
+        {"expectAlignmentPlaybackCycleIsResponsive", expectAlignmentPlaybackCycleIsResponsive},
         {"expectSweetSpotAlignmentViewHandlesAbsoluteImpulseTimeAxis", expectSweetSpotAlignmentViewHandlesAbsoluteImpulseTimeAxis},
         {"expectSweetSpotAlignmentViewUsesCenteredDeadband", expectSweetSpotAlignmentViewUsesCenteredDeadband},
         {"expectSweetSpotAlignmentViewDetectsPolarityMismatch", expectSweetSpotAlignmentViewDetectsPolarityMismatch},

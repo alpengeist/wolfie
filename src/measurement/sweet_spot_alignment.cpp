@@ -280,6 +280,13 @@ SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& resu
         view.polarityMismatchDetected = true;
     }
 
+    for (double& value : leftImpulse) {
+        value = std::abs(value);
+    }
+    for (double& value : rightImpulse) {
+        value = std::abs(value);
+    }
+
     const double availableMinTimeMs = std::min(leftTimeMs.front(), rightTimeMs.front());
     const double availableMaxTimeMs = std::max(leftTimeMs.back(), rightTimeMs.back());
     const double graphHalfWindowMs =
