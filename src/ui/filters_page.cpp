@@ -19,8 +19,6 @@ constexpr double kSmoothnessSteps[] = {
     1.0,
     2.0,
     4.0,
-    4.0 + (1.0 / 3.0),
-    4.0 + (2.0 / 3.0),
 };
 constexpr int kSmoothnessStepCount = static_cast<int>(sizeof(kSmoothnessSteps) / sizeof(kSmoothnessSteps[0]));
 constexpr int kGroupDelayZoomRangesMs[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
@@ -308,17 +306,6 @@ void FiltersPage::createControls() {
     helpBubble_.registerLabel(controls_.labelMixedPhaseMax, L"Sets the highest frequency where mixed-phase correction is allowed.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseStrength, L"Controls how strongly mixed-phase correction is applied within the allowed range.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseCap, L"Caps the maximum phase rotation the mixed-phase solver may request.");
-    controls_.checkboxSyncHoverFrequency = CreateWindowW(L"BUTTON",
-                                                         L"Sync hover cursor",
-                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                                         0,
-                                                         0,
-                                                         0,
-                                                         0,
-                                                         window_,
-                                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxSyncHoverFrequency)),
-                                                         instance_,
-                                                         nullptr);
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.inversionLegendFrame = CreateWindowW(L"STATIC",
@@ -673,6 +660,10 @@ void FiltersPage::createControls() {
     excessPhaseGraph_.create(window_, instance_, kExcessPhaseGraph);
     groupDelayGraph_.create(window_, instance_, kGroupDelayGraph);
     impulseGraph_.create(window_, instance_, kImpulseGraph);
+    correctionGraph_.setHoverCrosshairEnabled(true);
+    correctedGraph_.setHoverCrosshairEnabled(true);
+    excessPhaseGraph_.setHoverCrosshairEnabled(true);
+    groupDelayGraph_.setHoverCrosshairEnabled(true);
     refreshPhaseModeControls();
     refreshRecalculateButton();
 }
@@ -728,7 +719,6 @@ void FiltersPage::layout() {
     int y = top + 174;
     const int legendLeft = contentLeft + contentWidth - legendWidth;
     const int graphRight = legendLeft - legendGap;
-    MoveWindow(controls_.checkboxSyncHoverFrequency, graphRight - 168, y - 2, 168, 20, TRUE);
     MoveWindow(controls_.inversionTitle, contentLeft, y, 120, 18, TRUE);
     const int frameTop = y + 24;
     MoveWindow(controls_.inversionLegendFrame, legendLeft, frameTop, legendWidth, graphHeight, TRUE);
@@ -1002,10 +992,7 @@ void FiltersPage::loadViewSettings(const UiSettings& ui) {
     showFilterGroupDelayRight_ = ui.filterShowFilterGroupDelayRight;
     alignGroupDelayLatency_ = ui.filterAlignGroupDelayLatency;
     groupDelayZoomPreset_ = clampGroupDelayZoomPreset(ui.filterGroupDelayZoomPreset);
-    syncHoverFrequencyEnabled_ = ui.filterSyncHoverFrequency;
-    if (!syncHoverFrequencyEnabled_) {
-        sharedFrequencyHoverActive_ = false;
-    }
+    sharedFrequencyHoverActive_ = false;
 }
 
 void FiltersPage::syncViewSettingsToControls() const {
@@ -1062,10 +1049,6 @@ void FiltersPage::syncViewSettingsToControls() const {
                  alignGroupDelayLatency_ ? BST_CHECKED : BST_UNCHECKED,
                  0);
     setSelectedGroupDelayZoomPreset(groupDelayZoomPreset_);
-    SendMessageW(controls_.checkboxSyncHoverFrequency,
-                 BM_SETCHECK,
-                 syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED,
-                 0);
 }
 
 void FiltersPage::syncViewSettingsFromControls() {
@@ -1099,10 +1082,6 @@ void FiltersPage::syncViewSettingsFromControls() {
         SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     alignGroupDelayLatency_ = SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
     groupDelayZoomPreset_ = selectedGroupDelayZoomPreset();
-    syncHoverFrequencyEnabled_ = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    if (!syncHoverFrequencyEnabled_) {
-        sharedFrequencyHoverActive_ = false;
-    }
 }
 
 void FiltersPage::saveViewSettings(UiSettings& ui) const {
@@ -1139,7 +1118,6 @@ void FiltersPage::saveViewSettings(UiSettings& ui) const {
     ui.filterAlignGroupDelayLatency =
         SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterGroupDelayZoomPreset = selectedGroupDelayZoomPreset();
-    ui.filterSyncHoverFrequency = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
 }
 
 FilterDesignSettings FiltersPage::currentSettings() const {
@@ -1264,10 +1242,6 @@ bool FiltersPage::handleCommand(WORD commandId,
                                 bool& viewSettingsChanged) {
     PlotGraph* frequencyGraph = frequencyGraphForCommandId(commandId);
     if (frequencyGraph != nullptr && notificationCode == PlotGraph::kHoverChangedNotification) {
-        if (!syncHoverFrequencyEnabled_) {
-            return true;
-        }
-
         sharedFrequencyHoverActive_ = frequencyGraph->hasHoveredXValue();
         if (sharedFrequencyHoverActive_) {
             sharedFrequencyHoverHz_ = frequencyGraph->hoveredXValue();
@@ -1332,8 +1306,7 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowPredictedGroupDelayLeft ||
          commandId == kCheckboxShowFilterGroupDelayLeft ||
          commandId == kCheckboxShowFilterGroupDelayRight ||
-         commandId == kCheckboxAlignGroupDelayLatency ||
-         commandId == kCheckboxSyncHoverFrequency) &&
+         commandId == kCheckboxAlignGroupDelayLatency) &&
         notificationCode == BN_CLICKED) {
         syncViewSettingsFromControls();
         saveViewSettings(workspace.ui);
@@ -1776,10 +1749,10 @@ void FiltersPage::handleVScroll(WORD code, WORD thumbPosition) {
 }
 
 void FiltersPage::applySharedFrequencyHoverMarker() {
-    correctionGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
-    correctedGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
-    excessPhaseGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
-    groupDelayGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    correctionGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    correctedGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    excessPhaseGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    groupDelayGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
 }
 
 PlotGraph* FiltersPage::frequencyGraphForCommandId(WORD commandId) {

@@ -105,7 +105,6 @@ struct UiSettings {
     bool filterShowFilterGroupDelayRight = true;
     bool filterAlignGroupDelayLatency = false;
     int filterGroupDelayZoomPreset = 5;
-    bool filterSyncHoverFrequency = false;
     bool exportSampleRatesCustomized = false;
     std::vector<int> exportSampleRatesHz;
 };

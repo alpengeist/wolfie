@@ -19,7 +19,7 @@ namespace {
 
 constexpr double kRadiansToDegrees = 180.0 / std::numbers::pi_v<double>;
 constexpr double kDegreesToRadians = std::numbers::pi_v<double> / 180.0;
-constexpr double kMaxSmoothness = 4.0 + (2.0 / 3.0);
+constexpr double kMaxSmoothness = 4.0;
 enum class NormalizedPhaseMode {
     Minimum,
     ExcessLf,

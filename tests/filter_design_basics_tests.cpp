@@ -40,44 +40,6 @@ double interpolateLogFrequency(const std::vector<double>& frequencyAxisHz,
     return y0 + ((y1 - y0) * t);
 }
 
-double bandMaxAdjacentAbsDelta(const std::vector<double>& frequencyAxisHz,
-                               const std::vector<double>& values,
-                               double minFrequencyHz,
-                               double maxFrequencyHz) {
-    const size_t count = std::min(frequencyAxisHz.size(), values.size());
-    double maxDelta = 0.0;
-    bool havePrevious = false;
-    double previousValue = 0.0;
-    for (size_t index = 0; index < count; ++index) {
-        if (!std::isfinite(values[index])) {
-            continue;
-        }
-        if (frequencyAxisHz[index] < minFrequencyHz || frequencyAxisHz[index] > maxFrequencyHz) {
-            continue;
-        }
-        if (havePrevious) {
-            maxDelta = std::max(maxDelta, std::abs(values[index] - previousValue));
-        }
-        previousValue = values[index];
-        havePrevious = true;
-    }
-    return maxDelta;
-}
-
-wolfie::SmoothedResponse buildNarrowPeakResponse() {
-    wolfie::SmoothedResponse response;
-    response.frequencyAxisHz = wolfie::tests::buildLogAxis(20.0, 20000.0, 512);
-    response.leftChannelDb.reserve(response.frequencyAxisHz.size());
-    response.rightChannelDb.reserve(response.frequencyAxisHz.size());
-    for (const double frequencyHz : response.frequencyAxisHz) {
-        const double peakDb =
-            9.0 * std::exp(-std::pow((std::log10(std::max(frequencyHz, 1.0)) - std::log10(220.0)) / 0.055, 2.0));
-        response.leftChannelDb.push_back(peakDb);
-        response.rightChannelDb.push_back(peakDb);
-    }
-    return response;
-}
-
 bool expectDesignedFilterLooksSane() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -328,7 +290,6 @@ bool expectDefaultSettingsUseNoBoostCeiling() {
         return false;
     }
 
-    return true;
     return true;
 }
 

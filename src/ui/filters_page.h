@@ -66,7 +66,6 @@ private:
         HWND editMixedPhaseCap = nullptr;
         HWND unitMixedPhaseCap = nullptr;
         HWND buttonRecalculate = nullptr;
-        HWND checkboxSyncHoverFrequency = nullptr;
         HWND inversionTitle = nullptr;
         HWND inversionLegendFrame = nullptr;
         HWND checkboxShowInputRight = nullptr;
@@ -160,7 +159,6 @@ private:
     static constexpr int kCheckboxShowInversionLeft = 3410;
     static constexpr int kCheckboxShowCorrectedLeft = 3412;
     static constexpr int kCheckboxShowCorrectedRight = 3413;
-    static constexpr int kCheckboxSyncHoverFrequency = 3414;
     static constexpr int kCheckboxShowCorrectedInputLeft = 3415;
     static constexpr int kCheckboxShowCorrectedInputRight = 3416;
     static constexpr int kCorrectionGraph = 3420;
@@ -269,7 +267,6 @@ private:
     bool showFilterGroupDelayRight_ = true;
     bool alignGroupDelayLatency_ = false;
     int groupDelayZoomPreset_ = 5;
-    bool syncHoverFrequencyEnabled_ = false;
     bool sharedFrequencyHoverActive_ = false;
     double sharedFrequencyHoverHz_ = 1000.0;
     FilterDesignSettings appliedSettings_{};
