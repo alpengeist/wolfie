@@ -5,6 +5,8 @@
 #include "test_harness.h"
 
 #include "measurement/filter_designer.h"
+#include "measurement/phase_preparation.h"
+#include "measurement/response_smoother.h"
 #include "measurement/target_curve_designer.h"
 
 namespace {
@@ -403,6 +405,44 @@ bool expectExcessPhaseWindowReducesLateTailContribution() {
     return true;
 }
 
+bool expectExcessPhaseWindowPreservesResponseAxisDensity() {
+    wolfie::MeasurementResult measurement;
+    const std::vector<double> responseAxisHz = wolfie::tests::buildLogAxis(20.0, 20000.0, 512);
+    measurement.valueSets.push_back(wolfie::tests::buildImpulseValueSet(0.0));
+    measurement.valueSets.back().key = "measurement.direct_impulse_response";
+    measurement.valueSets.push_back(
+        wolfie::tests::buildFlatMagnitudeSpectrum(responseAxisHz, "measurement.direct_magnitude_response"));
+    measurement.valueSets.push_back(
+        wolfie::tests::buildWrappedPhaseSpectrum(responseAxisHz,
+                                                "measurement.direct_phase_response",
+                                                0.0,
+                                                1.5,
+                                                -1.0));
+
+    wolfie::ResponseSmoothingSettings smoothing;
+    wolfie::measurement::normalizeResponseSmoothingSettings(smoothing);
+
+    const wolfie::measurement::PreparedPhaseData prepared =
+        wolfie::measurement::preparePhaseData(&measurement,
+                                              smoothing,
+                                              48000,
+                                              262144,
+                                              15.0);
+    if (!prepared.valid) {
+        std::cerr << "response-axis preservation case did not produce valid prepared phase data\n";
+        return false;
+    }
+    if (prepared.left.nativeFrequencyAxisHz.size() != responseAxisHz.size() ||
+        prepared.right.nativeFrequencyAxisHz.size() != responseAxisHz.size()) {
+        std::cerr << "excess-phase window promoted response data to an unusable axis density (left="
+                  << prepared.left.nativeFrequencyAxisHz.size() << ", right="
+                  << prepared.right.nativeFrequencyAxisHz.size() << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -478,6 +518,7 @@ int main() {
         {"expectPhasePreparationPrefersDirectSource", expectPhasePreparationPrefersDirectSource},
         {"expectPhasePreparationFallsBackToRawSource", expectPhasePreparationFallsBackToRawSource},
         {"expectExcessPhaseWindowReducesLateTailContribution", expectExcessPhaseWindowReducesLateTailContribution},
+        {"expectExcessPhaseWindowPreservesResponseAxisDensity", expectExcessPhaseWindowPreservesResponseAxisDensity},
         {"expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog", expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog},
     });
 }

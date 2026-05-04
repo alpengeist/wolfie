@@ -286,7 +286,7 @@ void FiltersPage::createControls() {
     controls_.editMixedPhaseMax = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseMax)), instance_, nullptr);
     controls_.unitMixedPhaseMax = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhaseWindow = CreateWindowW(L"STATIC", L"Excess Window", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseWindow = CreateWindowW(L"STATIC", L"Excess", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editExcessPhaseWindow = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditExcessPhaseWindow)), instance_, nullptr);
     controls_.unitExcessPhaseWindow = CreateWindowW(L"STATIC", L"ms", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -866,9 +866,10 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.editMaxCut, formatWideDouble(settings.maxCutDb, 1));
     setSelectedSmoothness(settings.smoothness);
     setWindowTextValue(controls_.editMixedPhaseMax, formatWideDouble(settings.mixedPhaseMaxFrequencyHz, 0));
-    setWindowTextValue(controls_.editExcessPhaseWindow, formatWideDouble(settings.excessPhaseWindowMs, 1));
+    setWindowTextValue(controls_.editExcessPhaseWindow, formatWideDouble(settings.excessPhaseWindowMs, 0));
     setWindowTextValue(controls_.editMixedPhaseStrength, formatWideDouble(settings.mixedPhaseStrength, 2));
     setWindowTextValue(controls_.editMixedPhaseCap, formatWideDouble(settings.mixedPhaseMaxCorrectionDegrees, 0));
+    refreshExcessPhaseWindowLabel();
     refreshPhaseModeControls();
     loadViewSettings(workspace.ui);
     syncViewSettingsToControls();
@@ -940,6 +941,13 @@ void FiltersPage::refreshSmoothnessValue() const {
     setWindowTextValue(controls_.valueSmoothness,
                        std::to_wstring(smoothnessDisplayValueFromSliderPosition(
                            SendMessageW(controls_.sliderSmoothness, TBM_GETPOS, 0, 0))));
+}
+
+void FiltersPage::refreshExcessPhaseWindowLabel() const {
+    double value = 0.0;
+    const bool parsed = tryParseDouble(getWindowTextValue(controls_.editExcessPhaseWindow), value);
+    const bool off = !parsed || std::abs(value) < 0.0005;
+    SetWindowTextW(controls_.labelExcessPhaseWindow, off ? L"Excess (Off)" : L"Excess");
 }
 
 int FiltersPage::selectedGroupDelayZoomPreset() const {
@@ -1304,6 +1312,9 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kEditMixedPhaseStrength ||
          commandId == kEditMixedPhaseCap) &&
         notificationCode == EN_CHANGE) {
+        if (commandId == kEditExcessPhaseWindow) {
+            refreshExcessPhaseWindowLabel();
+        }
         refreshRecalculateButton();
         return true;
     }

@@ -340,18 +340,30 @@ WindowedTransferData applyExcessPhaseWindow(const std::vector<double>& frequency
 
     const std::vector<double> linearAxisHz = buildLinearFrequencyAxis(sampleRate, static_cast<size_t>(fftSize));
     const size_t positiveCount = std::min(linearAxisHz.size(), (windowedSpectrum.size() / 2) + 1);
-    windowed.frequencyAxisHz.assign(linearAxisHz.begin(),
-                                    linearAxisHz.begin() + static_cast<std::ptrdiff_t>(positiveCount));
-    windowed.magnitudeDb.reserve(positiveCount);
-    windowed.phaseRadians.reserve(positiveCount);
+    std::vector<double> windowedLinearMagnitudeDb;
+    std::vector<double> windowedLinearPhaseRadians;
+    windowedLinearMagnitudeDb.reserve(positiveCount);
+    windowedLinearPhaseRadians.reserve(positiveCount);
     for (size_t index = 0; index < positiveCount; ++index) {
-        windowed.magnitudeDb.push_back(20.0 * std::log10(std::max(std::abs(windowedSpectrum[index]), 1.0e-9)));
-        windowed.phaseRadians.push_back(std::arg(windowedSpectrum[index]));
+        windowedLinearMagnitudeDb.push_back(20.0 * std::log10(std::max(std::abs(windowedSpectrum[index]), 1.0e-9)));
+        windowedLinearPhaseRadians.push_back(std::arg(windowedSpectrum[index]));
     }
-    windowed.phaseRadians = unwrapPhaseRadians(windowed.phaseRadians);
-    removeLinearDelay(windowed.phaseRadians,
-                      windowed.frequencyAxisHz,
+    windowedLinearPhaseRadians = unwrapPhaseRadians(windowedLinearPhaseRadians);
+    removeLinearDelay(windowedLinearPhaseRadians,
+                      linearAxisHz,
                       static_cast<double>(preRollFrames) / static_cast<double>(std::max(sampleRate, 1)));
+
+    windowed.frequencyAxisHz = frequencyAxisHz;
+    windowed.magnitudeDb.reserve(frequencyAxisHz.size());
+    windowed.phaseRadians.reserve(frequencyAxisHz.size());
+    for (const double frequencyHz : frequencyAxisHz) {
+        windowed.magnitudeDb.push_back(interpolateLinearFrequency(linearAxisHz,
+                                                                  windowedLinearMagnitudeDb,
+                                                                  frequencyHz));
+        windowed.phaseRadians.push_back(interpolateLinearFrequency(linearAxisHz,
+                                                                   windowedLinearPhaseRadians,
+                                                                   frequencyHz));
+    }
     if (!windowed.valid()) {
         return {};
     }

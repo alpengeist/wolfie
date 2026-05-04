@@ -216,6 +216,7 @@ private:
     void setSelectedSmoothness(double smoothness) const;
     [[nodiscard]] bool mixedModeSelected() const;
     void refreshSmoothnessValue() const;
+    void refreshExcessPhaseWindowLabel() const;
     [[nodiscard]] int selectedGroupDelayZoomPreset() const;
     void setSelectedGroupDelayZoomPreset(int preset) const;
     void refreshGroupDelayZoomValue() const;
