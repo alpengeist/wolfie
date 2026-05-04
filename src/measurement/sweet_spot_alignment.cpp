@@ -58,6 +58,26 @@ std::vector<double> normalizeImpulse(const std::vector<double>& values) {
     return normalized;
 }
 
+std::vector<double> buildDisplayEnvelope(const std::vector<double>& values, size_t radius) {
+    if (values.empty()) {
+        return {};
+    }
+
+    const size_t safeRadius = std::max<size_t>(1, radius);
+    std::vector<double> prefixEnergy(values.size() + 1, 0.0);
+    for (size_t index = 0; index < values.size(); ++index) {
+        prefixEnergy[index + 1] = prefixEnergy[index] + (values[index] * values[index]);
+    }
+
+    std::vector<double> envelope(values.size(), 0.0);
+    for (size_t index = 0; index < values.size(); ++index) {
+        const size_t begin = index > safeRadius ? index - safeRadius : 0;
+        const size_t end = std::min(values.size(), index + safeRadius + 1);
+        envelope[index] = prefixEnergy[end] - prefixEnergy[begin];
+    }
+    return normalizeImpulse(envelope);
+}
+
 double rmsValue(const std::vector<double>& values) {
     if (values.empty()) {
         return 0.0;
@@ -280,14 +300,10 @@ SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& resu
         view.polarityMismatchDetected = true;
     }
 
-    for (double& value : leftImpulse) {
-        value = std::abs(value);
-        value *= value;
-    }
-    for (double& value : rightImpulse) {
-        value = std::abs(value);
-        value *= value;
-    }
+    const size_t displayEnvelopeRadiusSamples =
+        std::clamp<size_t>(std::max<size_t>(1, innerRadiusSamples / 4), size_t{1}, size_t{4});
+    const std::vector<double> leftDisplayImpulse = buildDisplayEnvelope(leftImpulse, displayEnvelopeRadiusSamples);
+    const std::vector<double> rightDisplayImpulse = buildDisplayEnvelope(rightImpulse, displayEnvelopeRadiusSamples);
 
     const double availableMinTimeMs = std::min(leftTimeMs.front(), rightTimeMs.front());
     const double availableMaxTimeMs = std::max(leftTimeMs.back(), rightTimeMs.back());
@@ -309,8 +325,8 @@ SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& resu
     for (size_t index = 0; index < sampleCount; ++index) {
         const double x = minTimeMs + (static_cast<double>(index) * stepMs);
         view.timeAxisMs[index] = x;
-        view.leftImpulse[index] = interpolateLinear(leftTimeMs, leftImpulse, x);
-        view.rightImpulse[index] = interpolateLinear(rightTimeMs, rightImpulse, x);
+        view.leftImpulse[index] = interpolateLinear(leftTimeMs, leftDisplayImpulse, x);
+        view.rightImpulse[index] = interpolateLinear(rightTimeMs, rightDisplayImpulse, x);
     }
 
     return view;
