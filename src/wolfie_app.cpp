@@ -91,12 +91,12 @@ constexpr COLORREF kLogErrorColor = RGB(190, 0, 0);
 MeasurementSettings buildAlignmentMeasurementSettings(const MeasurementSettings& baseSettings) {
     MeasurementSettings settings = baseSettings;
     settings.durationSeconds = 0.0018;
-    settings.fadeInSeconds = 0.00025;
-    settings.fadeOutSeconds = 0.00025;
-    settings.startFrequencyHz = 4000.0;
-    settings.endFrequencyHz = 6200.0;
+    settings.fadeInSeconds = 0.00022;
+    settings.fadeOutSeconds = 0.00022;
+    settings.startFrequencyHz = 4400.0;
+    settings.endFrequencyHz = 6800.0;
     settings.targetLengthSamples = settings.sampleRate >= 96000 ? 1024 : 512;
-    settings.leadInSamples = std::max(settings.sampleRate / 40, 1024);
+    settings.leadInSamples = std::max(settings.sampleRate / 80, 768);
     return settings;
 }
 

@@ -191,11 +191,11 @@ wolfie::MeasurementSettings buildAlignmentSettings(int sampleRate) {
     wolfie::MeasurementSettings settings;
     settings.sampleRate = sampleRate;
     settings.durationSeconds = 0.0018;
-    settings.fadeInSeconds = 0.00025;
-    settings.fadeOutSeconds = 0.00025;
-    settings.startFrequencyHz = 2800.0;
-    settings.endFrequencyHz = 6200.0;
-    settings.leadInSamples = std::max(sampleRate / 40, 1024);
+    settings.fadeInSeconds = 0.00022;
+    settings.fadeOutSeconds = 0.00022;
+    settings.startFrequencyHz = 4400.0;
+    settings.endFrequencyHz = 6800.0;
+    settings.leadInSamples = std::max(sampleRate / 80, 768);
     settings.targetLengthSamples = sampleRate >= 96000 ? 1024 : 512;
     return settings;
 }
@@ -806,7 +806,7 @@ bool expectAlignmentPlaybackCycleIsResponsive() {
 
     const double cycleDurationSeconds =
         static_cast<double>(plan.totalFrames) / static_cast<double>(std::max(settings.sampleRate, 1));
-    if (cycleDurationSeconds > 0.32) {
+    if (cycleDurationSeconds > 0.19) {
         std::cerr << "alignment playback cycle is still too slow (" << cycleDurationSeconds << " s)\n";
         return false;
     }
@@ -990,8 +990,8 @@ bool expectSweetSpotAlignmentViewDetectsPolarityMismatch() {
 bool expectSweetSpotAlignmentViewSuppressesOuterSideLobes() {
     wolfie::MeasurementResult result;
     result.analysis.sampleRate = 48000;
-    result.analysis.startFrequencyHz = 4000.0;
-    result.analysis.endFrequencyHz = 6200.0;
+    result.analysis.startFrequencyHz = 4400.0;
+    result.analysis.endFrequencyHz = 6800.0;
     result.analysis.left.available = true;
     result.analysis.right.available = true;
     result.analysis.left.onsetTimeSeconds = 0.01230;

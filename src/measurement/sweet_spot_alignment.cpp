@@ -282,9 +282,11 @@ SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& resu
 
     for (double& value : leftImpulse) {
         value = std::abs(value);
+        value *= value;
     }
     for (double& value : rightImpulse) {
         value = std::abs(value);
+        value *= value;
     }
 
     const double availableMinTimeMs = std::min(leftTimeMs.front(), rightTimeMs.front());

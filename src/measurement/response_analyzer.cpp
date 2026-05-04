@@ -301,6 +301,58 @@ size_t stableAbsPeakIndexNear(const std::vector<double>& samples,
     return bestIndex;
 }
 
+size_t stablePeakIndexNear(const std::vector<double>& samples,
+                           double centerIndex,
+                           size_t radius) {
+    if (samples.empty()) {
+        return 0;
+    }
+
+    const size_t roundedCenter =
+        clampValue<size_t>(static_cast<size_t>(std::lround(centerIndex)), size_t{0}, samples.size() - 1);
+    const size_t begin = roundedCenter > radius ? roundedCenter - radius : 0;
+    const size_t end = std::min(samples.size(), roundedCenter + radius + 1);
+    double bestValue = -std::numeric_limits<double>::infinity();
+    double bestDistance = std::numeric_limits<double>::infinity();
+    size_t bestIndex = roundedCenter;
+    for (size_t index = begin; index < end; ++index) {
+        const double value = samples[index];
+        const double distance = std::abs(static_cast<double>(index) - centerIndex);
+        const double valueTolerance = std::max(std::abs(bestValue) * 0.02, 1.0e-9);
+        if (value > bestValue + valueTolerance) {
+            bestValue = value;
+            bestDistance = distance;
+            bestIndex = index;
+            continue;
+        }
+        if (std::abs(value - bestValue) <= valueTolerance && distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = index;
+        }
+    }
+    return bestIndex;
+}
+
+double quadraticPeakIndex(const std::vector<double>& values, size_t peakIndex) {
+    if (values.size() < 3 || peakIndex == 0 || peakIndex + 1 >= values.size()) {
+        return static_cast<double>(peakIndex);
+    }
+
+    const double left = values[peakIndex - 1];
+    const double center = values[peakIndex];
+    const double right = values[peakIndex + 1];
+    const double denominator = left - (2.0 * center) + right;
+    if (std::abs(denominator) <= 1.0e-12) {
+        return static_cast<double>(peakIndex);
+    }
+
+    const double offset = 0.5 * (left - right) / denominator;
+    if (!std::isfinite(offset) || std::abs(offset) > 1.0) {
+        return static_cast<double>(peakIndex);
+    }
+    return static_cast<double>(peakIndex) + offset;
+}
+
 size_t alignmentEnvelopeWindowFrames(const MeasurementSettings& settings, int sampleRate) {
     const double startHz = std::max(1.0, settings.startFrequencyHz);
     const double endHz = std::max(startHz + 1.0, settings.endFrequencyHz);
@@ -323,7 +375,7 @@ size_t matchedCorrelationEnvelopePeakIndex(const std::vector<double>& samples,
         prefixEnergy[index + 1] = prefixEnergy[index] + (samples[index] * samples[index]);
     }
 
-std::vector<double> envelope(samples.size(), 0.0);
+    std::vector<double> envelope(samples.size(), 0.0);
     for (size_t index = 0; index < samples.size(); ++index) {
         const size_t begin = index > radius ? index - radius : 0;
         const size_t end = std::min(samples.size(), index + radius + 1);
@@ -331,7 +383,9 @@ std::vector<double> envelope(samples.size(), 0.0);
     }
     const size_t envelopePeakIndex = maxIndex(envelope);
     const double centroidIndex = localEnvelopeCentroidIndex(envelope, envelopePeakIndex, windowFrames, 0.85);
-    return stableAbsPeakIndexNear(samples, centroidIndex, std::max<size_t>(2, windowFrames / 2));
+    const size_t localPeakIndex = stablePeakIndexNear(envelope, centroidIndex, std::max<size_t>(2, windowFrames / 2));
+    const double interpolatedPeakIndex = quadraticPeakIndex(envelope, localPeakIndex);
+    return clampValue<size_t>(static_cast<size_t>(std::lround(interpolatedPeakIndex)), size_t{0}, samples.size() - 1);
 }
 
 InverseSweepFilter buildInverseSweepFilter(const std::vector<double>& sweepSamples,

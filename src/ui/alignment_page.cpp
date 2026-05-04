@@ -15,7 +15,7 @@ constexpr int kArrowMinWidth = 96;
 constexpr int kArrowMaxWidth = 180;
 constexpr int kGraphMinWidth = 220;
 constexpr int kGraphMaxWidth = 420;
-constexpr int kGraphHeight = 170;
+constexpr int kGraphHeight = 340;
 constexpr int kSampleDeltaHeight = 42;
 constexpr int kSampleDeltaTopGap = 10;
 constexpr int kRunButtonWidth = 184;
@@ -271,12 +271,12 @@ bool AlignmentPage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
 PlotGraphData AlignmentPage::buildPulseGraphData() const {
     PlotGraphData data;
     data.xAxisMode = PlotGraphXAxisMode::Linear;
-    data.yAxisMode = PlotGraphYAxisMode::SymmetricAroundZero;
+    data.yAxisMode = PlotGraphYAxisMode::Auto;
     data.xUnit = L"ms";
     data.yUnit = L"";
     data.fixedYRange = true;
-    data.minY = -1.1;
-    data.maxY = 1.1;
+    data.minY = 0.0;
+    data.maxY = 1.05;
 
     if (!view_.available || view_.timeAxisMs.empty()) {
         data.xValues = {0.0, 1.0};
