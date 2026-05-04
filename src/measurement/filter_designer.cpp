@@ -863,6 +863,8 @@ PreparedPhaseView buildPredictedPhaseView(const PreparedPhaseChannel& inputChann
                                    smoothingSettings,
                                    sampleRate,
                                    fftSize,
+                                   false,
+                                   0.0,
                                    inputChannel.sourceKey + std::string(sourceSuffix));
     return resamplePreparedPhaseChannel(predicted, displayFrequencyAxisHz);
 }
@@ -1135,6 +1137,7 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     settings.displayPointCount = clampValue(settings.displayPointCount, 256, 4096);
     settings.mixedPhaseMaxFrequencyHz =
         clampValue(settings.mixedPhaseMaxFrequencyHz, 60.0, static_cast<double>(std::max((nyquist / 2), 120)));
+    settings.excessPhaseWindowMs = clampValue(settings.excessPhaseWindowMs, 0.0, 1000.0);
     settings.mixedPhaseStrength = clampValue(settings.mixedPhaseStrength, 0.0, 1.0);
     settings.mixedPhaseMaxCorrectionDegrees =
         clampValue(settings.mixedPhaseMaxCorrectionDegrees, 30.0, 720.0);
@@ -1188,11 +1191,19 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
         preparePhaseData(sourceMeasurement,
                          response.smoothingSettings,
                          exportMeasurement.sampleRate,
-                         fftSize);
+                         fftSize,
+                         settings.excessPhaseWindowMs);
     if (preparedPhase.valid) {
-        appendProcessLog(result.processLog,
-                         "Prepared matched phase data from " + describePhasePreparationSource(preparedPhase) +
-                             "; removed bulk delay " + formatMilliseconds(preparedPhase.bulkDelaySeconds) + ".");
+        std::string message = "Prepared matched phase data from " + describePhasePreparationSource(preparedPhase) +
+                              "; removed bulk delay " + formatMilliseconds(preparedPhase.bulkDelaySeconds) + ".";
+        if (settings.excessPhaseWindowMs > 0.0) {
+            std::ostringstream stream;
+            stream.setf(std::ios::fixed);
+            stream.precision(settings.excessPhaseWindowMs < 10.0 ? 1 : 0);
+            stream << settings.excessPhaseWindowMs;
+            message += " Applied excess-phase window " + stream.str() + " ms.";
+        }
+        appendProcessLog(result.processLog, std::move(message));
     } else if (sourceMeasurement != nullptr) {
         appendProcessLog(result.processLog,
                          "No matched phase-preparation source was available; proceeding with magnitude-only data.");

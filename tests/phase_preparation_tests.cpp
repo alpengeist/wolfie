@@ -1,3 +1,4 @@
+#include <cmath>
 #include <iostream>
 
 #include "filter_test_support.h"
@@ -341,6 +342,67 @@ bool expectPhasePreparationFallsBackToRawSource() {
     return true;
 }
 
+bool expectExcessPhaseWindowReducesLateTailContribution() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings fullWindowSettings;
+    fullWindowSettings.tapCount = 16384;
+    fullWindowSettings.phaseMode = "mixed";
+
+    wolfie::FilterDesignSettings shortWindowSettings = fullWindowSettings;
+    shortWindowSettings.excessPhaseWindowMs = 4.0;
+
+    const wolfie::MeasurementResult phaseMeasurement =
+        wolfie::tests::buildImpulsePhaseMeasurement(measurement.sampleRate,
+                                                    0.0,
+                                                    static_cast<int>(measurement.sampleRate * 0.012),
+                                                    0.7);
+    const wolfie::SmoothedResponse response = wolfie::tests::buildFlatResponse(0.0);
+    const wolfie::FilterDesignResult fullWindowResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           fullWindowSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult shortWindowResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           shortWindowSettings,
+                                           &phaseMeasurement);
+    if (!fullWindowResult.valid || !shortWindowResult.valid) {
+        std::cerr << "excess-phase window case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double fullBandMean = wolfie::tests::bandMeanAbs(fullWindowResult.frequencyAxisHz,
+                                                           fullWindowResult.left.inputExcessPhaseContinuousDegrees,
+                                                           20.0,
+                                                           300.0);
+    const double shortBandMean = wolfie::tests::bandMeanAbs(shortWindowResult.frequencyAxisHz,
+                                                            shortWindowResult.left.inputExcessPhaseContinuousDegrees,
+                                                            20.0,
+                                                            300.0);
+    if (!std::isfinite(fullBandMean) || !std::isfinite(shortBandMean) || shortBandMean >= fullBandMean * 0.75) {
+        std::cerr << "excess-phase window did not reduce late-tail contribution enough (full="
+                  << fullBandMean << ", short=" << shortBandMean << ")\n";
+        return false;
+    }
+
+    if (!wolfie::tests::processLogContains(shortWindowResult, "Applied excess-phase window 4.0 ms")) {
+        std::cerr << "process log did not mention the configured excess-phase window\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -415,6 +477,7 @@ int main() {
         {"expectExcessPhasePreparationIgnoresDisplayResponseShape", expectExcessPhasePreparationIgnoresDisplayResponseShape},
         {"expectPhasePreparationPrefersDirectSource", expectPhasePreparationPrefersDirectSource},
         {"expectPhasePreparationFallsBackToRawSource", expectPhasePreparationFallsBackToRawSource},
+        {"expectExcessPhaseWindowReducesLateTailContribution", expectExcessPhaseWindowReducesLateTailContribution},
         {"expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog", expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog},
     });
 }

@@ -40,6 +40,10 @@ wolfie::MeasurementResult buildPhaseMeasurementWithSourceAvailability(int sample
                                                                       double roomRightExcessScale,
                                                                       double rawLeftExcessScale,
                                                                       double rawRightExcessScale);
+wolfie::MeasurementResult buildImpulsePhaseMeasurement(int sampleRate,
+                                                       double delaySeconds,
+                                                       int lateTapOffsetSamples,
+                                                       double lateTapGain);
 
 std::vector<char> readFileBytes(const std::filesystem::path& path);
 double bandMeanAbs(const std::vector<double>& frequencyAxisHz,

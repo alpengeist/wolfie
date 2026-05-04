@@ -59,6 +59,9 @@ private:
         HWND labelMixedPhaseMax = nullptr;
         HWND editMixedPhaseMax = nullptr;
         HWND unitMixedPhaseMax = nullptr;
+        HWND labelExcessPhaseWindow = nullptr;
+        HWND editExcessPhaseWindow = nullptr;
+        HWND unitExcessPhaseWindow = nullptr;
         HWND labelMixedPhaseStrength = nullptr;
         HWND editMixedPhaseStrength = nullptr;
         HWND unitMixedPhaseStrength = nullptr;
@@ -188,6 +191,7 @@ private:
     static constexpr int kCheckboxAlignGroupDelayLatency = 3445;
     static constexpr int kEditMixedPhaseCap = 3446;
     static constexpr int kSliderGroupDelayZoom = 3447;
+    static constexpr int kEditExcessPhaseWindow = 3448;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK GroupDelayZoomSliderProc(HWND window,

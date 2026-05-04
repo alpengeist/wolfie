@@ -59,6 +59,45 @@ double interpolateLogFrequency(const std::vector<double>& frequencyAxisHz,
     return interpolateLinear(x, x0, values[lowerIndex], x1, values[upperIndex]);
 }
 
+double interpolateLinearFrequency(const std::vector<double>& frequencyAxisHz,
+                                  const std::vector<double>& values,
+                                  double frequencyHz) {
+    if (frequencyAxisHz.empty() || values.empty()) {
+        return 0.0;
+    }
+
+    const size_t count = std::min(frequencyAxisHz.size(), values.size());
+    if (count == 1 || frequencyHz <= frequencyAxisHz.front()) {
+        return values.front();
+    }
+    if (frequencyHz >= frequencyAxisHz[count - 1]) {
+        return values[count - 1];
+    }
+
+    const auto it = std::lower_bound(frequencyAxisHz.begin(),
+                                     frequencyAxisHz.begin() + static_cast<std::ptrdiff_t>(count),
+                                     frequencyHz);
+    const size_t upperIndex = static_cast<size_t>(std::distance(frequencyAxisHz.begin(), it));
+    if (upperIndex == 0) {
+        return values.front();
+    }
+
+    const size_t lowerIndex = upperIndex - 1;
+    return interpolateLinear(frequencyHz,
+                             frequencyAxisHz[lowerIndex],
+                             values[lowerIndex],
+                             frequencyAxisHz[upperIndex],
+                             values[upperIndex]);
+}
+
+double interpolateFrequency(const std::vector<double>& frequencyAxisHz,
+                            const std::vector<double>& values,
+                            double frequencyHz,
+                            bool sourceOnLogAxis) {
+    return sourceOnLogAxis ? interpolateLogFrequency(frequencyAxisHz, values, frequencyHz)
+                           : interpolateLinearFrequency(frequencyAxisHz, values, frequencyHz);
+}
+
 std::vector<double> resampleLogFrequency(const std::vector<double>& sourceAxisHz,
                                          const std::vector<double>& sourceValues,
                                          const std::vector<double>& destinationAxisHz) {
@@ -132,6 +171,191 @@ void removeLinearDelay(std::vector<double>& phaseRadians,
     for (size_t index = 0; index < count; ++index) {
         phaseRadians[index] += 2.0 * std::numbers::pi_v<double> * frequencyAxisHz[index] * delaySeconds;
     }
+}
+
+struct WindowedTransferData {
+    std::vector<double> frequencyAxisHz;
+    std::vector<double> magnitudeDb;
+    std::vector<double> phaseRadians;
+
+    [[nodiscard]] bool valid() const {
+        return !frequencyAxisHz.empty() &&
+               magnitudeDb.size() == frequencyAxisHz.size() &&
+               phaseRadians.size() == frequencyAxisHz.size();
+    }
+};
+
+size_t maxAbsIndex(const std::vector<double>& samples) {
+    if (samples.empty()) {
+        return 0;
+    }
+
+    size_t bestIndex = 0;
+    double bestMagnitude = 0.0;
+    for (size_t index = 0; index < samples.size(); ++index) {
+        const double magnitude = std::abs(samples[index]);
+        if (magnitude > bestMagnitude) {
+            bestMagnitude = magnitude;
+            bestIndex = index;
+        }
+    }
+    return bestIndex;
+}
+
+std::vector<std::complex<double>> buildPositiveSpectrumFromTransfer(const std::vector<double>& frequencyAxisHz,
+                                                                    const std::vector<double>& magnitudeDb,
+                                                                    const std::vector<double>& phaseRadians,
+                                                                    bool sourceOnLogAxis,
+                                                                    int sampleRate,
+                                                                    int fftSize) {
+    const size_t positiveBinCount = static_cast<size_t>(std::max(fftSize / 2, 0) + 1);
+    std::vector<std::complex<double>> positiveSpectrum;
+    positiveSpectrum.reserve(positiveBinCount);
+    for (size_t bin = 0; bin < positiveBinCount; ++bin) {
+        const double frequencyHz = static_cast<double>(sampleRate) * static_cast<double>(bin) /
+                                   static_cast<double>(std::max(fftSize, 1));
+        const double magnitudeAtBinDb = frequencyHz <= 0.0
+                                            ? magnitudeDb.front()
+                                            : interpolateFrequency(frequencyAxisHz, magnitudeDb, frequencyHz, sourceOnLogAxis);
+        const double phaseAtBinRadians = frequencyHz <= 0.0
+                                             ? phaseRadians.front()
+                                             : interpolateFrequency(frequencyAxisHz, phaseRadians, frequencyHz, sourceOnLogAxis);
+        positiveSpectrum.push_back(std::polar(std::pow(10.0, magnitudeAtBinDb / 20.0), phaseAtBinRadians));
+    }
+    return positiveSpectrum;
+}
+
+std::vector<std::complex<double>> buildFullSpectrumFromPositive(const std::vector<std::complex<double>>& positiveSpectrum,
+                                                                int fftSize) {
+    const size_t spectrumSize = static_cast<size_t>(std::max(fftSize, 1));
+    std::vector<std::complex<double>> spectrum(spectrumSize, {0.0, 0.0});
+    const size_t positiveCount = std::min(positiveSpectrum.size(), (spectrumSize / 2) + 1);
+    for (size_t index = 0; index < positiveCount; ++index) {
+        spectrum[index] = positiveSpectrum[index];
+    }
+    for (size_t index = 1; index + 1 < positiveCount; ++index) {
+        spectrum[spectrumSize - index] = std::conj(positiveSpectrum[index]);
+    }
+    return spectrum;
+}
+
+std::vector<double> buildImpulseFromPositiveSpectrum(const std::vector<std::complex<double>>& positiveSpectrum,
+                                                     int fftSize) {
+    std::vector<std::complex<double>> spectrum = buildFullSpectrumFromPositive(positiveSpectrum, fftSize);
+    fft(spectrum, true);
+
+    std::vector<double> impulse;
+    impulse.reserve(spectrum.size());
+    for (const std::complex<double>& sample : spectrum) {
+        impulse.push_back(sample.real());
+    }
+    return impulse;
+}
+
+std::vector<double> extractCircularWindow(const std::vector<double>& impulse,
+                                          size_t windowStart,
+                                          size_t windowLength) {
+    std::vector<double> window;
+    if (impulse.empty() || windowLength == 0) {
+        return window;
+    }
+
+    const size_t extractedLength = std::min(windowLength, impulse.size());
+    window.reserve(extractedLength);
+    for (size_t index = 0; index < extractedLength; ++index) {
+        window.push_back(impulse[(windowStart + index) % impulse.size()]);
+    }
+    return window;
+}
+
+void applyTailCosineWindow(std::vector<double>& samples, size_t preRollFrames) {
+    if (samples.size() < 16) {
+        return;
+    }
+
+    const size_t fadeFrames = std::clamp(samples.size() / 16, size_t{8}, size_t{512});
+    const size_t leadingFade = std::min(preRollFrames, fadeFrames);
+    if (leadingFade > 1) {
+        for (size_t index = 0; index < leadingFade; ++index) {
+            const double t = static_cast<double>(index) / static_cast<double>(leadingFade - 1);
+            const double weight = 0.5 - (0.5 * std::cos(std::numbers::pi_v<double> * t));
+            samples[index] *= weight;
+        }
+    }
+
+    if (fadeFrames > 1) {
+        for (size_t index = 0; index < fadeFrames; ++index) {
+            const double t = static_cast<double>(index) / static_cast<double>(fadeFrames - 1);
+            const double weight = 0.5 * (1.0 + std::cos(std::numbers::pi_v<double> * t));
+            samples[samples.size() - fadeFrames + index] *= weight;
+        }
+    }
+}
+
+WindowedTransferData applyExcessPhaseWindow(const std::vector<double>& frequencyAxisHz,
+                                            const std::vector<double>& magnitudeDb,
+                                            const std::vector<double>& delayCorrectedPhaseRadians,
+                                            bool sourceOnLogAxis,
+                                            int sampleRate,
+                                            int fftSize,
+                                            double excessPhaseWindowMs) {
+    WindowedTransferData windowed;
+    if (frequencyAxisHz.empty() || magnitudeDb.empty() || delayCorrectedPhaseRadians.empty()) {
+        return windowed;
+    }
+    if (!std::isfinite(excessPhaseWindowMs) || excessPhaseWindowMs <= 0.0) {
+        return windowed;
+    }
+
+    const std::vector<std::complex<double>> positiveSpectrum =
+        buildPositiveSpectrumFromTransfer(frequencyAxisHz,
+                                         magnitudeDb,
+                                         delayCorrectedPhaseRadians,
+                                         sourceOnLogAxis,
+                                         sampleRate,
+                                         fftSize);
+    std::vector<double> impulse = buildImpulseFromPositiveSpectrum(positiveSpectrum, fftSize);
+    if (impulse.empty()) {
+        return windowed;
+    }
+
+    const size_t requestedWindowFrames = static_cast<size_t>(std::llround(
+        excessPhaseWindowMs * static_cast<double>(std::max(sampleRate, 1)) / 1000.0));
+    const size_t windowLength = std::min(requestedWindowFrames, impulse.size());
+    if (windowLength < 16 || windowLength >= impulse.size()) {
+        return windowed;
+    }
+
+    const size_t peakIndex = maxAbsIndex(impulse);
+    const size_t preRollFrames = std::min<size_t>(windowLength / 8, 256);
+    const size_t start = (peakIndex + impulse.size() - std::min(preRollFrames, impulse.size() - 1)) % impulse.size();
+    std::vector<double> windowedImpulse = extractCircularWindow(impulse, start, windowLength);
+    applyTailCosineWindow(windowedImpulse, preRollFrames);
+
+    std::vector<std::complex<double>> windowedSpectrum(static_cast<size_t>(std::max(fftSize, 1)), {0.0, 0.0});
+    for (size_t index = 0; index < windowedImpulse.size() && index < windowedSpectrum.size(); ++index) {
+        windowedSpectrum[index] = {windowedImpulse[index], 0.0};
+    }
+    fft(windowedSpectrum, false);
+
+    const std::vector<double> linearAxisHz = buildLinearFrequencyAxis(sampleRate, static_cast<size_t>(fftSize));
+    const size_t positiveCount = std::min(linearAxisHz.size(), (windowedSpectrum.size() / 2) + 1);
+    windowed.frequencyAxisHz.assign(linearAxisHz.begin(),
+                                    linearAxisHz.begin() + static_cast<std::ptrdiff_t>(positiveCount));
+    windowed.magnitudeDb.reserve(positiveCount);
+    windowed.phaseRadians.reserve(positiveCount);
+    for (size_t index = 0; index < positiveCount; ++index) {
+        windowed.magnitudeDb.push_back(20.0 * std::log10(std::max(std::abs(windowedSpectrum[index]), 1.0e-9)));
+        windowed.phaseRadians.push_back(std::arg(windowedSpectrum[index]));
+    }
+    windowed.phaseRadians = unwrapPhaseRadians(windowed.phaseRadians);
+    removeLinearDelay(windowed.phaseRadians,
+                      windowed.frequencyAxisHz,
+                      static_cast<double>(preRollFrames) / static_cast<double>(std::max(sampleRate, 1)));
+    if (!windowed.valid()) {
+        return {};
+    }
+    return windowed;
 }
 
 std::vector<double> buildPositiveMagnitudeResponse(int sampleRate,
@@ -367,6 +591,8 @@ PreparedPhaseChannel prepareMatchedPhaseChannel(const std::vector<double>& nativ
                                                 const ResponseSmoothingSettings& smoothingSettings,
                                                 int sampleRate,
                                                 int fftSize,
+                                                bool sourceOnLogAxis,
+                                                double excessPhaseWindowMs,
                                                 std::string sourceKey) {
     PreparedPhaseChannel channel;
     const size_t count = std::min({nativeFrequencyAxisHz.size(), measuredMagnitudeDb.size(), unwrappedPhaseRadians.size()});
@@ -387,6 +613,22 @@ PreparedPhaseChannel prepareMatchedPhaseChannel(const std::vector<double>& nativ
     removeLinearDelay(channel.delayCorrectedPhaseRadians,
                       channel.nativeFrequencyAxisHz,
                       channel.bulkDelaySeconds);
+    if (excessPhaseWindowMs > 0.0) {
+        const WindowedTransferData windowed =
+            applyExcessPhaseWindow(channel.nativeFrequencyAxisHz,
+                                   channel.measuredMagnitudeDb,
+                                   channel.delayCorrectedPhaseRadians,
+                                   sourceOnLogAxis,
+                                   sampleRate,
+                                   fftSize,
+                                   excessPhaseWindowMs);
+        if (windowed.valid()) {
+            channel.nativeFrequencyAxisHz = windowed.frequencyAxisHz;
+            channel.measuredMagnitudeDb = windowed.magnitudeDb;
+            channel.measuredPhaseRadians = windowed.phaseRadians;
+            channel.delayCorrectedPhaseRadians = windowed.phaseRadians;
+        }
+    }
     channel.smoothedMagnitudeDb = smoothMagnitudeSeries(channel.nativeFrequencyAxisHz,
                                                         channel.measuredMagnitudeDb,
                                                         smoothingSettings);
@@ -406,7 +648,8 @@ PreparedPhaseChannel prepareMatchedPhaseChannel(const std::vector<double>& nativ
 PreparedPhaseData preparePhaseData(const MeasurementResult* result,
                                    const ResponseSmoothingSettings& smoothingSettings,
                                    int sampleRate,
-                                   int fftSize) {
+                                   int fftSize,
+                                   double excessPhaseWindowMs) {
     PreparedPhaseData prepared;
     const PhaseSourceSelection selection = selectPhaseSource(result);
     if (selection.magnitude == nullptr || selection.phase == nullptr) {
@@ -414,6 +657,7 @@ PreparedPhaseData preparePhaseData(const MeasurementResult* result,
     }
 
     const double bulkDelaySeconds = bulkDelaySecondsFromImpulse(result);
+    const bool sourceOnLogAxis = selection.sourceSeriesKind == "response";
     prepared.bulkDelaySeconds = bulkDelaySeconds;
     prepared.left = prepareMatchedPhaseChannel(selection.phase->xValues,
                                                selection.magnitude->leftValues,
@@ -422,6 +666,8 @@ PreparedPhaseData preparePhaseData(const MeasurementResult* result,
                                                smoothingSettings,
                                                sampleRate,
                                                fftSize,
+                                               sourceOnLogAxis,
+                                               excessPhaseWindowMs,
                                                selection.sourceKey);
     prepared.right = prepareMatchedPhaseChannel(selection.phase->xValues,
                                                 selection.magnitude->rightValues,
@@ -430,6 +676,8 @@ PreparedPhaseData preparePhaseData(const MeasurementResult* result,
                                                 smoothingSettings,
                                                 sampleRate,
                                                 fftSize,
+                                                sourceOnLogAxis,
+                                                excessPhaseWindowMs,
                                                 selection.sourceKey);
     prepared.valid = prepared.left.valid() && prepared.right.valid();
     prepared.sourceWindow = selection.sourceWindow;

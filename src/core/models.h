@@ -371,6 +371,7 @@ struct FilterDesignSettings {
     int displayPointCount = 2048;
     std::string phaseMode = "minimum";
     double mixedPhaseMaxFrequencyHz = 220.0;
+    double excessPhaseWindowMs = 0.0;
     double mixedPhaseStrength = 1.0;
     double mixedPhaseMaxCorrectionDegrees = 360.0;
 };

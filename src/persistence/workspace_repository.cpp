@@ -1372,6 +1372,7 @@ void writeWorkspaceSettingsJsonFile(const WorkspaceState& workspace) {
                   << "    \"filterDisplayPointCount\": " << workspace.filters.displayPointCount << ",\n"
                   << "    \"filterPhaseMode\": \"" << escapeJson(workspace.filters.phaseMode) << "\",\n"
                   << "    \"filterMixedPhaseMaxFrequencyHz\": " << workspace.filters.mixedPhaseMaxFrequencyHz << ",\n"
+                  << "    \"filterExcessPhaseWindowMs\": " << workspace.filters.excessPhaseWindowMs << ",\n"
                   << "    \"filterMixedPhaseStrength\": " << workspace.filters.mixedPhaseStrength << ",\n"
                   << "    \"filterMixedPhaseMaxCorrectionDegrees\": " << workspace.filters.mixedPhaseMaxCorrectionDegrees << "\n"
                   << "  },\n"
@@ -1750,6 +1751,9 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         }
         if (const auto value = findJsonNumber(*content, "filterMixedPhaseMaxFrequencyHz")) {
             workspace.filters.mixedPhaseMaxFrequencyHz = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "filterExcessPhaseWindowMs")) {
+            workspace.filters.excessPhaseWindowMs = *value;
         }
         if (const auto value = findJsonNumber(*content, "filterMixedPhaseStrength")) {
             workspace.filters.mixedPhaseStrength = *value;

@@ -286,6 +286,10 @@ void FiltersPage::createControls() {
     controls_.editMixedPhaseMax = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseMax)), instance_, nullptr);
     controls_.unitMixedPhaseMax = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseWindow = CreateWindowW(L"STATIC", L"Excess Window", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.editExcessPhaseWindow = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
+                                                      0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditExcessPhaseWindow)), instance_, nullptr);
+    controls_.unitExcessPhaseWindow = CreateWindowW(L"STATIC", L"ms", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMixedPhaseStrength = CreateWindowW(L"STATIC", L"Phase Strength", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseStrength = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                        0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseStrength)), instance_, nullptr);
@@ -304,6 +308,7 @@ void FiltersPage::createControls() {
     helpBubble_.registerLabel(controls_.labelMaxCut, L"Limits how much attenuation the calculated correction may apply.");
     helpBubble_.registerLabel(controls_.labelSmoothness, L"Controls how tightly the correction follows response detail instead of smoothing it out.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseMax, L"Sets the highest frequency where mixed-phase correction is allowed.");
+    helpBubble_.registerLabel(controls_.labelExcessPhaseWindow, L"Optionally windows the prepared excess-phase impulse in milliseconds before mixed-phase correction is derived. Set 0 to keep the full prepared response.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseStrength, L"Controls how strongly mixed-phase correction is applied within the allowed range.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseCap, L"Caps the maximum phase rotation the mixed-phase solver may request.");
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
@@ -708,12 +713,15 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelMixedPhaseMax, contentLeft, mixedTop, 84, 18, TRUE);
     MoveWindow(controls_.editMixedPhaseMax, contentLeft, mixedTop + 22, 68, 26, TRUE);
     MoveWindow(controls_.unitMixedPhaseMax, contentLeft + 72, mixedTop + 26, 22, 18, TRUE);
-    MoveWindow(controls_.labelMixedPhaseStrength, contentLeft + 128, mixedTop, 102, 18, TRUE);
-    MoveWindow(controls_.editMixedPhaseStrength, contentLeft + 128, mixedTop + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitMixedPhaseStrength, contentLeft + 200, mixedTop + 26, 34, 18, TRUE);
-    MoveWindow(controls_.labelMixedPhaseCap, contentLeft + 248, mixedTop, 74, 18, TRUE);
-    MoveWindow(controls_.editMixedPhaseCap, contentLeft + 248, mixedTop + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitMixedPhaseCap, contentLeft + 320, mixedTop + 26, 28, 18, TRUE);
+    MoveWindow(controls_.labelExcessPhaseWindow, contentLeft + 112, mixedTop, 102, 18, TRUE);
+    MoveWindow(controls_.editExcessPhaseWindow, contentLeft + 112, mixedTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitExcessPhaseWindow, contentLeft + 184, mixedTop + 26, 24, 18, TRUE);
+    MoveWindow(controls_.labelMixedPhaseStrength, contentLeft + 232, mixedTop, 102, 18, TRUE);
+    MoveWindow(controls_.editMixedPhaseStrength, contentLeft + 232, mixedTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitMixedPhaseStrength, contentLeft + 304, mixedTop + 26, 34, 18, TRUE);
+    MoveWindow(controls_.labelMixedPhaseCap, contentLeft + 352, mixedTop, 74, 18, TRUE);
+    MoveWindow(controls_.editMixedPhaseCap, contentLeft + 352, mixedTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitMixedPhaseCap, contentLeft + 424, mixedTop + 26, 28, 18, TRUE);
     MoveWindow(controls_.buttonRecalculate, contentLeft, top + 124, contentWidth, 32, TRUE);
 
     int y = top + 174;
@@ -858,6 +866,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.editMaxCut, formatWideDouble(settings.maxCutDb, 1));
     setSelectedSmoothness(settings.smoothness);
     setWindowTextValue(controls_.editMixedPhaseMax, formatWideDouble(settings.mixedPhaseMaxFrequencyHz, 0));
+    setWindowTextValue(controls_.editExcessPhaseWindow, formatWideDouble(settings.excessPhaseWindowMs, 1));
     setWindowTextValue(controls_.editMixedPhaseStrength, formatWideDouble(settings.mixedPhaseStrength, 2));
     setWindowTextValue(controls_.editMixedPhaseCap, formatWideDouble(settings.mixedPhaseMaxCorrectionDegrees, 0));
     refreshPhaseModeControls();
@@ -896,6 +905,9 @@ void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     }
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseMax), value)) {
         workspace.filters.mixedPhaseMaxFrequencyHz = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editExcessPhaseWindow), value)) {
+        workspace.filters.excessPhaseWindowMs = value;
     }
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseStrength), value)) {
         workspace.filters.mixedPhaseStrength = value;
@@ -952,6 +964,9 @@ void FiltersPage::refreshPhaseModeControls() const {
     EnableWindow(controls_.labelMixedPhaseMax, mixedEnabled);
     EnableWindow(controls_.editMixedPhaseMax, mixedEnabled);
     EnableWindow(controls_.unitMixedPhaseMax, mixedEnabled);
+    EnableWindow(controls_.labelExcessPhaseWindow, mixedEnabled);
+    EnableWindow(controls_.editExcessPhaseWindow, mixedEnabled);
+    EnableWindow(controls_.unitExcessPhaseWindow, mixedEnabled);
     EnableWindow(controls_.labelMixedPhaseStrength, mixedEnabled);
     EnableWindow(controls_.editMixedPhaseStrength, mixedEnabled);
     EnableWindow(controls_.unitMixedPhaseStrength, mixedEnabled);
@@ -1142,6 +1157,9 @@ FilterDesignSettings FiltersPage::currentSettings() const {
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseMax), value)) {
         settings.mixedPhaseMaxFrequencyHz = value;
     }
+    if (tryParseDouble(getWindowTextValue(controls_.editExcessPhaseWindow), value)) {
+        settings.excessPhaseWindowMs = value;
+    }
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseStrength), value)) {
         settings.mixedPhaseStrength = value;
     }
@@ -1162,6 +1180,7 @@ bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const Filte
            std::abs(left.maxBoostDb - right.maxBoostDb) < 0.001 &&
            std::abs(left.maxCutDb - right.maxCutDb) < 0.001 &&
            std::abs(left.mixedPhaseMaxFrequencyHz - right.mixedPhaseMaxFrequencyHz) < 0.001 &&
+           std::abs(left.excessPhaseWindowMs - right.excessPhaseWindowMs) < 0.001 &&
            std::abs(left.mixedPhaseStrength - right.mixedPhaseStrength) < 0.001 &&
            std::abs(left.mixedPhaseMaxCorrectionDegrees - right.mixedPhaseMaxCorrectionDegrees) < 0.001;
 }
@@ -1281,6 +1300,7 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kEditMaxBoost ||
          commandId == kEditMaxCut ||
          commandId == kEditMixedPhaseMax ||
+         commandId == kEditExcessPhaseWindow ||
          commandId == kEditMixedPhaseStrength ||
          commandId == kEditMixedPhaseCap) &&
         notificationCode == EN_CHANGE) {
