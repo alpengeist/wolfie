@@ -240,6 +240,67 @@ size_t maxIndex(const std::vector<double>& samples) {
     return bestIndex;
 }
 
+double localEnvelopeCentroidIndex(const std::vector<double>& envelope,
+                                  size_t peakIndex,
+                                  size_t radius,
+                                  double minimumRelativeWeight) {
+    if (envelope.empty()) {
+        return 0.0;
+    }
+
+    const size_t begin = peakIndex > radius ? peakIndex - radius : 0;
+    const size_t end = std::min(envelope.size(), peakIndex + radius + 1);
+    const double peakValue = envelope[std::min(peakIndex, envelope.size() - 1)];
+    const double cutoff = peakValue * clampValue(minimumRelativeWeight, 0.0, 1.0);
+    double weightedIndexSum = 0.0;
+    double weightSum = 0.0;
+    for (size_t index = begin; index < end; ++index) {
+        const double weight = envelope[index];
+        if (weight < cutoff) {
+            continue;
+        }
+        weightedIndexSum += static_cast<double>(index) * weight;
+        weightSum += weight;
+    }
+
+    if (weightSum <= 1.0e-12) {
+        return static_cast<double>(peakIndex);
+    }
+    return weightedIndexSum / weightSum;
+}
+
+size_t stableAbsPeakIndexNear(const std::vector<double>& samples,
+                              double centerIndex,
+                              size_t radius) {
+    if (samples.empty()) {
+        return 0;
+    }
+
+    const size_t roundedCenter =
+        clampValue<size_t>(static_cast<size_t>(std::lround(centerIndex)), size_t{0}, samples.size() - 1);
+    const size_t begin = roundedCenter > radius ? roundedCenter - radius : 0;
+    const size_t end = std::min(samples.size(), roundedCenter + radius + 1);
+    double bestMagnitude = -1.0;
+    double bestDistance = std::numeric_limits<double>::infinity();
+    size_t bestIndex = roundedCenter;
+    for (size_t index = begin; index < end; ++index) {
+        const double magnitude = std::abs(samples[index]);
+        const double distance = std::abs(static_cast<double>(index) - centerIndex);
+        const double magnitudeTolerance = std::max(bestMagnitude * 0.02, 1.0e-9);
+        if (magnitude > bestMagnitude + magnitudeTolerance) {
+            bestMagnitude = magnitude;
+            bestDistance = distance;
+            bestIndex = index;
+            continue;
+        }
+        if (std::abs(magnitude - bestMagnitude) <= magnitudeTolerance && distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = index;
+        }
+    }
+    return bestIndex;
+}
+
 size_t alignmentEnvelopeWindowFrames(const MeasurementSettings& settings, int sampleRate) {
     const double startHz = std::max(1.0, settings.startFrequencyHz);
     const double endHz = std::max(startHz + 1.0, settings.endFrequencyHz);
@@ -262,13 +323,15 @@ size_t matchedCorrelationEnvelopePeakIndex(const std::vector<double>& samples,
         prefixEnergy[index + 1] = prefixEnergy[index] + (samples[index] * samples[index]);
     }
 
-    std::vector<double> envelope(samples.size(), 0.0);
+std::vector<double> envelope(samples.size(), 0.0);
     for (size_t index = 0; index < samples.size(); ++index) {
         const size_t begin = index > radius ? index - radius : 0;
         const size_t end = std::min(samples.size(), index + radius + 1);
         envelope[index] = prefixEnergy[end] - prefixEnergy[begin];
     }
-    return maxIndex(envelope);
+    const size_t envelopePeakIndex = maxIndex(envelope);
+    const double centroidIndex = localEnvelopeCentroidIndex(envelope, envelopePeakIndex, windowFrames, 0.85);
+    return stableAbsPeakIndexNear(samples, centroidIndex, std::max<size_t>(2, windowFrames / 2));
 }
 
 InverseSweepFilter buildInverseSweepFilter(const std::vector<double>& sweepSamples,

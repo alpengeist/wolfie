@@ -1113,6 +1113,58 @@ bool expectAlignmentMatchedCorrelationIgnoresCarrierPhaseBias() {
     return true;
 }
 
+bool expectAlignmentMatchedCorrelationHandlesPolarityInversion() {
+    const wolfie::MeasurementSettings settings = buildAlignmentSettings(48000);
+    const int leftDelaySamples = 180;
+    const int rightDelaySamples = 180;
+    const wolfie::measurement::SweepPlaybackPlan plan =
+        wolfie::measurement::buildSweepPlaybackPlan(settings, -12.0, wolfie::MeasurementRunMode::Alignment);
+    const std::vector<int16_t> capture =
+        synthesizeFilteredAlignmentCapture(plan,
+                                           leftDelaySamples,
+                                           rightDelaySamples,
+                                           {1.0},
+                                           {-1.0, 0.1, -0.04},
+                                           0.8,
+                                           0.8);
+    const wolfie::MeasurementResult result =
+        wolfie::measurement::buildMeasurementResultFromCapture(capture,
+                                                               plan,
+                                                               settings.sampleRate,
+                                                               wolfie::AudioSettings{},
+                                                               settings,
+                                                               nullptr,
+                                                               wolfie::MeasurementRunMode::Alignment);
+
+    if (result.analysis.left.detectedLatencySamples != leftDelaySamples) {
+        std::cerr << "alignment matched correlation moved the non-inverted channel unexpectedly\n";
+        return false;
+    }
+    if (std::abs(result.analysis.right.detectedLatencySamples - rightDelaySamples) > 1) {
+        std::cerr << "alignment matched correlation drifted under polarity inversion (right delay="
+                  << result.analysis.right.detectedLatencySamples << ")\n";
+        return false;
+    }
+
+    const wolfie::measurement::SweetSpotAlignmentView view =
+        wolfie::measurement::buildSweetSpotAlignmentView(result);
+    if (!view.available) {
+        std::cerr << "alignment view was not generated for the polarity inversion case\n";
+        return false;
+    }
+    if (!view.polarityMismatchDetected) {
+        std::cerr << "alignment view did not flag the polarity inversion case\n";
+        return false;
+    }
+    if (std::abs(view.delayMismatchSamples) > 1) {
+        std::cerr << "alignment view showed a false delay mismatch under polarity inversion (samples="
+                  << view.delayMismatchSamples << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectWaterfallPlotData() {
     wolfie::MeasurementSettings settings;
     settings.sampleRate = 48000;
@@ -1173,6 +1225,8 @@ int main() {
         {"expectSweetSpotAlignmentViewSuppressesOuterSideLobes", expectSweetSpotAlignmentViewSuppressesOuterSideLobes},
         {"expectAlignmentMatchedCorrelationProducesSharpPeak", expectAlignmentMatchedCorrelationProducesSharpPeak},
         {"expectAlignmentMatchedCorrelationIgnoresCarrierPhaseBias", expectAlignmentMatchedCorrelationIgnoresCarrierPhaseBias},
+        {"expectAlignmentMatchedCorrelationHandlesPolarityInversion",
+         expectAlignmentMatchedCorrelationHandlesPolarityInversion},
         {"expectWaterfallPlotData", expectWaterfallPlotData},
     });
 }
