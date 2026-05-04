@@ -18,6 +18,65 @@ constexpr int kGraphMaxWidth = 420;
 constexpr int kGraphHeight = 170;
 constexpr int kSampleDeltaHeight = 42;
 constexpr int kSampleDeltaTopGap = 10;
+constexpr int kRunButtonWidth = 184;
+constexpr int kRunButtonHeight = 32;
+
+void drawActionButton(const DRAWITEMSTRUCT& draw,
+                      bool enabled,
+                      bool activeRun,
+                      const wchar_t* idleText) {
+    HDC hdc = draw.hDC;
+    RECT rect = draw.rcItem;
+    const bool pressed = (draw.itemState & ODS_SELECTED) != 0;
+    const bool focused = (draw.itemState & ODS_FOCUS) != 0;
+    const COLORREF fill = !enabled ? RGB(186, 192, 200)
+                                   : (activeRun ? ui_theme::kRed : ui_theme::kGreen);
+    const COLORREF fillPressed = !enabled ? fill
+                                          : (activeRun ? RGB(156, 53, 53) : RGB(37, 118, 68));
+    const COLORREF border = !enabled ? RGB(156, 163, 172)
+                                     : (activeRun ? RGB(132, 42, 42) : RGB(29, 95, 55));
+
+    HBRUSH brush = CreateSolidBrush(pressed ? fillPressed : fill);
+    FillRect(hdc, &rect, brush);
+    DeleteObject(brush);
+
+    HPEN pen = CreatePen(PS_SOLID, 1, border);
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
+    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
+    Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+
+    LOGFONTW baseFont{};
+    HFONT guiFont = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    GetObjectW(guiFont, sizeof(baseFont), &baseFont);
+    baseFont.lfWeight = FW_BOLD;
+    baseFont.lfHeight = -18;
+    HFONT buttonFont = CreateFontIndirectW(&baseFont);
+    HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, buttonFont));
+
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, enabled ? RGB(255, 255, 255) : RGB(245, 247, 250));
+    RECT textRect = rect;
+    if (pressed) {
+        OffsetRect(&textRect, 0, 1);
+    }
+    DrawTextW(hdc,
+              activeRun ? L"STOP" : idleText,
+              -1,
+              &textRect,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    if (focused) {
+        RECT focusRect = rect;
+        InflateRect(&focusRect, -4, -4);
+        DrawFocusRect(hdc, &focusRect);
+    }
+
+    SelectObject(hdc, oldFont);
+    DeleteObject(buttonFont);
+}
 
 COLORREF directionArrowColor(const measurement::SweetSpotAlignmentView& view, bool pointLeft) {
     if (!view.available) {
@@ -90,20 +149,9 @@ void AlignmentPage::create(HWND parent, HINSTANCE instance) {
 }
 
 void AlignmentPage::createControls() {
-    controls_.note = CreateWindowW(L"STATIC",
-                                   L"Run a short burst loop to center the microphone on the stereo centerline.",
-                                   WS_CHILD | WS_VISIBLE,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   window_,
-                                   nullptr,
-                                   instance_,
-                                   nullptr);
     controls_.buttonRun = CreateWindowW(L"BUTTON",
-                                        L"Start Loop",
-                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                        L"START",
+                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON | BS_OWNERDRAW,
                                         0,
                                         0,
                                         0,
@@ -114,22 +162,14 @@ void AlignmentPage::createControls() {
                                         nullptr);
     controls_.status = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
                                      0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.confidenceLabel = CreateWindowW(L"STATIC", L"Confidence", WS_CHILD | WS_VISIBLE,
+                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.confidenceValue = CreateWindowW(L"STATIC", L"--", WS_CHILD | WS_VISIBLE,
+                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
 
-    constexpr const wchar_t* kMetricLabels[] = {
-        L"Path Delta",
-        L"Move Mic",
-        L"Confidence",
-    };
-    for (int index = 0; index < kMetricCount; ++index) {
-        controls_.metrics[index].label =
-            CreateWindowW(L"STATIC", kMetricLabels[index], WS_CHILD | WS_VISIBLE,
-                          0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-        controls_.metrics[index].value =
-            CreateWindowW(L"STATIC", L"--", WS_CHILD | WS_VISIBLE,
-                          0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    }
-
-    controls_.graphTitle = CreateWindowW(L"STATIC", L"Direct Arrival Overlay", WS_CHILD | WS_VISIBLE,
+    controls_.graphTitle = CreateWindowW(L"STATIC",
+                                         L"Move the mic until curves align and sample difference is 0",
+                                         WS_CHILD | WS_VISIBLE | SS_CENTER,
                                          0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     pulseGraph_.create(window_, instance_, kPulseGraph);
     pulseGraph_.setHoverCrosshairEnabled(true);
@@ -142,22 +182,28 @@ void AlignmentPage::layout() {
     const int contentTop = 20;
     const int innerWidth = std::max(520L, pageRect.right - (contentLeft * 2));
     const int innerHeight = std::max(420L, pageRect.bottom - (contentTop * 2));
+    const int topRowTop = contentTop;
+    const int confidenceWidth = 120;
+    const int graphTitleTop = contentTop + 72;
+    const int graphTitleHeight = 34;
 
-    const int buttonWidth = 180;
-    MoveWindow(controls_.note, contentLeft, contentTop, innerWidth - buttonWidth - 16, 36, TRUE);
-    MoveWindow(controls_.buttonRun, contentLeft + innerWidth - buttonWidth, contentTop, buttonWidth, 28, TRUE);
-    MoveWindow(controls_.status, contentLeft, contentTop + 42, innerWidth, 18, TRUE);
+    MoveWindow(controls_.buttonRun, contentLeft, topRowTop + 2, kRunButtonWidth, kRunButtonHeight, TRUE);
+    MoveWindow(controls_.confidenceLabel,
+               contentLeft + innerWidth - confidenceWidth,
+               topRowTop,
+               confidenceWidth,
+               18,
+               TRUE);
+    MoveWindow(controls_.confidenceValue,
+               contentLeft + innerWidth - confidenceWidth,
+               topRowTop + 22,
+               confidenceWidth,
+               22,
+               TRUE);
+    MoveWindow(controls_.status, contentLeft, contentTop + 46, innerWidth, 18, TRUE);
+    MoveWindow(controls_.graphTitle, contentLeft, graphTitleTop, innerWidth, graphTitleHeight, TRUE);
 
-    const int metricsTop = contentTop + 76;
-    const int metricsGap = 18;
-    const int metricWidth = (innerWidth - (metricsGap * (kMetricCount - 1))) / kMetricCount;
-    for (int index = 0; index < kMetricCount; ++index) {
-        const int left = contentLeft + (index * (metricWidth + metricsGap));
-        MoveWindow(controls_.metrics[index].label, left, metricsTop, metricWidth, 18, TRUE);
-        MoveWindow(controls_.metrics[index].value, left, metricsTop + 22, metricWidth, 22, TRUE);
-    }
-
-    const int arrowTop = metricsTop + 74;
+    const int arrowTop = graphTitleTop + graphTitleHeight + 12;
     const int availableArrowHeight = std::max(140, innerHeight - (arrowTop - contentTop) - kSampleDeltaHeight - kSampleDeltaTopGap - 16);
     const int arrowHeight = std::min(kGraphHeight, availableArrowHeight);
     const int arrowWidth = std::clamp(innerWidth / 5, kArrowMinWidth, kArrowMaxWidth);
@@ -182,7 +228,6 @@ void AlignmentPage::layout() {
                               graphBounds.right,
                               graphBounds.bottom + kSampleDeltaTopGap + kSampleDeltaHeight};
 
-    MoveWindow(controls_.graphTitle, graphBounds.left, arrowTop - 24, graphWidth, 18, TRUE);
     pulseGraph_.layout(graphBounds);
     InvalidateRect(window_, nullptr, TRUE);
 }
@@ -212,6 +257,17 @@ bool AlignmentPage::handleCommand(WORD commandId, WORD notificationCode, bool& s
     return false;
 }
 
+bool AlignmentPage::handleDrawItem(const DRAWITEMSTRUCT* draw) const {
+    if (draw == nullptr || draw->CtlID != kButtonRun) {
+        return false;
+    }
+
+    const bool enabled = IsWindowEnabled(draw->hwndItem) != FALSE;
+    const bool activeRun = alignmentRunActive_ && status_.running;
+    drawActionButton(*draw, enabled, activeRun, L"START");
+    return true;
+}
+
 PlotGraphData AlignmentPage::buildPulseGraphData() const {
     PlotGraphData data;
     data.xAxisMode = PlotGraphXAxisMode::Linear;
@@ -239,24 +295,10 @@ void AlignmentPage::refreshPresentation() const {
     SetWindowTextW(controls_.status,
                    formatWarningText(view_, status_, alignmentRunActive_, hasWorkspace_).c_str());
 
-    SetWindowTextW(controls_.metrics[0].value,
-                   view_.available
-                       ? formatMetricValue(view_.pathMismatchCm, L" cm", 2, true).c_str()
-                       : L"--");
-    SetWindowTextW(controls_.metrics[1].value,
-                   view_.available
-                       ? formatMetricValue(view_.suggestedMoveCm, L" cm", 2).c_str()
-                       : L"--");
-    SetWindowTextW(controls_.metrics[2].value,
+    SetWindowTextW(controls_.confidenceValue,
                    view_.available
                        ? formatMetricValue(view_.confidenceDb, L" dB", 1).c_str()
                        : L"--");
-
-    std::wstring buttonText = L"Start Loop";
-    if (alignmentRunActive_ && status_.running) {
-        buttonText = L"Stop Loop";
-    }
-    SetWindowTextW(controls_.buttonRun, buttonText.c_str());
 
     const bool canRun = !status_.running || alignmentRunActive_;
     EnableWindow(controls_.buttonRun, (hasWorkspace_ && canRun) ? TRUE : FALSE);
@@ -401,7 +443,8 @@ LRESULT CALLBACK AlignmentPage::PageWindowProc(HWND window, UINT message, WPARAM
         }
         break;
     case WM_COMMAND:
-    case WM_NOTIFY: {
+    case WM_NOTIFY:
+    case WM_DRAWITEM: {
         HWND root = GetAncestor(window, GA_ROOT);
         if (root != nullptr) {
             return SendMessageW(root, message, wParam, lParam);

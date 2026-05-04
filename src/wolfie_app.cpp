@@ -233,6 +233,9 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
         if (app->handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
             return TRUE;
         }
+        if (app->alignmentPage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
+            return TRUE;
+        }
         if (app->measurementPage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
             return TRUE;
         }

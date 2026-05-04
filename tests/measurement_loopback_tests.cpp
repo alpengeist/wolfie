@@ -874,7 +874,7 @@ bool expectSweetSpotAlignmentViewUsesCenteredDeadband() {
     result.analysis.left.available = true;
     result.analysis.right.available = true;
     result.analysis.left.onsetTimeSeconds = 0.01230;
-    result.analysis.right.onsetTimeSeconds = 0.01236;
+    result.analysis.right.onsetTimeSeconds = 0.01230;
     result.analysis.left.impulsePeakToNoiseDb = 36.0;
     result.analysis.right.impulsePeakToNoiseDb = 35.0;
 
@@ -904,12 +904,12 @@ bool expectSweetSpotAlignmentViewUsesCenteredDeadband() {
         std::cerr << "alignment view was not generated for the deadband case\n";
         return false;
     }
-    if (std::abs(view.delayMismatchMs) >= view.centeredToleranceMs) {
-        std::cerr << "alignment deadband test did not stay inside the centered tolerance\n";
+    if (std::abs(view.delayMismatchMs) > 1.0e-9 || std::abs(view.centeredToleranceMs) > 1.0e-9) {
+        std::cerr << "alignment exact-match test did not stay at zero milliseconds\n";
         return false;
     }
-    if (std::abs(view.delayMismatchSamples) > view.centeredToleranceSamples) {
-        std::cerr << "alignment deadband test did not stay inside the centered sample tolerance\n";
+    if (view.delayMismatchSamples != 0 || view.centeredToleranceSamples != 0) {
+        std::cerr << "alignment exact-match test did not stay at zero samples\n";
         return false;
     }
     if (view.suggestedDirection != wolfie::measurement::SweetSpotMoveDirection::None) {

@@ -26,23 +26,17 @@ public:
     void setVisible(bool visible) const;
     void populate(const measurement::SweetSpotAlignmentView& view);
     void refreshStatus(const MeasurementStatus& status, bool alignmentRunActive, bool hasWorkspace);
+    bool handleDrawItem(const DRAWITEMSTRUCT* draw) const;
     bool handleCommand(WORD commandId, WORD notificationCode, bool& startStopPressed);
 
     [[nodiscard]] HWND window() const { return window_; }
 
 private:
-    static constexpr int kMetricCount = 3;
-
-    struct MetricControls {
-        HWND label = nullptr;
-        HWND value = nullptr;
-    };
-
     struct Controls {
-        HWND note = nullptr;
         HWND buttonRun = nullptr;
         HWND status = nullptr;
-        MetricControls metrics[kMetricCount];
+        HWND confidenceLabel = nullptr;
+        HWND confidenceValue = nullptr;
         HWND graphTitle = nullptr;
     };
 

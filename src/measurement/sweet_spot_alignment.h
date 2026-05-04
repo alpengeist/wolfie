@@ -25,8 +25,8 @@ struct SweetSpotAlignmentView {
     double pathMismatchCm = 0.0;
     double suggestedMoveCm = 0.0;
     double confidenceDb = 0.0;
-    int centeredToleranceSamples = 3;
-    double centeredToleranceMs = 0.075;
+    int centeredToleranceSamples = 0;
+    double centeredToleranceMs = 0.0;
     SweetSpotMoveDirection suggestedDirection = SweetSpotMoveDirection::None;
     std::vector<double> timeAxisMs;
     std::vector<double> leftImpulse;
