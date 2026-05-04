@@ -103,6 +103,36 @@ ImpulseSharpnessMetrics analyzeImpulseSharpness(const std::vector<double>& value
     return metrics;
 }
 
+size_t impulseHalfMagnitudeWidthSamples(const std::vector<double>& values) {
+    if (values.empty()) {
+        return 0;
+    }
+
+    size_t peakIndex = 0;
+    double peakMagnitude = 0.0;
+    for (size_t index = 0; index < values.size(); ++index) {
+        const double magnitude = std::abs(values[index]);
+        if (magnitude > peakMagnitude) {
+            peakMagnitude = magnitude;
+            peakIndex = index;
+        }
+    }
+    if (peakMagnitude <= 1.0e-9) {
+        return 0;
+    }
+
+    const double threshold = peakMagnitude * 0.5;
+    size_t left = peakIndex;
+    while (left > 0 && std::abs(values[left - 1]) >= threshold) {
+        --left;
+    }
+    size_t right = peakIndex;
+    while ((right + 1) < values.size() && std::abs(values[right + 1]) >= threshold) {
+        ++right;
+    }
+    return right - left + 1;
+}
+
 std::vector<double> buildLinearFrequencyAxis(double maxFrequencyHz, size_t pointCount) {
     std::vector<double> axis;
     axis.reserve(pointCount);
@@ -111,6 +141,19 @@ std::vector<double> buildLinearFrequencyAxis(double maxFrequencyHz, size_t point
         axis.push_back(maxFrequencyHz * t);
     }
     return axis;
+}
+
+wolfie::MeasurementSettings buildAlignmentSettings(int sampleRate) {
+    wolfie::MeasurementSettings settings;
+    settings.sampleRate = sampleRate;
+    settings.durationSeconds = 0.0018;
+    settings.fadeInSeconds = 0.00025;
+    settings.fadeOutSeconds = 0.00025;
+    settings.startFrequencyHz = 2800.0;
+    settings.endFrequencyHz = 6200.0;
+    settings.leadInSamples = std::max(sampleRate / 40, 1024);
+    settings.targetLengthSamples = sampleRate >= 96000 ? 1024 : 512;
+    return settings;
 }
 
 wolfie::MeasurementResult buildSyntheticReferenceResult(int sampleRate,
@@ -617,18 +660,12 @@ bool expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment() {
 }
 
 bool expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker() {
-    wolfie::MeasurementSettings settings;
-    settings.sampleRate = 48000;
-    settings.durationSeconds = 1.0;
-    settings.fadeInSeconds = 0.05;
-    settings.fadeOutSeconds = 0.05;
-    settings.leadInSamples = 1024;
-    settings.targetLengthSamples = 4096;
+    const wolfie::MeasurementSettings settings = buildAlignmentSettings(48000);
 
     const int leftDelaySamples = 180;
     const int rightDelaySamples = 252;
     const wolfie::measurement::SweepPlaybackPlan plan =
-        wolfie::measurement::buildSweepPlaybackPlan(settings, -12.0);
+        wolfie::measurement::buildSweepPlaybackPlan(settings, -12.0, wolfie::MeasurementRunMode::Alignment);
     const std::vector<int16_t> capture =
         synthesizeMeasurementCapture(plan, leftDelaySamples, rightDelaySamples, 0.8, 0.5);
     const wolfie::MeasurementResult result =
@@ -636,7 +673,9 @@ bool expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker() {
                                                                plan,
                                                                settings.sampleRate,
                                                                wolfie::AudioSettings{},
-                                                               settings);
+                                                               settings,
+                                                               nullptr,
+                                                               wolfie::MeasurementRunMode::Alignment);
     const wolfie::measurement::SweetSpotAlignmentView view =
         wolfie::measurement::buildSweetSpotAlignmentView(result);
     if (!view.available) {
@@ -653,10 +692,136 @@ bool expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker() {
         std::cerr << "alignment view delay mismatch was incorrect\n";
         return false;
     }
-    if (view.timeAxisMs.size() < 128 ||
+    if (view.timeAxisMs.size() < 12 ||
         view.leftImpulse.size() != view.timeAxisMs.size() ||
         view.rightImpulse.size() != view.timeAxisMs.size()) {
         std::cerr << "alignment pulse plot data was incomplete\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectAlignmentPlaybackBurstStartsAndEndsQuietly() {
+    const wolfie::MeasurementSettings settings = buildAlignmentSettings(48000);
+    const wolfie::measurement::SweepPlaybackPlan plan =
+        wolfie::measurement::buildSweepPlaybackPlan(settings, -12.0, wolfie::MeasurementRunMode::Alignment);
+    if (plan.playedSweep.size() < 32) {
+        std::cerr << "alignment playback burst is too short\n";
+        return false;
+    }
+
+    const double firstMagnitude = std::abs(plan.playedSweep.front());
+    const double lastMagnitude = std::abs(plan.playedSweep.back());
+    if (firstMagnitude > 1.0e-3 || lastMagnitude > 1.0e-3) {
+        std::cerr << "alignment playback burst does not taper to silence at the boundaries\n";
+        return false;
+    }
+
+    const auto peak = std::max_element(plan.playedSweep.begin(),
+                                       plan.playedSweep.end(),
+                                       [](double left, double right) { return std::abs(left) < std::abs(right); });
+    if (peak == plan.playedSweep.end()) {
+        std::cerr << "alignment playback burst peak is missing\n";
+        return false;
+    }
+    const size_t peakIndex = static_cast<size_t>(std::distance(plan.playedSweep.begin(), peak));
+    if (peakIndex < 4 || peakIndex + 4 >= plan.playedSweep.size()) {
+        std::cerr << "alignment playback burst peak is too close to the edges\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectSweetSpotAlignmentViewHandlesAbsoluteImpulseTimeAxis() {
+    wolfie::MeasurementResult result;
+    result.analysis.sampleRate = 48000;
+    result.analysis.left.available = true;
+    result.analysis.right.available = true;
+    result.analysis.left.onsetTimeSeconds = 0.01225;
+    result.analysis.right.onsetTimeSeconds = 0.01255;
+    result.analysis.left.impulsePeakToNoiseDb = 36.0;
+    result.analysis.right.impulsePeakToNoiseDb = 34.0;
+
+    wolfie::MeasurementValueSet directImpulse;
+    directImpulse.key = "measurement.direct_impulse_response";
+    directImpulse.xQuantity = "time";
+    directImpulse.xUnit = "seconds";
+    const double sampleStepSeconds = 1.0 / static_cast<double>(result.analysis.sampleRate);
+    const double startTimeSeconds = 0.0119;
+    constexpr size_t sampleCount = 96;
+    directImpulse.xValues.reserve(sampleCount);
+    directImpulse.leftValues.reserve(sampleCount);
+    directImpulse.rightValues.reserve(sampleCount);
+    for (size_t index = 0; index < sampleCount; ++index) {
+        const double timeSeconds = startTimeSeconds + (static_cast<double>(index) * sampleStepSeconds);
+        const double leftDeltaMs = (timeSeconds - result.analysis.left.onsetTimeSeconds) * 1000.0;
+        const double rightDeltaMs = (timeSeconds - result.analysis.right.onsetTimeSeconds) * 1000.0;
+        directImpulse.xValues.push_back(timeSeconds);
+        directImpulse.leftValues.push_back(std::exp(-(leftDeltaMs * leftDeltaMs) / 0.0012));
+        directImpulse.rightValues.push_back(std::exp(-(rightDeltaMs * rightDeltaMs) / 0.0012));
+    }
+    result.valueSets.push_back(std::move(directImpulse));
+
+    const wolfie::measurement::SweetSpotAlignmentView view =
+        wolfie::measurement::buildSweetSpotAlignmentView(result);
+    if (!view.available) {
+        std::cerr << "alignment view did not accept an absolute impulse time axis\n";
+        return false;
+    }
+    if (view.timeAxisMs.size() < 24 || view.timeAxisMs.front() >= 0.0 || view.timeAxisMs.back() <= 0.0) {
+        std::cerr << "alignment view did not build a centered relative time axis\n";
+        return false;
+    }
+    const double leftPeak = *std::max_element(view.leftImpulse.begin(), view.leftImpulse.end());
+    const double rightPeak = *std::max_element(view.rightImpulse.begin(), view.rightImpulse.end());
+    if (leftPeak < 0.6 || rightPeak < 0.6) {
+        std::cerr << "alignment view collapsed the pulse peak when the source axis was absolute\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectAlignmentMatchedCorrelationProducesSharpPeak() {
+    const wolfie::MeasurementSettings settings = buildAlignmentSettings(48000);
+
+    const int leftDelaySamples = 180;
+    const int rightDelaySamples = 252;
+    const wolfie::measurement::SweepPlaybackPlan plan =
+        wolfie::measurement::buildSweepPlaybackPlan(settings, -12.0, wolfie::MeasurementRunMode::Alignment);
+    const std::vector<int16_t> capture =
+        synthesizeMeasurementCapture(plan, leftDelaySamples, rightDelaySamples, 0.8, 0.5);
+    const wolfie::MeasurementResult result =
+        wolfie::measurement::buildMeasurementResultFromCapture(capture,
+                                                               plan,
+                                                               settings.sampleRate,
+                                                               wolfie::AudioSettings{},
+                                                               settings,
+                                                               nullptr,
+                                                               wolfie::MeasurementRunMode::Alignment);
+
+    const wolfie::MeasurementValueSet* directImpulse = result.findValueSet("measurement.direct_impulse_response");
+    if (directImpulse == nullptr || !directImpulse->valid()) {
+        std::cerr << "alignment direct impulse response is missing\n";
+        return false;
+    }
+    if (result.analysis.left.detectedLatencySamples != leftDelaySamples ||
+        result.analysis.right.detectedLatencySamples != rightDelaySamples) {
+        std::cerr << "alignment matched correlation did not retain the expected delay mismatch\n";
+        return false;
+    }
+
+    const size_t leftWidthSamples = impulseHalfMagnitudeWidthSamples(directImpulse->leftValues);
+    const size_t rightWidthSamples = impulseHalfMagnitudeWidthSamples(directImpulse->rightValues);
+    if (leftWidthSamples == 0 || rightWidthSamples == 0) {
+        std::cerr << "alignment impulse peak could not be measured\n";
+        return false;
+    }
+    if (leftWidthSamples > 12 || rightWidthSamples > 12) {
+        std::cerr << "alignment impulse peak is still too broad (left width="
+                  << leftWidthSamples << ", right width=" << rightWidthSamples << ")\n";
         return false;
     }
 
@@ -716,6 +881,9 @@ int main() {
         {"expectReferenceCompensationUsesDirectReferenceSpectrum", expectReferenceCompensationUsesDirectReferenceSpectrum},
         {"expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment", expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment},
         {"expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker", expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker},
+        {"expectAlignmentPlaybackBurstStartsAndEndsQuietly", expectAlignmentPlaybackBurstStartsAndEndsQuietly},
+        {"expectSweetSpotAlignmentViewHandlesAbsoluteImpulseTimeAxis", expectSweetSpotAlignmentViewHandlesAbsoluteImpulseTimeAxis},
+        {"expectAlignmentMatchedCorrelationProducesSharpPeak", expectAlignmentMatchedCorrelationProducesSharpPeak},
         {"expectWaterfallPlotData", expectWaterfallPlotData},
     });
 }

@@ -8,6 +8,9 @@ namespace wolfie::measurement {
 
 namespace {
 
+constexpr double kGraphHalfWindowMs = 0.65;
+constexpr double kMinimumStableGraphSpanMs = 0.25;
+
 template <typename T>
 T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
@@ -117,19 +120,20 @@ SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& resu
     }
 
     const double midpointArrivalMs = (view.leftArrivalMs + view.rightArrivalMs) * 0.5;
-    const double leftOffsetMs = view.leftArrivalMs - midpointArrivalMs;
-    const double rightOffsetMs = view.rightArrivalMs - midpointArrivalMs;
-
-    std::vector<double> shiftedLeftTimeMs(baseTimeMs.size(), 0.0);
-    std::vector<double> shiftedRightTimeMs(baseTimeMs.size(), 0.0);
+    std::vector<double> relativeTimeMs(baseTimeMs.size(), 0.0);
     for (size_t index = 0; index < baseTimeMs.size(); ++index) {
-        shiftedLeftTimeMs[index] = baseTimeMs[index] + leftOffsetMs;
-        shiftedRightTimeMs[index] = baseTimeMs[index] + rightOffsetMs;
+        relativeTimeMs[index] = baseTimeMs[index] - midpointArrivalMs;
     }
 
-    const double minTimeMs = std::min(shiftedLeftTimeMs.front(), shiftedRightTimeMs.front()) - 0.2;
-    const double maxTimeMs = std::max(shiftedLeftTimeMs.back(), shiftedRightTimeMs.back()) + 0.2;
+    const double availableMinTimeMs = relativeTimeMs.front();
+    const double availableMaxTimeMs = relativeTimeMs.back();
     const double stepMs = 1000.0 / static_cast<double>(view.sampleRate);
+    double minTimeMs = std::max(-kGraphHalfWindowMs, availableMinTimeMs);
+    double maxTimeMs = std::min(kGraphHalfWindowMs, availableMaxTimeMs);
+    if ((maxTimeMs - minTimeMs) < std::max(stepMs, kMinimumStableGraphSpanMs)) {
+        minTimeMs = availableMinTimeMs;
+        maxTimeMs = availableMaxTimeMs;
+    }
     const size_t sampleCount = std::max<size_t>(
         2,
         static_cast<size_t>(std::ceil((maxTimeMs - minTimeMs) / std::max(stepMs, 1.0e-6))) + 1);
@@ -140,8 +144,8 @@ SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& resu
     for (size_t index = 0; index < sampleCount; ++index) {
         const double x = minTimeMs + (static_cast<double>(index) * stepMs);
         view.timeAxisMs[index] = x;
-        view.leftImpulse[index] = interpolateLinear(shiftedLeftTimeMs, leftImpulse, x);
-        view.rightImpulse[index] = interpolateLinear(shiftedRightTimeMs, rightImpulse, x);
+        view.leftImpulse[index] = interpolateLinear(relativeTimeMs, leftImpulse, x);
+        view.rightImpulse[index] = interpolateLinear(relativeTimeMs, rightImpulse, x);
     }
 
     return view;

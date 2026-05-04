@@ -100,7 +100,7 @@ bool MeasurementController::start(const WorkspaceState& workspace, MeasurementRu
     std::filesystem::create_directories(measurementDir);
     const std::wstring sweepFileName =
         runMode_ == MeasurementRunMode::Reference ? L"reference-logsweep.wav"
-        : (runMode_ == MeasurementRunMode::Alignment ? L"alignment-logsweep.wav"
+        : (runMode_ == MeasurementRunMode::Alignment ? L"alignment-pulse.wav"
                                                      : L"logsweep.wav");
     status_.generatedSweepPath = measurementDir / sweepFileName;
     measurement::writeStereoWaveFile(status_.generatedSweepPath, playbackPlan_.playbackPcm, session_->sampleRate());
@@ -191,7 +191,8 @@ void MeasurementController::tick() {
                                                                  session_->sampleRate(),
                                                                  snapshot_.audio,
                                                                  activeMeasurementSettings_,
-                                                                 nullptr);
+                                                                 nullptr,
+                                                                 MeasurementRunMode::Alignment);
         result_.analysis.measurementKind = "alignment";
         result_.analysis.measurementTimestampUtc = measurementTimestampUtc_;
         result_.analysis.backendName = sessionDetails.backendName;
@@ -232,7 +233,8 @@ void MeasurementController::tick() {
                                                                      snapshot_.audio.loopbackEnabled &&
                                                                      snapshot_.referenceResult.hasAnyValues()
                                                                  ? &snapshot_.referenceResult
-                                                                 : nullptr);
+                                                                 : nullptr,
+                                                             runMode_);
     result_.analysis.measurementKind =
         runMode_ == MeasurementRunMode::Reference ? "reference"
         : (runMode_ == MeasurementRunMode::Alignment ? "alignment" : "room");

@@ -54,6 +54,41 @@ std::vector<double> generateSweepSamples(const MeasurementSettings& settings, in
     return samples;
 }
 
+std::vector<double> generateAlignmentPulseSamples(const MeasurementSettings& settings, int sampleRate) {
+    const int totalSamples = std::max(32, static_cast<int>(std::round(settings.durationSeconds * sampleRate)));
+    const double duration = std::max(1.0 / static_cast<double>(std::max(sampleRate, 1)), settings.durationSeconds);
+    const double startHz = std::max(500.0, settings.startFrequencyHz);
+    const double nyquist = std::max(2.0, static_cast<double>(sampleRate) * 0.5);
+    const double endHz = clampValue(settings.endFrequencyHz, startHz + 200.0, nyquist * 0.95);
+    const double logSpan = std::log(endHz / startHz);
+    constexpr double twoPi = 2.0 * 3.14159265358979323846;
+    const double growth = logSpan > 1.0e-9 ? duration / logSpan : 0.0;
+    const double phaseScale = logSpan > 1.0e-9 ? twoPi * startHz * growth : 0.0;
+
+    std::vector<double> samples(static_cast<size_t>(totalSamples), 0.0);
+    double peak = 0.0;
+    for (int index = 0; index < totalSamples; ++index) {
+        const double t = static_cast<double>(index) / static_cast<double>(sampleRate);
+        const double phase = logSpan > 1.0e-9
+            ? phaseScale * (std::exp(t / growth) - 1.0)
+            : twoPi * startHz * t;
+        const double windowPosition = totalSamples <= 1
+            ? 0.0
+            : static_cast<double>(index) / static_cast<double>(totalSamples - 1);
+        const double envelope = 0.5 - (0.5 * std::cos(twoPi * windowPosition));
+        const double value = std::sin(phase) * envelope;
+        samples[static_cast<size_t>(index)] = value;
+        peak = std::max(peak, std::abs(value));
+    }
+
+    if (peak > 0.0) {
+        for (double& sample : samples) {
+            sample /= peak;
+        }
+    }
+    return samples;
+}
+
 std::vector<double> scaleSweepSamples(const std::vector<double>& samples, double volumeDb) {
     if (volumeDb <= kMutedOutputVolumeDb) {
         return std::vector<double>(samples.size(), 0.0);
@@ -110,7 +145,10 @@ SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings,
 
     SweepPlaybackPlan plan;
     plan.leadInFrames = static_cast<size_t>(std::max(0, settings.leadInSamples));
-    plan.playedSweep = scaleSweepSamples(generateSweepSamples(settings, sampleRate), outputVolumeDb);
+    const std::vector<double> sourceSignal =
+        runMode == MeasurementRunMode::Alignment ? generateAlignmentPulseSamples(settings, sampleRate)
+                                                 : generateSweepSamples(settings, sampleRate);
+    plan.playedSweep = scaleSweepSamples(sourceSignal, outputVolumeDb);
     plan.sweepFrames = plan.playedSweep.size();
     const int minimumPostRollFrames = runMode == MeasurementRunMode::Alignment ? sampleRate / 4 : sampleRate / 5;
     plan.postRollFrames = static_cast<size_t>(std::max(settings.targetLengthSamples, minimumPostRollFrames));

@@ -31,6 +31,8 @@ public:
     [[nodiscard]] HWND window() const { return window_; }
 
 private:
+    static constexpr int kMetricCount = 3;
+
     struct MetricControls {
         HWND label = nullptr;
         HWND value = nullptr;
@@ -40,7 +42,7 @@ private:
         HWND note = nullptr;
         HWND buttonRun = nullptr;
         HWND status = nullptr;
-        MetricControls metrics[4];
+        MetricControls metrics[kMetricCount];
         HWND graphTitle = nullptr;
     };
 
@@ -52,6 +54,8 @@ private:
 
     PlotGraphData buildPulseGraphData() const;
     void createControls();
+    void paint(HDC hdc) const;
+    void paintDirectionArrow(HDC hdc, const RECT& bounds, bool pointLeft, COLORREF fillColor) const;
     void refreshPresentation() const;
     static std::wstring formatMetricValue(double value, const wchar_t* unit, int decimals, bool signedValue = false);
 
@@ -62,6 +66,8 @@ private:
     MeasurementStatus status_;
     bool alignmentRunActive_ = false;
     bool hasWorkspace_ = false;
+    RECT leftArrowBounds_{};
+    RECT rightArrowBounds_{};
     PlotGraph pulseGraph_;
 };
 

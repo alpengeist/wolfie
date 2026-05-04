@@ -90,12 +90,12 @@ constexpr COLORREF kLogErrorColor = RGB(190, 0, 0);
 
 MeasurementSettings buildAlignmentMeasurementSettings(const MeasurementSettings& baseSettings) {
     MeasurementSettings settings = baseSettings;
-    settings.durationSeconds = 0.04;
-    settings.fadeInSeconds = 0.0025;
-    settings.fadeOutSeconds = 0.008;
-    settings.startFrequencyHz = 2400.0;
-    settings.endFrequencyHz = 5200.0;
-    settings.targetLengthSamples = settings.sampleRate >= 96000 ? 4096 : 2048;
+    settings.durationSeconds = 0.0018;
+    settings.fadeInSeconds = 0.00025;
+    settings.fadeOutSeconds = 0.00025;
+    settings.startFrequencyHz = 2800.0;
+    settings.endFrequencyHz = 6200.0;
+    settings.targetLengthSamples = settings.sampleRate >= 96000 ? 1024 : 512;
     settings.leadInSamples = std::max(settings.sampleRate / 40, 1024);
     return settings;
 }
@@ -2152,7 +2152,7 @@ void WolfieApp::startAlignmentMeasurement() {
     activeMeasurementTarget_ = MeasurementTarget::Alignment;
     appendMeasurementLog(L"Starting alignment loop at " +
                          std::to_wstring(alignmentWorkspace.measurement.sampleRate) +
-                         L" Hz using a narrow burst from " +
+                         L" Hz using a short burst centered in the " +
                          formatWideDouble(alignmentWorkspace.measurement.startFrequencyHz, 0) +
                          L" to " +
                          formatWideDouble(alignmentWorkspace.measurement.endFrequencyHz, 0) +

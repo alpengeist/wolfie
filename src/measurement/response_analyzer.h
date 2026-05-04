@@ -19,6 +19,7 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                     int sampleRate,
                                                     const AudioSettings& audioSettings,
                                                     const MeasurementSettings& settings,
-                                                    const MeasurementResult* referenceResult = nullptr);
+                                                    const MeasurementResult* referenceResult = nullptr,
+                                                    MeasurementRunMode runMode = MeasurementRunMode::Room);
 
 }  // namespace wolfie::measurement
