@@ -112,7 +112,8 @@ SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings,
     plan.leadInFrames = static_cast<size_t>(std::max(0, settings.leadInSamples));
     plan.playedSweep = scaleSweepSamples(generateSweepSamples(settings, sampleRate), outputVolumeDb);
     plan.sweepFrames = plan.playedSweep.size();
-    plan.postRollFrames = static_cast<size_t>(std::max(settings.targetLengthSamples, sampleRate / 5));
+    const int minimumPostRollFrames = runMode == MeasurementRunMode::Alignment ? sampleRate / 4 : sampleRate / 5;
+    plan.postRollFrames = static_cast<size_t>(std::max(settings.targetLengthSamples, minimumPostRollFrames));
     plan.segmentFrames = plan.leadInFrames + plan.sweepFrames + plan.postRollFrames;
     plan.channelSweepCount = runMode == MeasurementRunMode::Reference ? 1 : 2;
     plan.totalFrames = plan.segmentFrames * plan.channelSweepCount;

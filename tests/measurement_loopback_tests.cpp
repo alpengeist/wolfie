@@ -8,6 +8,7 @@
 
 #include "core/models.h"
 #include "measurement/response_analyzer.h"
+#include "measurement/sweet_spot_alignment.h"
 #include "measurement/sweep_generator.h"
 #include "measurement/waterfall_builder.h"
 
@@ -615,6 +616,53 @@ bool expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment() {
     return true;
 }
 
+bool expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker() {
+    wolfie::MeasurementSettings settings;
+    settings.sampleRate = 48000;
+    settings.durationSeconds = 1.0;
+    settings.fadeInSeconds = 0.05;
+    settings.fadeOutSeconds = 0.05;
+    settings.leadInSamples = 1024;
+    settings.targetLengthSamples = 4096;
+
+    const int leftDelaySamples = 180;
+    const int rightDelaySamples = 252;
+    const wolfie::measurement::SweepPlaybackPlan plan =
+        wolfie::measurement::buildSweepPlaybackPlan(settings, -12.0);
+    const std::vector<int16_t> capture =
+        synthesizeMeasurementCapture(plan, leftDelaySamples, rightDelaySamples, 0.8, 0.5);
+    const wolfie::MeasurementResult result =
+        wolfie::measurement::buildMeasurementResultFromCapture(capture,
+                                                               plan,
+                                                               settings.sampleRate,
+                                                               wolfie::AudioSettings{},
+                                                               settings);
+    const wolfie::measurement::SweetSpotAlignmentView view =
+        wolfie::measurement::buildSweetSpotAlignmentView(result);
+    if (!view.available) {
+        std::cerr << "sweet spot alignment view was not generated\n";
+        return false;
+    }
+    if (view.suggestedDirection != wolfie::measurement::SweetSpotMoveDirection::Right) {
+        std::cerr << "alignment view suggested the wrong movement direction\n";
+        return false;
+    }
+    const double expectedDelayMs =
+        (static_cast<double>(leftDelaySamples - rightDelaySamples) * 1000.0) / static_cast<double>(settings.sampleRate);
+    if (std::abs(view.delayMismatchMs - expectedDelayMs) > 0.01) {
+        std::cerr << "alignment view delay mismatch was incorrect\n";
+        return false;
+    }
+    if (view.timeAxisMs.size() < 128 ||
+        view.leftImpulse.size() != view.timeAxisMs.size() ||
+        view.rightImpulse.size() != view.timeAxisMs.size()) {
+        std::cerr << "alignment pulse plot data was incomplete\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectWaterfallPlotData() {
     wolfie::MeasurementSettings settings;
     settings.sampleRate = 48000;
@@ -667,6 +715,7 @@ int main() {
         {"expectMeasurementPublishesReferenceCompensatedTransferProducts", expectMeasurementPublishesReferenceCompensatedTransferProducts},
         {"expectReferenceCompensationUsesDirectReferenceSpectrum", expectReferenceCompensationUsesDirectReferenceSpectrum},
         {"expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment", expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment},
+        {"expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker", expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker},
         {"expectWaterfallPlotData", expectWaterfallPlotData},
     });
 }

@@ -16,7 +16,8 @@ enum class MeasurementChannel {
 
 enum class MeasurementRunMode {
     Room,
-    Reference
+    Reference,
+    Alignment
 };
 
 struct AudioSettings {

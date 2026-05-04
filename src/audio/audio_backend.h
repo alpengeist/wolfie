@@ -33,6 +33,10 @@ public:
     virtual int sampleRate() const = 0;
     virtual SessionDetails details() const = 0;
     virtual void stop(AudioLevels& levels) = 0;
+    virtual bool consumeCompletedAlignmentCycle(std::vector<int16_t>& capturedSamples) {
+        (void)capturedSamples;
+        return false;
+    }
 };
 
 class IAudioBackend {

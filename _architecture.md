@@ -54,6 +54,7 @@ Files:
 - `sweep_generator.h/.cpp`
 - `response_analyzer.h/.cpp`
 - `room_simulator.h/.cpp`
+- `sweet_spot_alignment.h/.cpp`
 - `measurement_controller.h/.cpp`
 - `target_curve_designer.h/.cpp`
 - `filter_designer.h/.cpp`
@@ -65,6 +66,7 @@ Responsibilities:
 - `sweep_generator` creates playback sweep data and exported sweep WAV content.
 - `response_analyzer` turns captured audio into `MeasurementResult` value sets and analysis metadata, including direct/room transfer products and optional reference-compensated variants.
 - `room_simulator` generates synthetic room-response `MeasurementResult` data for UI and filter-testing workflows without audio I/O.
+- `sweet_spot_alignment` derives mic-centering guidance and direct-arrival pulse-overlay view data from measured timing metadata and impulse responses.
 - `measurement_controller` orchestrates room and reference measurement runs through an audio backend.
 - `target_curve_designer` computes target-curve view data without UI dependencies.
 - `filter_designer` computes correction curves, FIR filters, mixed-phase phase shaping, simulated responses, phase-derived diagnostics, and filter-design view data without UI dependencies.
@@ -130,6 +132,7 @@ Files:
 - `response_graph.h/.cpp`
 - `plot_graph.h/.cpp`
 - `measurement_page.h/.cpp`
+- `alignment_page.h/.cpp`
 - `analysis_page.h/.cpp`
 - `room_simulation_dialog.h/.cpp`
 - `target_curve_graph.h/.cpp`
@@ -144,6 +147,7 @@ Responsibilities:
 - `response_graph` renders reusable response displays for measurement workflows.
 - `plot_graph` renders reusable non-interactive plots for filter-design workflows.
 - `measurement_page`, `analysis_page`, `target_curve_page`, and `filters_page` own their controls, layout, legend state, and graph synchronization.
+- `alignment_page` owns the dedicated mic-alignment workflow, including the alignment action, timing summary, and direct-arrival pulse overlay.
 - `analysis_page` presents left/right comparison diagnostics such as delay mismatch, impulse correlation, phase delta, and magnitude delta using prepared measurement data.
 - `room_simulation_dialog` owns the non-modal synthetic-room editor and delegates generation/persistence outward.
 - `target_curve_graph` and `waterfall_graph` implement specialized graph behavior for their workflows.

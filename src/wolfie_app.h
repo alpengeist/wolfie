@@ -23,6 +23,7 @@
 #include "persistence/app_state_repository.h"
 #include "persistence/room_simulation_repository.h"
 #include "persistence/workspace_repository.h"
+#include "ui/alignment_page.h"
 #include "ui/analysis_page.h"
 #include "ui/filters_page.h"
 #include "ui/measurement_page.h"
@@ -41,6 +42,12 @@ private:
     enum class LogSeverity {
         Normal,
         Error
+    };
+
+    enum class MeasurementTarget {
+        WorkspaceRoom,
+        WorkspaceReference,
+        Alignment
     };
 
     struct CalibrationReanalysisTaskResult {
@@ -102,6 +109,7 @@ private:
     void saveCurrentWorkspaceIfOpen();
     void refreshWindowTitle();
     void refreshMeasurementStatus();
+    void refreshAlignmentPageView();
     void refreshRecentMenu();
     void ensureSmoothedResponseReady();
     void ensureFilterResultReady();
@@ -134,6 +142,7 @@ private:
     void loadLastWorkspaceIfPossible();
     void touchRecentWorkspace(const std::filesystem::path& path);
     void startMeasurement(MeasurementRunMode runMode);
+    void startAlignmentMeasurement();
     void stopMeasurement();
     void finalizeMeasurement();
 
@@ -166,7 +175,9 @@ private:
     int activeTabIndex_ = 0;
     bool targetCurvePersistencePending_ = false;
     WorkspaceState workspace_;
+    MeasurementResult alignmentResult_;
     AppState appState_;
+    ui::AlignmentPage alignmentPage_;
     ui::MeasurementPage measurementPage_;
     ui::AnalysisPage analysisPage_;
     ui::RoomSimulationDialog roomSimulationDialog_;
@@ -183,6 +194,7 @@ private:
     std::shared_ptr<CalibrationReanalysisProgress> calibrationReanalysisProgress_;
     std::future<FilterAnalysisTaskResult> filterAnalysisFuture_;
     std::shared_ptr<FilterAnalysisProgress> filterAnalysisProgress_;
+    MeasurementTarget activeMeasurementTarget_ = MeasurementTarget::WorkspaceRoom;
 };
 
 }  // namespace wolfie

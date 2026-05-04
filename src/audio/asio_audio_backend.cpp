@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <mutex>
 #include <memory>
 #include <string>
 #include <vector>
@@ -45,12 +46,6 @@ std::wstring formatRtAudioError(std::wstring_view operation, const std::string& 
     return message;
 }
 
-bool hasConcreteAsioDriver(const AudioSettings& settings) {
-    return !settings.driver.empty() &&
-           settings.driver != "ASIO driver" &&
-           settings.driver != "Windows Audio (WASAPI)";
-}
-
 class RtAudioAsioMeasurementSession final : public IAudioMeasurementSession {
 public:
     ~RtAudioAsioMeasurementSession() override {
@@ -62,6 +57,7 @@ public:
               const MeasurementSettings& measurementSettings,
               MeasurementRunMode runMode,
               std::wstring& errorMessage) {
+        continuousAlignment_ = runMode == MeasurementRunMode::Alignment;
         driverName_ = settings.driver;
         if (driverName_.empty() || driverName_ == "ASIO driver") {
             errorMessage = L"No concrete ASIO driver is selected.";
@@ -109,7 +105,9 @@ public:
         sampleRate_ = std::max(8000, measurementSettings.sampleRate);
         MeasurementSettings effectiveSettings = measurementSettings;
         effectiveSettings.sampleRate = sampleRate_;
-        measurement::syncDerivedMeasurementSettings(effectiveSettings);
+        if (runMode != MeasurementRunMode::Alignment) {
+            measurement::syncDerivedMeasurementSettings(effectiveSettings);
+        }
         playbackPlan_ = measurement::buildSweepPlaybackPlan(effectiveSettings, settings.outputVolumeDb, runMode);
         playbackPcm_ = playbackPlan_.playbackPcm;
         totalFrames_ = playbackPlan_.totalFrames;
@@ -186,7 +184,7 @@ public:
     }
 
     bool playbackDone() const override {
-        return playbackDone_.load();
+        return continuousAlignment_ ? false : playbackDone_.load();
     }
 
     const measurement::SweepPlaybackPlan& playbackPlan() const override {
@@ -229,6 +227,19 @@ public:
         playbackDone_.store(true);
         levels.currentAmplitudeDb = currentAmplitudeDb_.load();
         levels.peakAmplitudeDb = peakAmplitudeDb_.load();
+    }
+
+    bool consumeCompletedAlignmentCycle(std::vector<int16_t>& capturedSamples) override {
+        if (!continuousAlignment_) {
+            return false;
+        }
+        std::lock_guard<std::mutex> lock(cycleMutex_);
+        if (!completedCycleReady_) {
+            return false;
+        }
+        capturedSamples = completedCycleSamples_;
+        completedCycleReady_ = false;
+        return true;
     }
 
 private:
@@ -304,7 +315,12 @@ private:
                 int16_t leftSample = 0;
                 int16_t rightSample = 0;
                 const size_t playbackFrame = renderedFrames_.fetch_add(1);
-                if (playbackFrame < totalFrames_) {
+                if (continuousAlignment_ && totalFrames_ > 0) {
+                    const size_t cycleFrame = playbackFrame % totalFrames_;
+                    const size_t baseIndex = cycleFrame * 2;
+                    leftSample = playbackPcm_[baseIndex];
+                    rightSample = playbackPcm_[baseIndex + 1];
+                } else if (playbackFrame < totalFrames_) {
                     const size_t baseIndex = playbackFrame * 2;
                     leftSample = playbackPcm_[baseIndex];
                     rightSample = playbackPcm_[baseIndex + 1];
@@ -320,14 +336,26 @@ private:
 
         auto* input = static_cast<float*>(inputBuffer);
         if (input != nullptr) {
-            const size_t captureOffset = capturedSamples_.size();
-            capturedSamples_.resize(captureOffset + frameCount);
-            auto* destination = capturedSamples_.data() + captureOffset;
+            std::vector<int16_t> frameSamples(frameCount, 0);
             for (unsigned int frame = 0; frame < frameCount; ++frame) {
-                destination[frame] = floatToPcm16(input[frame]);
+                frameSamples[frame] = floatToPcm16(input[frame]);
             }
 
-            const double currentDb = measurement::amplitudeDbFromPcm16(destination, frameCount);
+            if (continuousAlignment_) {
+                std::lock_guard<std::mutex> lock(cycleMutex_);
+                currentCycleSamples_.insert(currentCycleSamples_.end(), frameSamples.begin(), frameSamples.end());
+                while (currentCycleSamples_.size() >= totalFrames_ && totalFrames_ > 0) {
+                    completedCycleSamples_.assign(currentCycleSamples_.begin(),
+                                                  currentCycleSamples_.begin() + static_cast<std::ptrdiff_t>(totalFrames_));
+                    currentCycleSamples_.erase(currentCycleSamples_.begin(),
+                                               currentCycleSamples_.begin() + static_cast<std::ptrdiff_t>(totalFrames_));
+                    completedCycleReady_ = true;
+                }
+            } else {
+                capturedSamples_.insert(capturedSamples_.end(), frameSamples.begin(), frameSamples.end());
+            }
+
+            const double currentDb = measurement::amplitudeDbFromPcm16(frameSamples.data(), frameCount);
             currentAmplitudeDb_.store(currentDb);
             double peakDb = peakAmplitudeDb_.load();
             while (currentDb > peakDb && !peakAmplitudeDb_.compare_exchange_weak(peakDb, currentDb)) {
@@ -350,6 +378,11 @@ private:
     std::atomic<bool> playbackDone_{false};
     std::atomic<bool> closed_{false};
     std::atomic<size_t> renderedFrames_{0};
+    std::mutex cycleMutex_;
+    std::vector<int16_t> currentCycleSamples_;
+    std::vector<int16_t> completedCycleSamples_;
+    bool completedCycleReady_ = false;
+    bool continuousAlignment_ = false;
     int sampleRate_ = 44100;
     unsigned int bufferSize_ = 0;
     unsigned int outputFirstChannel_ = 0;
@@ -390,32 +423,7 @@ public:
         if (settings.backend == "winmm") {
             return winMmBackend_->startSession(settings, measurementSettings, runMode, errorMessage);
         }
-
-        // Older workspaces could persist "windows" while still carrying a concrete ASIO driver.
-        // Prefer WASAPI for current configs, but recover those legacy setups if WASAPI rejects them.
-        std::wstring wasapiError;
-        if (auto session = wasapiBackend_->startSession(settings, measurementSettings, runMode, wasapiError)) {
-            return session;
-        }
-
-        if (!hasConcreteAsioDriver(settings)) {
-            errorMessage = std::move(wasapiError);
-            return nullptr;
-        }
-
-        std::wstring asioError;
-        if (auto session = asioBackend_->startSession(settings, measurementSettings, runMode, asioError)) {
-            return session;
-        }
-
-        errorMessage = std::move(wasapiError);
-        if (!errorMessage.empty() && !asioError.empty()) {
-            errorMessage += L" Legacy ASIO fallback also failed: ";
-            errorMessage += asioError;
-        } else if (!asioError.empty()) {
-            errorMessage = std::move(asioError);
-        }
-        return nullptr;
+        return wasapiBackend_->startSession(settings, measurementSettings, runMode, errorMessage);
     }
 
 private:

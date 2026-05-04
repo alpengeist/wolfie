@@ -584,6 +584,7 @@ public:
         settings_ = settings;
         measurementSettings_ = measurementSettings;
         runMode_ = runMode;
+        continuousAlignment_ = runMode_ == MeasurementRunMode::Alignment;
         stopRequested_.store(false);
         playbackDone_.store(false);
         closed_.store(false);
@@ -616,7 +617,7 @@ public:
     }
 
     bool playbackDone() const override {
-        return playbackDone_.load();
+        return continuousAlignment_ ? false : playbackDone_.load();
     }
 
     const measurement::SweepPlaybackPlan& playbackPlan() const override {
@@ -651,6 +652,19 @@ public:
         levels.peakAmplitudeDb = peakAmplitudeDb_.load();
     }
 
+    bool consumeCompletedAlignmentCycle(std::vector<int16_t>& capturedSamples) override {
+        if (!continuousAlignment_) {
+            return false;
+        }
+        std::lock_guard<std::mutex> lock(cycleMutex_);
+        if (!completedCycleReady_) {
+            return false;
+        }
+        capturedSamples = completedCycleSamples_;
+        completedCycleReady_ = false;
+        return true;
+    }
+
 private:
     void signalStartup(bool success, const std::wstring& errorMessage) {
         std::lock_guard<std::mutex> lock(startupMutex_);
@@ -681,7 +695,14 @@ private:
         for (UINT32 frame = 0; frame < frameCount; ++frame) {
             double leftSample = 0.0;
             double rightSample = 0.0;
-            if (playbackFramesQueued_ < playbackPlan_.totalFrames) {
+            if (continuousAlignment_ && playbackPlan_.totalFrames > 0) {
+                const size_t cycleFrame = playbackFramesQueued_ % playbackPlan_.totalFrames;
+                const size_t baseIndex = cycleFrame * 2;
+                leftSample = static_cast<double>(playbackPlan_.playbackPcm[baseIndex]) / 32768.0;
+                rightSample = static_cast<double>(playbackPlan_.playbackPcm[baseIndex + 1]) / 32768.0;
+                ++playbackFramesQueued_;
+                allSilent = false;
+            } else if (playbackFramesQueued_ < playbackPlan_.totalFrames) {
                 const size_t baseIndex = playbackFramesQueued_ * 2;
                 leftSample = static_cast<double>(playbackPlan_.playbackPcm[baseIndex]) / 32768.0;
                 rightSample = static_cast<double>(playbackPlan_.playbackPcm[baseIndex + 1]) / 32768.0;
@@ -715,7 +736,7 @@ private:
         }
 
         fillRenderBuffer(renderClient, bufferFrames - padding);
-        if (playbackFramesQueued_ >= playbackPlan_.totalFrames) {
+        if (!continuousAlignment_ && playbackFramesQueued_ >= playbackPlan_.totalFrames) {
             playbackDone_.store(true);
         }
     }
@@ -740,8 +761,8 @@ private:
             }
 
             const size_t captureOffset = capturedSamples_.size();
-            capturedSamples_.resize(captureOffset + frames);
-            auto* destination = capturedSamples_.data() + captureOffset;
+            std::vector<int16_t> frameSamples(frames, 0);
+            auto* destination = frameSamples.data();
             if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0 || rawBuffer == nullptr) {
                 std::fill(destination, destination + frames, 0);
             } else {
@@ -756,7 +777,22 @@ private:
             }
             captureClient->ReleaseBuffer(frames);
 
-            const double currentDb = measurement::amplitudeDbFromPcm16(destination, frames);
+            if (continuousAlignment_) {
+                std::lock_guard<std::mutex> lock(cycleMutex_);
+                currentCycleSamples_.insert(currentCycleSamples_.end(), frameSamples.begin(), frameSamples.end());
+                while (currentCycleSamples_.size() >= playbackPlan_.totalFrames && playbackPlan_.totalFrames > 0) {
+                    completedCycleSamples_.assign(currentCycleSamples_.begin(),
+                                                  currentCycleSamples_.begin() + static_cast<std::ptrdiff_t>(playbackPlan_.totalFrames));
+                    currentCycleSamples_.erase(currentCycleSamples_.begin(),
+                                               currentCycleSamples_.begin() + static_cast<std::ptrdiff_t>(playbackPlan_.totalFrames));
+                    completedCycleReady_ = true;
+                }
+            } else {
+                capturedSamples_.resize(captureOffset + frames);
+                std::copy(frameSamples.begin(), frameSamples.end(), capturedSamples_.begin() + static_cast<std::ptrdiff_t>(captureOffset));
+            }
+
+            const double currentDb = measurement::amplitudeDbFromPcm16(frameSamples.data(), frames);
             currentAmplitudeDb_.store(currentDb);
             updatePeak(currentDb);
         }
@@ -858,7 +894,9 @@ private:
         sampleRate_ = static_cast<int>(negotiatedSampleRate);
         MeasurementSettings effectiveSettings = measurementSettings_;
         effectiveSettings.sampleRate = sampleRate_;
-        measurement::syncDerivedMeasurementSettings(effectiveSettings);
+        if (runMode_ != MeasurementRunMode::Alignment) {
+            measurement::syncDerivedMeasurementSettings(effectiveSettings);
+        }
         playbackPlan_ = measurement::buildSweepPlaybackPlan(effectiveSettings, settings_.outputVolumeDb, runMode_);
 
         UINT32 captureBufferFrames = 0;
@@ -968,6 +1006,11 @@ private:
     std::atomic<bool> stopRequested_{false};
     std::atomic<bool> playbackDone_{false};
     std::atomic<bool> closed_{false};
+    std::mutex cycleMutex_;
+    std::vector<int16_t> currentCycleSamples_;
+    std::vector<int16_t> completedCycleSamples_;
+    bool completedCycleReady_ = false;
+    bool continuousAlignment_ = false;
     int sampleRate_ = 44100;
     size_t playbackFramesQueued_ = 0;
     WORD captureChannelIndex_ = 0;

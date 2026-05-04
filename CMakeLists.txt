@@ -58,6 +58,8 @@ add_executable(wolfie WIN32
     src/measurement/response_smoother.h
     src/measurement/stereo_diagnostics.cpp
     src/measurement/stereo_diagnostics.h
+    src/measurement/sweet_spot_alignment.cpp
+    src/measurement/sweet_spot_alignment.h
     src/measurement/sweep_generator.cpp
     src/measurement/sweep_generator.h
     src/measurement/target_curve_designer.cpp
@@ -74,6 +76,8 @@ add_executable(wolfie WIN32
     src/persistence/wave_file_repository.h
     src/persistence/workspace_repository.cpp
     src/persistence/workspace_repository.h
+    src/ui/alignment_page.cpp
+    src/ui/alignment_page.h
     src/ui/measurement_page.cpp
     src/ui/measurement_page.h
     src/ui/analysis_page.cpp
@@ -132,6 +136,8 @@ if(WOLFIE_BUILD_TESTS)
         src/measurement/response_smoother.h
         src/measurement/stereo_diagnostics.cpp
         src/measurement/stereo_diagnostics.h
+        src/measurement/sweet_spot_alignment.cpp
+        src/measurement/sweet_spot_alignment.h
         src/measurement/waterfall_builder.cpp
         src/measurement/waterfall_builder.h
         src/measurement/sweep_generator.cpp
