@@ -56,8 +56,10 @@ private:
     void createControls();
     void paint(HDC hdc) const;
     void paintDirectionArrow(HDC hdc, const RECT& bounds, bool pointLeft, COLORREF fillColor) const;
+    void paintSampleDelta(HDC hdc) const;
     void refreshPresentation() const;
     static std::wstring formatMetricValue(double value, const wchar_t* unit, int decimals, bool signedValue = false);
+    [[nodiscard]] std::wstring sampleDeltaReadoutText() const;
 
     HINSTANCE instance_ = nullptr;
     HWND window_ = nullptr;
@@ -68,6 +70,7 @@ private:
     bool hasWorkspace_ = false;
     RECT leftArrowBounds_{};
     RECT rightArrowBounds_{};
+    RECT sampleDeltaBounds_{};
     PlotGraph pulseGraph_;
 };
 

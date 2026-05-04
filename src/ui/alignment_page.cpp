@@ -16,6 +16,8 @@ constexpr int kArrowMaxWidth = 180;
 constexpr int kGraphMinWidth = 220;
 constexpr int kGraphMaxWidth = 420;
 constexpr int kGraphHeight = 170;
+constexpr int kSampleDeltaHeight = 42;
+constexpr int kSampleDeltaTopGap = 10;
 
 COLORREF directionArrowColor(const measurement::SweetSpotAlignmentView& view, bool pointLeft) {
     if (!view.available) {
@@ -114,8 +116,8 @@ void AlignmentPage::createControls() {
                                      0, 0, 0, 0, window_, nullptr, instance_, nullptr);
 
     constexpr const wchar_t* kMetricLabels[] = {
-        L"L-R Delay",
         L"Path Delta",
+        L"Move Mic",
         L"Confidence",
     };
     for (int index = 0; index < kMetricCount; ++index) {
@@ -156,7 +158,8 @@ void AlignmentPage::layout() {
     }
 
     const int arrowTop = metricsTop + 74;
-    const int arrowHeight = std::min(kGraphHeight, std::max(140, innerHeight - (arrowTop - contentTop) - 16));
+    const int availableArrowHeight = std::max(140, innerHeight - (arrowTop - contentTop) - kSampleDeltaHeight - kSampleDeltaTopGap - 16);
+    const int arrowHeight = std::min(kGraphHeight, availableArrowHeight);
     const int arrowWidth = std::clamp(innerWidth / 5, kArrowMinWidth, kArrowMaxWidth);
     const int graphWidth = std::clamp(innerWidth - (arrowWidth * 2) - (kGraphGap * 2),
                                       kGraphMinWidth,
@@ -174,6 +177,10 @@ void AlignmentPage::layout() {
                              arrowTop,
                              graphBounds.right + kGraphGap + arrowWidth,
                              arrowTop + arrowHeight};
+    sampleDeltaBounds_ = RECT{graphBounds.left,
+                              graphBounds.bottom + kSampleDeltaTopGap,
+                              graphBounds.right,
+                              graphBounds.bottom + kSampleDeltaTopGap + kSampleDeltaHeight};
 
     MoveWindow(controls_.graphTitle, graphBounds.left, arrowTop - 24, graphWidth, 18, TRUE);
     pulseGraph_.layout(graphBounds);
@@ -234,11 +241,11 @@ void AlignmentPage::refreshPresentation() const {
 
     SetWindowTextW(controls_.metrics[0].value,
                    view_.available
-                       ? formatMetricValue(view_.delayMismatchMs, L" ms", 3, true).c_str()
+                       ? formatMetricValue(view_.pathMismatchCm, L" cm", 2, true).c_str()
                        : L"--");
     SetWindowTextW(controls_.metrics[1].value,
                    view_.available
-                       ? formatMetricValue(view_.pathMismatchCm, L" cm", 2, true).c_str()
+                       ? formatMetricValue(view_.suggestedMoveCm, L" cm", 2).c_str()
                        : L"--");
     SetWindowTextW(controls_.metrics[2].value,
                    view_.available
@@ -257,6 +264,7 @@ void AlignmentPage::refreshPresentation() const {
     RedrawWindow(controls_.buttonRun, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
     InvalidateRect(window_, &leftArrowBounds_, TRUE);
     InvalidateRect(window_, &rightArrowBounds_, TRUE);
+    InvalidateRect(window_, &sampleDeltaBounds_, TRUE);
 }
 
 std::wstring AlignmentPage::formatMetricValue(double value,
@@ -279,6 +287,45 @@ std::wstring AlignmentPage::formatMetricValue(double value,
 void AlignmentPage::paint(HDC hdc) const {
     paintDirectionArrow(hdc, leftArrowBounds_, true, directionArrowColor(view_, true));
     paintDirectionArrow(hdc, rightArrowBounds_, false, directionArrowColor(view_, false));
+    paintSampleDelta(hdc);
+}
+
+std::wstring AlignmentPage::sampleDeltaReadoutText() const {
+    if (!view_.available) {
+        return L"--";
+    }
+
+    std::wstring text = std::to_wstring(view_.delayMismatchSamples);
+    if (view_.delayMismatchSamples > 0) {
+        text = L"+" + text;
+    }
+    text += L" samples";
+    return text;
+}
+
+void AlignmentPage::paintSampleDelta(HDC hdc) const {
+    if ((sampleDeltaBounds_.right - sampleDeltaBounds_.left) <= 0 ||
+        (sampleDeltaBounds_.bottom - sampleDeltaBounds_.top) <= 0) {
+        return;
+    }
+
+    const std::wstring text = sampleDeltaReadoutText();
+    const int boundsHeight = sampleDeltaBounds_.bottom - sampleDeltaBounds_.top;
+    LOGFONTW font{};
+    font.lfHeight = -std::max(18, static_cast<int>(std::lround(boundsHeight * 0.62)));
+    font.lfWeight = FW_SEMIBOLD;
+    wcscpy_s(font.lfFaceName, L"Segoe UI");
+    HFONT fontHandle = CreateFontIndirectW(&font);
+    HGDIOBJ previousFont = SelectObject(hdc, fontHandle);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, view_.available ? ui_theme::kText : ui_theme::kMuted);
+    DrawTextW(hdc,
+              text.c_str(),
+              static_cast<int>(text.size()),
+              const_cast<RECT*>(&sampleDeltaBounds_),
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    SelectObject(hdc, previousFont);
+    DeleteObject(fontHandle);
 }
 
 void AlignmentPage::paintDirectionArrow(HDC hdc,

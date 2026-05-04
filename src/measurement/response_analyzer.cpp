@@ -224,6 +224,53 @@ size_t maxAbsIndex(const std::vector<double>& samples) {
     return bestIndex;
 }
 
+size_t maxIndex(const std::vector<double>& samples) {
+    if (samples.empty()) {
+        return 0;
+    }
+
+    double bestValue = samples.front();
+    size_t bestIndex = 0;
+    for (size_t i = 1; i < samples.size(); ++i) {
+        if (samples[i] > bestValue) {
+            bestValue = samples[i];
+            bestIndex = i;
+        }
+    }
+    return bestIndex;
+}
+
+size_t alignmentEnvelopeWindowFrames(const MeasurementSettings& settings, int sampleRate) {
+    const double startHz = std::max(1.0, settings.startFrequencyHz);
+    const double endHz = std::max(startHz + 1.0, settings.endFrequencyHz);
+    const double centerFrequencyHz = std::sqrt(startHz * endHz);
+    const double framesPerCycle = static_cast<double>(std::max(sampleRate, 1)) / centerFrequencyHz;
+    return std::clamp<size_t>(static_cast<size_t>(std::lround(framesPerCycle)), size_t{3}, size_t{64});
+}
+
+size_t matchedCorrelationEnvelopePeakIndex(const std::vector<double>& samples,
+                                           const MeasurementSettings& settings,
+                                           int sampleRate) {
+    if (samples.empty()) {
+        return 0;
+    }
+
+    const size_t windowFrames = alignmentEnvelopeWindowFrames(settings, sampleRate);
+    const size_t radius = windowFrames / 2;
+    std::vector<double> prefixEnergy(samples.size() + 1, 0.0);
+    for (size_t index = 0; index < samples.size(); ++index) {
+        prefixEnergy[index + 1] = prefixEnergy[index] + (samples[index] * samples[index]);
+    }
+
+    std::vector<double> envelope(samples.size(), 0.0);
+    for (size_t index = 0; index < samples.size(); ++index) {
+        const size_t begin = index > radius ? index - radius : 0;
+        const size_t end = std::min(samples.size(), index + radius + 1);
+        envelope[index] = prefixEnergy[end] - prefixEnergy[begin];
+    }
+    return maxIndex(envelope);
+}
+
 InverseSweepFilter buildInverseSweepFilter(const std::vector<double>& sweepSamples,
                                            const MeasurementSettings& settings,
                                            int sampleRate) {
@@ -265,7 +312,9 @@ InverseSweepFilter buildInverseSweepFilter(const std::vector<double>& sweepSampl
     return filter;
 }
 
-InverseSweepFilter buildMatchedCorrelationFilter(const std::vector<double>& signalSamples) {
+InverseSweepFilter buildMatchedCorrelationFilter(const std::vector<double>& signalSamples,
+                                                 const MeasurementSettings& settings,
+                                                 int sampleRate) {
     InverseSweepFilter filter;
     if (signalSamples.empty()) {
         return filter;
@@ -273,7 +322,7 @@ InverseSweepFilter buildMatchedCorrelationFilter(const std::vector<double>& sign
 
     filter.samples.assign(signalSamples.rbegin(), signalSamples.rend());
     const std::vector<double> selfCorrelated = convolveReal(signalSamples, filter.samples);
-    filter.referencePeakIndex = maxAbsIndex(selfCorrelated);
+    filter.referencePeakIndex = matchedCorrelationEnvelopePeakIndex(selfCorrelated, settings, sampleRate);
     const double peakValue =
         filter.referencePeakIndex < selfCorrelated.size() ? selfCorrelated[filter.referencePeakIndex] : 0.0;
     if (std::abs(peakValue) > 1.0e-9) {
@@ -878,6 +927,7 @@ ChannelAnalysis analyzeMatchedCorrelationSegment(const std::vector<int16_t>& cap
                                                  size_t segmentOffset,
                                                  const SweepPlaybackPlan& playbackPlan,
                                                  const InverseSweepFilter& matchedFilter,
+                                                 int sampleRate,
                                                  const MeasurementSettings& settings) {
     ChannelAnalysis analysis;
     analysis.captureSegment = extractCaptureSegment(capturedSamples, segmentOffset, playbackPlan, 0);
@@ -900,7 +950,7 @@ ChannelAnalysis analyzeMatchedCorrelationSegment(const std::vector<int16_t>& cap
         return analysis;
     }
 
-    const size_t peakIndex = maxAbsIndex(correlated);
+    const size_t peakIndex = matchedCorrelationEnvelopePeakIndex(correlated, settings, sampleRate);
     analysis.peakSampleIndex = peakIndex;
     const int latency = static_cast<int>(peakIndex) - static_cast<int>(matchedFilter.referencePeakIndex) -
                         static_cast<int>(playbackPlan.leadInFrames);
@@ -1061,7 +1111,9 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
     }
 
     if (runMode == MeasurementRunMode::Alignment) {
-        const InverseSweepFilter matchedFilter = buildMatchedCorrelationFilter(playbackPlan.playedSweep);
+        const InverseSweepFilter matchedFilter = buildMatchedCorrelationFilter(playbackPlan.playedSweep,
+                                                                               settings,
+                                                                               sampleRate);
         result.analysis.inverseFilterLengthSamples = static_cast<int>(matchedFilter.samples.size());
         result.analysis.inverseFilterPeakIndex = static_cast<int>(matchedFilter.referencePeakIndex);
         result.analysis.alignmentSearchSamples = static_cast<int>(playbackPlan.postRollFrames);
@@ -1070,13 +1122,14 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
         }
 
         ChannelAnalysis leftAnalysis =
-            analyzeMatchedCorrelationSegment(capturedSamples, 0, playbackPlan, matchedFilter, settings);
+            analyzeMatchedCorrelationSegment(capturedSamples, 0, playbackPlan, matchedFilter, sampleRate, settings);
         ChannelAnalysis rightAnalysis;
         if (playbackPlan.channelSweepCount >= 2) {
             rightAnalysis = analyzeMatchedCorrelationSegment(capturedSamples,
                                                              playbackPlan.segmentFrames,
                                                              playbackPlan,
                                                              matchedFilter,
+                                                             sampleRate,
                                                              settings);
         } else {
             rightAnalysis = leftAnalysis;

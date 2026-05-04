@@ -3,13 +3,17 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numbers>
 
 namespace wolfie::measurement {
 
 namespace {
 
 constexpr double kGraphHalfWindowMs = 0.65;
+constexpr double kGraphDelayMarginMs = 0.35;
 constexpr double kMinimumStableGraphSpanMs = 0.25;
+constexpr double kMinimumFocusFrequencyHz = 1000.0;
+constexpr double kMinimumPolarityCorrelation = -0.35;
 
 template <typename T>
 T clampValue(T value, T low, T high) {
@@ -24,6 +28,23 @@ double maxAbsValue(const std::vector<double>& values) {
     return peak;
 }
 
+size_t maxAbsIndex(const std::vector<double>& values) {
+    if (values.empty()) {
+        return 0;
+    }
+
+    double peak = 0.0;
+    size_t peakIndex = 0;
+    for (size_t index = 0; index < values.size(); ++index) {
+        const double magnitude = std::abs(values[index]);
+        if (magnitude > peak) {
+            peak = magnitude;
+            peakIndex = index;
+        }
+    }
+    return peakIndex;
+}
+
 std::vector<double> normalizeImpulse(const std::vector<double>& values) {
     std::vector<double> normalized = values;
     const double peak = maxAbsValue(values);
@@ -35,6 +56,63 @@ std::vector<double> normalizeImpulse(const std::vector<double>& values) {
         value /= peak;
     }
     return normalized;
+}
+
+double rmsValue(const std::vector<double>& values) {
+    if (values.empty()) {
+        return 0.0;
+    }
+
+    double energy = 0.0;
+    for (const double value : values) {
+        energy += value * value;
+    }
+    return std::sqrt(energy / static_cast<double>(values.size()));
+}
+
+double alignmentCenterFrequencyHz(const MeasurementResult& result) {
+    const double startHz = std::max(kMinimumFocusFrequencyHz, result.analysis.startFrequencyHz);
+    const double endHz = std::max(startHz + 1.0, result.analysis.endFrequencyHz);
+    return std::sqrt(startHz * endHz);
+}
+
+size_t mainLobeInnerRadiusSamples(const MeasurementResult& result) {
+    const double framesPerCycle =
+        static_cast<double>(std::max(result.analysis.sampleRate, 1)) / alignmentCenterFrequencyHz(result);
+    return std::clamp<size_t>(static_cast<size_t>(std::lround(framesPerCycle)), size_t{3}, size_t{48});
+}
+
+size_t mainLobeOuterRadiusSamples(const MeasurementResult& result) {
+    return std::clamp<size_t>(mainLobeInnerRadiusSamples(result) * 2, size_t{6}, size_t{96});
+}
+
+std::vector<double> focusImpulseAroundPeak(const std::vector<double>& values,
+                                           size_t peakIndex,
+                                           size_t innerRadius,
+                                           size_t outerRadius) {
+    std::vector<double> focused(values.size(), 0.0);
+    if (values.empty()) {
+        return focused;
+    }
+
+    const size_t safePeakIndex = std::min(peakIndex, values.size() - 1);
+    const size_t safeInnerRadius = std::min(innerRadius, outerRadius);
+    const size_t safeOuterRadius = std::max(outerRadius, safeInnerRadius);
+    for (size_t index = 0; index < values.size(); ++index) {
+        const size_t distance = index > safePeakIndex ? index - safePeakIndex : safePeakIndex - index;
+        if (distance > safeOuterRadius) {
+            continue;
+        }
+
+        double weight = 1.0;
+        if (distance > safeInnerRadius && safeOuterRadius > safeInnerRadius) {
+            const double t = static_cast<double>(distance - safeInnerRadius) /
+                             static_cast<double>(safeOuterRadius - safeInnerRadius);
+            weight = 0.5 * (1.0 + std::cos(t * std::numbers::pi));
+        }
+        focused[index] = values[index] * weight;
+    }
+    return focused;
 }
 
 double interpolateLinear(const std::vector<double>& xValues,
@@ -79,6 +157,41 @@ const MeasurementValueSet* findValidImpulse(const MeasurementResult& result) {
     return nullptr;
 }
 
+bool axisContainsTime(const std::vector<double>& axisMs, double timeMs, double toleranceMs) {
+    if (axisMs.empty()) {
+        return false;
+    }
+    return timeMs >= (axisMs.front() - toleranceMs) && timeMs <= (axisMs.back() + toleranceMs);
+}
+
+double localWaveformCorrelation(const std::vector<double>& leftTimeMs,
+                                const std::vector<double>& leftValues,
+                                const std::vector<double>& rightTimeMs,
+                                const std::vector<double>& rightValues,
+                                double windowHalfWidthMs,
+                                double stepMs) {
+    if (leftTimeMs.empty() || rightTimeMs.empty() ||
+        leftTimeMs.size() != leftValues.size() || rightTimeMs.size() != rightValues.size()) {
+        return 0.0;
+    }
+
+    double dot = 0.0;
+    double leftEnergy = 0.0;
+    double rightEnergy = 0.0;
+    for (double x = -windowHalfWidthMs; x <= windowHalfWidthMs + (stepMs * 0.25); x += stepMs) {
+        const double leftSample = interpolateLinear(leftTimeMs, leftValues, x);
+        const double rightSample = interpolateLinear(rightTimeMs, rightValues, x);
+        dot += leftSample * rightSample;
+        leftEnergy += leftSample * leftSample;
+        rightEnergy += rightSample * rightSample;
+    }
+
+    if (leftEnergy <= 1.0e-9 || rightEnergy <= 1.0e-9) {
+        return 0.0;
+    }
+    return dot / std::sqrt(leftEnergy * rightEnergy);
+}
+
 }  // namespace
 
 SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& result) {
@@ -96,11 +209,15 @@ SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& resu
     view.leftArrivalMs = result.analysis.left.onsetTimeSeconds * 1000.0;
     view.rightArrivalMs = result.analysis.right.onsetTimeSeconds * 1000.0;
     view.delayMismatchMs = view.leftArrivalMs - view.rightArrivalMs;
+    view.delayMismatchSamples = static_cast<int>(
+        std::lround(view.delayMismatchMs * static_cast<double>(view.sampleRate) / 1000.0));
     view.pathMismatchCm = (view.delayMismatchMs / 1000.0) * 34300.0;
     view.suggestedMoveCm = std::abs(view.pathMismatchCm) * 0.5;
     view.confidenceDb = std::min(result.analysis.left.impulsePeakToNoiseDb,
                                  result.analysis.right.impulsePeakToNoiseDb);
-    if (std::abs(view.delayMismatchMs) > view.centeredToleranceMs) {
+    view.centeredToleranceMs =
+        static_cast<double>(view.centeredToleranceSamples) * 1000.0 / static_cast<double>(std::max(view.sampleRate, 1));
+    if (std::abs(view.delayMismatchSamples) > view.centeredToleranceSamples) {
         view.suggestedDirection = view.delayMismatchMs < 0.0
                                       ? SweetSpotMoveDirection::Right
                                       : SweetSpotMoveDirection::Left;
@@ -112,24 +229,63 @@ SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& resu
         baseTimeMs.push_back(value * 1000.0);
     }
 
-    std::vector<double> leftImpulse = normalizeImpulse(impulse->leftValues);
-    std::vector<double> rightImpulse = normalizeImpulse(impulse->rightValues);
-    if (baseTimeMs.empty() || leftImpulse.size() != baseTimeMs.size() || rightImpulse.size() != baseTimeMs.size()) {
+    if (baseTimeMs.empty() || impulse->leftValues.size() != baseTimeMs.size() || impulse->rightValues.size() != baseTimeMs.size()) {
         view.available = false;
         return view;
     }
+    const size_t innerRadiusSamples = mainLobeInnerRadiusSamples(result);
+    const size_t outerRadiusSamples = mainLobeOuterRadiusSamples(result);
+    const size_t leftPeakIndex = maxAbsIndex(impulse->leftValues);
+    const size_t rightPeakIndex = maxAbsIndex(impulse->rightValues);
+    const std::vector<double> focusedLeftImpulse =
+        focusImpulseAroundPeak(impulse->leftValues, leftPeakIndex, innerRadiusSamples, outerRadiusSamples);
+    const std::vector<double> focusedRightImpulse =
+        focusImpulseAroundPeak(impulse->rightValues, rightPeakIndex, innerRadiusSamples, outerRadiusSamples);
+    std::vector<double> leftImpulse = normalizeImpulse(focusedLeftImpulse);
+    std::vector<double> rightImpulse = normalizeImpulse(focusedRightImpulse);
 
     const double midpointArrivalMs = (view.leftArrivalMs + view.rightArrivalMs) * 0.5;
-    std::vector<double> relativeTimeMs(baseTimeMs.size(), 0.0);
+    const double stepMs = 1000.0 / static_cast<double>(view.sampleRate);
+    const bool absoluteTimeAxis =
+        axisContainsTime(baseTimeMs, view.leftArrivalMs, stepMs) &&
+        axisContainsTime(baseTimeMs, view.rightArrivalMs, stepMs);
+    std::vector<double> leftTimeMs(baseTimeMs.size(), 0.0);
+    std::vector<double> rightTimeMs(baseTimeMs.size(), 0.0);
     for (size_t index = 0; index < baseTimeMs.size(); ++index) {
-        relativeTimeMs[index] = baseTimeMs[index] - midpointArrivalMs;
+        if (absoluteTimeAxis) {
+            leftTimeMs[index] = baseTimeMs[index] - midpointArrivalMs;
+            rightTimeMs[index] = baseTimeMs[index] - midpointArrivalMs;
+        } else {
+            leftTimeMs[index] = baseTimeMs[index] + view.leftArrivalMs - midpointArrivalMs;
+            rightTimeMs[index] = baseTimeMs[index] + view.rightArrivalMs - midpointArrivalMs;
+        }
     }
 
-    const double availableMinTimeMs = relativeTimeMs.front();
-    const double availableMaxTimeMs = relativeTimeMs.back();
-    const double stepMs = 1000.0 / static_cast<double>(view.sampleRate);
-    double minTimeMs = std::max(-kGraphHalfWindowMs, availableMinTimeMs);
-    double maxTimeMs = std::min(kGraphHalfWindowMs, availableMaxTimeMs);
+    std::vector<double> leftLocalTimeMs(baseTimeMs.size(), 0.0);
+    std::vector<double> rightLocalTimeMs(baseTimeMs.size(), 0.0);
+    for (size_t index = 0; index < baseTimeMs.size(); ++index) {
+        if (absoluteTimeAxis) {
+            leftLocalTimeMs[index] = baseTimeMs[index] - view.leftArrivalMs;
+            rightLocalTimeMs[index] = baseTimeMs[index] - view.rightArrivalMs;
+        } else {
+            leftLocalTimeMs[index] = baseTimeMs[index];
+            rightLocalTimeMs[index] = baseTimeMs[index];
+        }
+    }
+    const double polarityWindowHalfWidthMs = static_cast<double>(innerRadiusSamples * 2) * stepMs;
+    const double polarityCorrelation =
+        localWaveformCorrelation(leftLocalTimeMs, leftImpulse, rightLocalTimeMs, rightImpulse, polarityWindowHalfWidthMs, stepMs);
+    if (polarityCorrelation <= kMinimumPolarityCorrelation &&
+        rmsValue(leftImpulse) > 0.02 && rmsValue(rightImpulse) > 0.02) {
+        view.polarityMismatchDetected = true;
+    }
+
+    const double availableMinTimeMs = std::min(leftTimeMs.front(), rightTimeMs.front());
+    const double availableMaxTimeMs = std::max(leftTimeMs.back(), rightTimeMs.back());
+    const double graphHalfWindowMs =
+        std::max(kGraphHalfWindowMs, (std::abs(view.delayMismatchMs) * 0.5) + kGraphDelayMarginMs);
+    double minTimeMs = std::max(-graphHalfWindowMs, availableMinTimeMs);
+    double maxTimeMs = std::min(graphHalfWindowMs, availableMaxTimeMs);
     if ((maxTimeMs - minTimeMs) < std::max(stepMs, kMinimumStableGraphSpanMs)) {
         minTimeMs = availableMinTimeMs;
         maxTimeMs = availableMaxTimeMs;
@@ -144,8 +300,8 @@ SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& resu
     for (size_t index = 0; index < sampleCount; ++index) {
         const double x = minTimeMs + (static_cast<double>(index) * stepMs);
         view.timeAxisMs[index] = x;
-        view.leftImpulse[index] = interpolateLinear(relativeTimeMs, leftImpulse, x);
-        view.rightImpulse[index] = interpolateLinear(relativeTimeMs, rightImpulse, x);
+        view.leftImpulse[index] = interpolateLinear(leftTimeMs, leftImpulse, x);
+        view.rightImpulse[index] = interpolateLinear(rightTimeMs, rightImpulse, x);
     }
 
     return view;

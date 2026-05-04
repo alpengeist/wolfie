@@ -93,7 +93,7 @@ MeasurementSettings buildAlignmentMeasurementSettings(const MeasurementSettings&
     settings.durationSeconds = 0.0018;
     settings.fadeInSeconds = 0.00025;
     settings.fadeOutSeconds = 0.00025;
-    settings.startFrequencyHz = 2800.0;
+    settings.startFrequencyHz = 4000.0;
     settings.endFrequencyHz = 6200.0;
     settings.targetLengthSamples = settings.sampleRate >= 96000 ? 1024 : 512;
     settings.leadInSamples = std::max(settings.sampleRate / 40, 1024);
