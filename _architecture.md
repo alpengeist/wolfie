@@ -351,6 +351,8 @@ Architectural consequences:
 - prepared phase data comes from `MeasurementResult`
 - minimum-phase reconstruction and bulk-delay removal happen before excess-phase interpretation
 - mixed-mode phase work is intentionally constrained and stereo-aware rather than treated as full-band free-form inversion
+- minimum-phase magnitude correction is cut-first: the inversion curve is capped at `0 dB` by default so the design reduces peaks without chasing troughs with boost, especially in the bass where boost quickly turns into excess phase rotation and group-delay ripple
+- when the inversion curve approaches the no-boost ceiling, the ceiling is treated as a soft target rather than a hard clip so the realized correction stays smooth and does not introduce sharp knees that create avoidable phase rotation and group-delay artifacts
 
 In data-model terms:
 

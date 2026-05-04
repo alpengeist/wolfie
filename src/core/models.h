@@ -362,7 +362,7 @@ struct FilterAnalysisResult {
 
 struct FilterDesignSettings {
     int tapCount = 65536;
-    double maxBoostDb = 6.0;
+    double maxBoostDb = 0.0;
     double maxCutDb = 12.0;
     double smoothness = 1.0;
     double lowCorrectionHz = 30.0;

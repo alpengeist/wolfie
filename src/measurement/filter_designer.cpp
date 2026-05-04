@@ -19,6 +19,8 @@ namespace {
 
 constexpr double kRadiansToDegrees = 180.0 / std::numbers::pi_v<double>;
 constexpr double kDegreesToRadians = std::numbers::pi_v<double> / 180.0;
+constexpr double kNoBoostSoftTargetHeadroomDb = 0.2;
+constexpr double kNoBoostSoftTargetTailSlope = 0.03;
 
 enum class NormalizedPhaseMode {
     Minimum,
@@ -185,6 +187,47 @@ double applyAsymmetricSoftLimit(double valueDb, double minValueDb, double maxVal
     return -cutLimitDb * std::tanh((-valueDb) / cutLimitDb);
 }
 
+double applyNoBoostSoftTarget(double valueDb) {
+    if (valueDb <= 0.0) {
+        return valueDb;
+    }
+    if (valueDb >= kNoBoostSoftTargetHeadroomDb) {
+        return kNoBoostSoftTargetHeadroomDb +
+               ((valueDb - kNoBoostSoftTargetHeadroomDb) * kNoBoostSoftTargetTailSlope);
+    }
+
+    const double t = clampValue(valueDb / kNoBoostSoftTargetHeadroomDb, 0.0, 1.0);
+    const double t2 = t * t;
+    const double t3 = t2 * t;
+    const double h00 = (2.0 * t3) - (3.0 * t2) + 1.0;
+    const double h10 = t3 - (2.0 * t2) + t;
+    const double h01 = (-2.0 * t3) + (3.0 * t2);
+    const double h11 = t3 - t2;
+    return (h00 * 0.0) +
+           (h10 * kNoBoostSoftTargetHeadroomDb) +
+           (h01 * kNoBoostSoftTargetHeadroomDb) +
+           (h11 * (kNoBoostSoftTargetHeadroomDb * kNoBoostSoftTargetTailSlope));
+}
+
+double applyCorrectionLimit(double valueDb, double minValueDb, double maxValueDb) {
+    const double cutLimitedDb = applyAsymmetricSoftLimit(std::min(valueDb, 0.0), minValueDb, 0.0);
+    if (maxValueDb <= 1.0e-9) {
+        if (minValueDb >= -1.0e-9) {
+            return 0.0;
+        }
+        if (valueDb <= 0.0) {
+            return applyNoBoostSoftTarget(cutLimitedDb);
+        }
+        return applyNoBoostSoftTarget(valueDb);
+    }
+
+    if (valueDb <= 0.0) {
+        return cutLimitedDb;
+    }
+
+    return applyAsymmetricSoftLimit(valueDb, 0.0, maxValueDb);
+}
+
 double smoothnessRegularizationScale(double smoothness) {
     const double clamped = clampValue(smoothness, 0.1, 4.0);
     return std::pow(8.0, clamped - 1.0);
@@ -290,7 +333,7 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
     fullCorrectionDb.reserve(count);
     for (size_t index = 0; index < count; ++index) {
         const double rawCorrectionDb = targetCurveDb[index] - sourceCurveDb[index];
-        fullCorrectionDb.push_back(applyAsymmetricSoftLimit(rawCorrectionDb, -settings.maxCutDb, settings.maxBoostDb));
+        fullCorrectionDb.push_back(applyCorrectionLimit(rawCorrectionDb, -settings.maxCutDb, settings.maxBoostDb));
     }
 
     std::vector<double> desiredCorrectionDb;
@@ -308,7 +351,7 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
         const double rawCorrectionDb = fullCorrectionDb[index];
         const double minValueDb = -settings.maxCutDb * weight;
         const double maxValueDb = settings.maxBoostDb * weight;
-        desiredCorrectionDb.push_back(applyAsymmetricSoftLimit(rawCorrectionDb, minValueDb, maxValueDb));
+        desiredCorrectionDb.push_back(applyCorrectionLimit(rawCorrectionDb, minValueDb, maxValueDb));
         trackingWeights.push_back(0.05 + (0.95 * weight));
         lowerBoundsDb.push_back(minValueDb);
         upperBoundsDb.push_back(maxValueDb);
@@ -319,7 +362,7 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
                                   smoothnessRegularizationScale(settings.smoothness);
     std::vector<double> correction = solveRegularizedCurve(desiredCorrectionDb, trackingWeights, regularization);
     for (size_t index = 0; index < correction.size() && index < lowerBoundsDb.size() && index < upperBoundsDb.size(); ++index) {
-        correction[index] = applyAsymmetricSoftLimit(correction[index], lowerBoundsDb[index], upperBoundsDb[index]);
+        correction[index] = applyCorrectionLimit(correction[index], lowerBoundsDb[index], upperBoundsDb[index]);
     }
     return correction;
 }
