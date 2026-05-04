@@ -352,7 +352,15 @@ Architectural consequences:
 - minimum-phase reconstruction and bulk-delay removal happen before excess-phase interpretation
 - mixed-mode phase work is intentionally constrained and stereo-aware rather than treated as full-band free-form inversion
 - minimum-phase magnitude correction is cut-first: the inversion curve is capped at `0 dB` by default so the design reduces peaks without chasing troughs with boost, especially in the bass where boost quickly turns into excess phase rotation and group-delay ripple
-- when the inversion curve approaches the no-boost ceiling, the ceiling is treated as a soft target rather than a hard clip so the realized correction stays smooth and does not introduce sharp knees that create avoidable phase rotation and group-delay artifacts
+- the default no-boost ceiling stays at exactly `0 dB` with no implicit headroom; if smoother shoulders are needed, they should come from the solver regularization, FIR tap budget, and any explicit user-selected `maxBoostDb` rather than from hidden overshoot above the stated boost limit
+
+Final correction-shape principles:
+
+- the stated boost limit is literal: `0 dB` means no boost, not "almost no boost" and not hidden positive headroom
+- there is no implicit overshoot allowance above the configured boost ceiling
+- if the inversion shape needs to stay smoother near the ceiling, that should be achieved by the regularized solve, the available FIR tap count, response smoothing, and any explicit user-selected `maxBoostDb`
+- broad flat tops caused by a hidden limiter are not a desired outcome; if a smoother result needs some positive correction, that boost budget should be made explicit in settings
+- in practice, raising tap count and allowing a small explicit boost budget can produce a better-shaped inversion than trying to fake smoothness with concealed headroom
 
 In data-model terms:
 

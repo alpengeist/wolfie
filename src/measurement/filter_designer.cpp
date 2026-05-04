@@ -19,9 +19,6 @@ namespace {
 
 constexpr double kRadiansToDegrees = 180.0 / std::numbers::pi_v<double>;
 constexpr double kDegreesToRadians = std::numbers::pi_v<double> / 180.0;
-constexpr double kNoBoostSoftTargetHeadroomDb = 0.2;
-constexpr double kNoBoostSoftTargetTailSlope = 0.03;
-
 enum class NormalizedPhaseMode {
     Minimum,
     ExcessLf,
@@ -191,22 +188,7 @@ double applyNoBoostSoftTarget(double valueDb) {
     if (valueDb <= 0.0) {
         return valueDb;
     }
-    if (valueDb >= kNoBoostSoftTargetHeadroomDb) {
-        return kNoBoostSoftTargetHeadroomDb +
-               ((valueDb - kNoBoostSoftTargetHeadroomDb) * kNoBoostSoftTargetTailSlope);
-    }
-
-    const double t = clampValue(valueDb / kNoBoostSoftTargetHeadroomDb, 0.0, 1.0);
-    const double t2 = t * t;
-    const double t3 = t2 * t;
-    const double h00 = (2.0 * t3) - (3.0 * t2) + 1.0;
-    const double h10 = t3 - (2.0 * t2) + t;
-    const double h01 = (-2.0 * t3) + (3.0 * t2);
-    const double h11 = t3 - t2;
-    return (h00 * 0.0) +
-           (h10 * kNoBoostSoftTargetHeadroomDb) +
-           (h01 * kNoBoostSoftTargetHeadroomDb) +
-           (h11 * (kNoBoostSoftTargetHeadroomDb * kNoBoostSoftTargetTailSlope));
+    return 0.0;
 }
 
 double applyCorrectionLimit(double valueDb, double minValueDb, double maxValueDb) {

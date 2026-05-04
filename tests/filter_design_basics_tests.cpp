@@ -64,41 +64,6 @@ double bandMaxAdjacentAbsDelta(const std::vector<double>& frequencyAxisHz,
     return maxDelta;
 }
 
-size_t bandCountNearMaximum(const std::vector<double>& frequencyAxisHz,
-                            const std::vector<double>& values,
-                            double minFrequencyHz,
-                            double maxFrequencyHz,
-                            double toleranceDb) {
-    const size_t count = std::min(frequencyAxisHz.size(), values.size());
-    double maximumValue = -1.0e9;
-    for (size_t index = 0; index < count; ++index) {
-        if (!std::isfinite(values[index])) {
-            continue;
-        }
-        if (frequencyAxisHz[index] < minFrequencyHz || frequencyAxisHz[index] > maxFrequencyHz) {
-            continue;
-        }
-        maximumValue = std::max(maximumValue, values[index]);
-    }
-    if (maximumValue < -1.0e8) {
-        return 0;
-    }
-
-    size_t nearMaximumCount = 0;
-    for (size_t index = 0; index < count; ++index) {
-        if (!std::isfinite(values[index])) {
-            continue;
-        }
-        if (frequencyAxisHz[index] < minFrequencyHz || frequencyAxisHz[index] > maxFrequencyHz) {
-            continue;
-        }
-        if (values[index] >= maximumValue - toleranceDb) {
-            ++nearMaximumCount;
-        }
-    }
-    return nearMaximumCount;
-}
-
 wolfie::SmoothedResponse buildNarrowPeakResponse() {
     wolfie::SmoothedResponse response;
     response.frequencyAxisHz = wolfie::tests::buildLogAxis(20.0, 20000.0, 512);
@@ -343,9 +308,8 @@ bool expectDefaultSettingsUseNoBoostCeiling() {
     const auto maxCorrection = std::max_element(defaultResult.left.correctionCurveDb.begin(),
                                                 defaultResult.left.correctionCurveDb.end());
     if (maxCorrection == defaultResult.left.correctionCurveDb.end() ||
-        *maxCorrection < 0.05 ||
-        *maxCorrection > 0.6) {
-        std::cerr << "default filter design did not stay within the soft no-boost headroom window (max="
+        *maxCorrection > 0.05) {
+        std::cerr << "default filter design did not stay at the 0 dB no-boost ceiling (max="
                   << (maxCorrection == defaultResult.left.correctionCurveDb.end() ? 0.0 : *maxCorrection) << ")\n";
         return false;
     }
@@ -365,67 +329,6 @@ bool expectDefaultSettingsUseNoBoostCeiling() {
     }
 
     return true;
-}
-
-bool expectNoBoostCeilingApproachesZeroSoftly() {
-    wolfie::MeasurementSettings measurement;
-    measurement.sampleRate = 48000;
-    measurement.startFrequencyHz = 20.0;
-    measurement.endFrequencyHz = 20000.0;
-
-    wolfie::TargetCurveSettings targetCurve;
-    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
-
-    wolfie::FilterDesignSettings filterSettings;
-    filterSettings.tapCount = 16384;
-    filterSettings.maxBoostDb = 0.0;
-    filterSettings.maxCutDb = 12.0;
-    filterSettings.smoothness = 0.2;
-    filterSettings.lowCorrectionHz = 20.0;
-    filterSettings.highCorrectionHz = 18000.0;
-    filterSettings.displayPointCount = 512;
-
-    const wolfie::SmoothedResponse response = buildNarrowPeakResponse();
-    const wolfie::FilterDesignResult result =
-        wolfie::measurement::designFilters(response, measurement, targetCurve, filterSettings);
-    if (!result.valid) {
-        std::cerr << "soft no-boost target regression case did not produce a valid filter result\n";
-        return false;
-    }
-
-    size_t nearCeilingShoulderCount = 0;
-    for (size_t index = 0; index < result.frequencyAxisHz.size() && index < result.left.correctionCurveDb.size(); ++index) {
-        if (result.frequencyAxisHz[index] < 120.0 || result.frequencyAxisHz[index] > 420.0) {
-            continue;
-        }
-        const double valueDb = result.left.correctionCurveDb[index];
-        if (valueDb > -1.2 && valueDb < 0.18) {
-            ++nearCeilingShoulderCount;
-        }
-    }
-    if (nearCeilingShoulderCount < 4) {
-        std::cerr << "soft no-boost target did not leave a smooth shoulder near the ceiling (shoulder="
-                  << nearCeilingShoulderCount << ")\n";
-        return false;
-    }
-
-    const size_t nearPeakCount =
-        bandCountNearMaximum(result.frequencyAxisHz, result.left.correctionCurveDb, 120.0, 420.0, 1.0e-4);
-    if (nearPeakCount > 16) {
-        std::cerr << "soft no-boost target still created a literal flat-topped peak region (near-peak bins="
-                  << nearPeakCount << ")\n";
-        return false;
-    }
-
-    const double realizedDelta =
-        bandMaxAdjacentAbsDelta(result.frequencyAxisHz, result.left.correctionCurveDb, 120.0, 420.0);
-    if (realizedDelta > 1.0) {
-        std::cerr << "soft no-boost target still approached the ceiling too abruptly (realized="
-                  << realizedDelta << ", shoulder=" << nearCeilingShoulderCount
-                  << ", near-peak bins=" << nearPeakCount << ")\n";
-        return false;
-    }
-
     return true;
 }
 
@@ -436,7 +339,6 @@ int main() {
         {"expectDesignedFilterLooksSane", expectDesignedFilterLooksSane},
         {"expectLowCorrectionBoundChangesBassCorrectionShape", expectLowCorrectionBoundChangesBassCorrectionShape},
         {"expectDefaultSettingsUseNoBoostCeiling", expectDefaultSettingsUseNoBoostCeiling},
-        {"expectNoBoostCeilingApproachesZeroSoftly", expectNoBoostCeilingApproachesZeroSoftly},
         {"expectExactTargetCurveEvaluationCapturesBellPeak", expectExactTargetCurveEvaluationCapturesBellPeak},
         {"expectTargetCurveAnchorsToMeasuredLevel", expectTargetCurveAnchorsToMeasuredLevel},
     });
