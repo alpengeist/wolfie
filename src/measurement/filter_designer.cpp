@@ -19,6 +19,7 @@ namespace {
 
 constexpr double kRadiansToDegrees = 180.0 / std::numbers::pi_v<double>;
 constexpr double kDegreesToRadians = std::numbers::pi_v<double> / 180.0;
+constexpr double kMaxSmoothness = 4.0 + (2.0 / 3.0);
 enum class NormalizedPhaseMode {
     Minimum,
     ExcessLf,
@@ -211,7 +212,7 @@ double applyCorrectionLimit(double valueDb, double minValueDb, double maxValueDb
 }
 
 double smoothnessRegularizationScale(double smoothness) {
-    const double clamped = clampValue(smoothness, 0.1, 4.0);
+    const double clamped = clampValue(smoothness, 0.1, kMaxSmoothness);
     return std::pow(8.0, clamped - 1.0);
 }
 
@@ -1125,7 +1126,7 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     settings.tapCount = closestTapCount;
     settings.maxBoostDb = clampValue(settings.maxBoostDb, 0.0, 24.0);
     settings.maxCutDb = clampValue(settings.maxCutDb, 0.0, 36.0);
-    settings.smoothness = clampValue(settings.smoothness, 0.1, 4.0);
+    settings.smoothness = clampValue(settings.smoothness, 0.1, kMaxSmoothness);
     settings.lowCorrectionHz = clampValue(settings.lowCorrectionHz, 10.0, static_cast<double>(std::max(nyquist - 10, 20)));
     settings.lowTaperOctaves = clampValue(settings.lowTaperOctaves, 0.0, 4.0);
     settings.highCorrectionHz =

@@ -14,7 +14,14 @@ namespace wolfie::ui {
 
 namespace {
 
-constexpr double kSmoothnessSteps[] = {0.1, 1.0, 2.0, 4.0};
+constexpr double kSmoothnessSteps[] = {
+    0.1,
+    1.0,
+    2.0,
+    4.0,
+    4.0 + (1.0 / 3.0),
+    4.0 + (2.0 / 3.0),
+};
 constexpr int kSmoothnessStepCount = static_cast<int>(sizeof(kSmoothnessSteps) / sizeof(kSmoothnessSteps[0]));
 constexpr int kGroupDelayZoomRangesMs[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
 constexpr int kGroupDelayZoomPresetCount =
@@ -46,6 +53,10 @@ int smoothnessSliderPositionFromValue(double smoothness) {
 double smoothnessValueFromSliderPosition(LRESULT position) {
     const int index = clampValue(static_cast<int>(position), 0, kSmoothnessStepCount - 1);
     return kSmoothnessSteps[index];
+}
+
+int smoothnessDisplayValueFromSliderPosition(LRESULT position) {
+    return clampValue(static_cast<int>(position), 0, kSmoothnessStepCount - 1) + 1;
 }
 
 int clampGroupDelayZoomPreset(int preset) {
@@ -260,7 +271,7 @@ void FiltersPage::createControls() {
     controls_.editMaxCut = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                            0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMaxCut)), instance_, nullptr);
     controls_.unitMaxCut = CreateWindowW(L"STATIC", L"dB", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelSmoothness = CreateWindowW(L"STATIC", L"Smoothness", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelSmoothness = CreateWindowW(L"STATIC", L"Inversion Smoothness", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.sliderSmoothness = CreateWindowW(TRACKBAR_CLASSW,
                                                nullptr,
                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ | kHelpBubbleChildClipStyle,
@@ -699,7 +710,7 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelMaxCut, contentLeft + 614, top, 70, 18, TRUE);
     MoveWindow(controls_.editMaxCut, contentLeft + 614, top + 22, 58, 26, TRUE);
     MoveWindow(controls_.unitMaxCut, contentLeft + 676, top + 26, 24, 18, TRUE);
-    MoveWindow(controls_.labelSmoothness, contentLeft + 716, top, 78, 18, TRUE);
+    MoveWindow(controls_.labelSmoothness, contentLeft + 716, top, 250, 18, TRUE);
     MoveWindow(controls_.sliderSmoothness, contentLeft + 716, top + 20, 120, 32, TRUE);
     MoveWindow(controls_.valueSmoothness, contentLeft + 842, top + 24, 36, 18, TRUE);
     const int mixedTop = top + 62;
@@ -924,9 +935,9 @@ void FiltersPage::setSelectedSmoothness(double smoothness) const {
 }
 
 void FiltersPage::refreshSmoothnessValue() const {
-    const double smoothness = selectedSmoothness();
-    const int digits = std::abs(smoothness - std::round(smoothness)) < 0.001 ? 0 : 1;
-    setWindowTextValue(controls_.valueSmoothness, formatWideDouble(smoothness, digits));
+    setWindowTextValue(controls_.valueSmoothness,
+                       std::to_wstring(smoothnessDisplayValueFromSliderPosition(
+                           SendMessageW(controls_.sliderSmoothness, TBM_GETPOS, 0, 0))));
 }
 
 int FiltersPage::selectedGroupDelayZoomPreset() const {
