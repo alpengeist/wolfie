@@ -276,6 +276,19 @@ MeasurementSettings buildAlignmentMeasurementSettings(const MeasurementSettings&
     return settings;
 }
 
+int clampWorkspaceTabIndex(HWND tabControl, int index) {
+    if (tabControl == nullptr) {
+        return 0;
+    }
+
+    const int itemCount = TabCtrl_GetItemCount(tabControl);
+    if (itemCount <= 0) {
+        return 0;
+    }
+
+    return std::clamp(index, 0, itemCount - 1);
+}
+
 std::filesystem::path appStatePath() {
     const std::filesystem::path legacyPath = std::filesystem::current_path() / "wolfie-app-state.json";
 
@@ -978,6 +991,11 @@ void WolfieApp::populateControlsFromState() {
     populateExportSampleRateControls();
     updateExportControls();
     updateProcessLogSizeButtons();
+    if (tabControl_ != nullptr) {
+        const int selected = clampWorkspaceTabIndex(tabControl_, workspace_.ui.lastOpenTabIndex);
+        TabCtrl_SetCurSel(tabControl_, selected);
+        updateVisibleTab();
+    }
     layoutMainWindow();
 }
 
@@ -988,6 +1006,7 @@ void WolfieApp::syncStateFromControls() {
     targetCurvePage_.syncToWorkspace(workspace_);
     filtersPage_.syncToWorkspace(workspace_);
     syncExportSampleRatesToWorkspace();
+    workspace_.ui.lastOpenTabIndex = clampWorkspaceTabIndex(tabControl_, activeTabIndex_);
 }
 
 WolfieApp::CalibrationReanalysisTaskResult
@@ -2175,6 +2194,10 @@ void WolfieApp::onNotify(LPARAM lParam) {
         }
         updateVisibleTab();
         layoutContent();
+        if (!workspace_.rootPath.empty()) {
+            workspace_.ui.lastOpenTabIndex = clampWorkspaceTabIndex(tabControl_, selected);
+            workspaceRepository_.saveUiSettings(workspace_);
+        }
     }
 }
 
@@ -2290,6 +2313,7 @@ void WolfieApp::updateVisibleTab() {
     filtersPage_.setVisible(selected == 5);
     ShowWindow(pageExport_, selected == 6 ? SW_SHOW : SW_HIDE);
     activeTabIndex_ = selected;
+    workspace_.ui.lastOpenTabIndex = clampWorkspaceTabIndex(tabControl_, selected);
 }
 
 void WolfieApp::persistTargetCurveStateIfPending() {

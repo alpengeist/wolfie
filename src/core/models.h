@@ -86,6 +86,7 @@ struct UiSettings {
     bool targetCurveGraphHasCustomVisibleDbRange = false;
     double targetCurveGraphVisibleMinDb = -12.0;
     double targetCurveGraphVisibleMaxDb = 12.0;
+    int lastOpenTabIndex = 0;
     std::string filterViewMode = "minimum";
     bool filterShowInputRight = true;
     bool filterShowInputLeft = true;

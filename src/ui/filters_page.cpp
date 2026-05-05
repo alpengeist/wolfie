@@ -176,6 +176,26 @@ double interpolateLinearAxisValue(const std::vector<double>& sourceAxis,
                              sourceValues[upperIndex]);
 }
 
+double interpolateLinearAxisValueZeroOutside(const std::vector<double>& sourceAxis,
+                                             const std::vector<double>& sourceValues,
+                                             double xValue) {
+    if (sourceAxis.empty() || sourceValues.size() != sourceAxis.size()) {
+        return 0.0;
+    }
+
+    if (xValue < sourceAxis.front() || xValue > sourceAxis.back()) {
+        return 0.0;
+    }
+    if (xValue <= sourceAxis.front()) {
+        return sourceValues.front();
+    }
+    if (xValue >= sourceAxis.back()) {
+        return sourceValues.back();
+    }
+
+    return interpolateLinearAxisValue(sourceAxis, sourceValues, xValue);
+}
+
 std::vector<double> resampleLinearAxis(const std::vector<double>& sourceAxis,
                                        const std::vector<double>& sourceValues,
                                        const std::vector<double>& targetAxis) {
@@ -187,6 +207,21 @@ std::vector<double> resampleLinearAxis(const std::vector<double>& sourceAxis,
     resampled.reserve(targetAxis.size());
     for (const double xValue : targetAxis) {
         resampled.push_back(interpolateLinearAxisValue(sourceAxis, sourceValues, xValue));
+    }
+    return resampled;
+}
+
+std::vector<double> resampleLinearAxisZeroOutside(const std::vector<double>& sourceAxis,
+                                                  const std::vector<double>& sourceValues,
+                                                  const std::vector<double>& targetAxis) {
+    std::vector<double> resampled;
+    if (sourceAxis.empty() || sourceValues.size() != sourceAxis.size() || targetAxis.empty()) {
+        return resampled;
+    }
+
+    resampled.reserve(targetAxis.size());
+    for (const double xValue : targetAxis) {
+        resampled.push_back(interpolateLinearAxisValueZeroOutside(sourceAxis, sourceValues, xValue));
     }
     return resampled;
 }
@@ -218,8 +253,10 @@ std::vector<double> buildLinearDeltaSeries(const std::vector<double>& minimumAxi
                                            const std::vector<double>& mixedAxis,
                                            const std::vector<double>& mixedValues,
                                            const std::vector<double>& targetAxis) {
-    const std::vector<double> minimumResampled = resampleLinearAxis(minimumAxis, minimumValues, targetAxis);
-    const std::vector<double> mixedResampled = resampleLinearAxis(mixedAxis, mixedValues, targetAxis);
+    const std::vector<double> minimumResampled =
+        resampleLinearAxisZeroOutside(minimumAxis, minimumValues, targetAxis);
+    const std::vector<double> mixedResampled =
+        resampleLinearAxisZeroOutside(mixedAxis, mixedValues, targetAxis);
     return subtractSeries(mixedResampled, minimumResampled);
 }
 
@@ -271,6 +308,50 @@ std::vector<double> buildSharedImpulseTimeAxisMs(const FilterDesignResult& filte
         xValues.push_back((static_cast<double>(index) - centerIndex) * 1000.0 / sampleRate);
     }
     return xValues;
+}
+
+double impulseAxisStepMs(const std::vector<double>& axis) {
+    if (axis.size() < 2) {
+        return 0.0;
+    }
+
+    double step = axis[1] - axis[0];
+    if (!std::isfinite(step) || std::abs(step) < 1.0e-9) {
+        return 0.0;
+    }
+    return step;
+}
+
+std::vector<double> buildImpulseDifferenceTimeAxisMs(const FilterDesignResult& minimumResult,
+                                                     const FilterDesignResult& mixedResult) {
+    const std::vector<double> minimumAxis = buildSharedImpulseTimeAxisMs(minimumResult);
+    const std::vector<double> mixedAxis = buildSharedImpulseTimeAxisMs(mixedResult);
+    if (minimumAxis.empty()) {
+        return mixedAxis;
+    }
+    if (mixedAxis.empty()) {
+        return minimumAxis;
+    }
+
+    double stepMs = impulseAxisStepMs(mixedAxis);
+    if (stepMs <= 0.0) {
+        stepMs = impulseAxisStepMs(minimumAxis);
+    }
+    if (stepMs <= 0.0) {
+        return mixedAxis;
+    }
+
+    const double minMs = std::min(minimumAxis.front(), mixedAxis.front());
+    const double maxMs = std::max(minimumAxis.back(), mixedAxis.back());
+    const size_t pointCount =
+        static_cast<size_t>(std::max(std::llround((maxMs - minMs) / stepMs), 0ll)) + 1;
+
+    std::vector<double> axis;
+    axis.reserve(pointCount);
+    for (size_t index = 0; index < pointCount; ++index) {
+        axis.push_back(minMs + (static_cast<double>(index) * stepMs));
+    }
+    return axis;
 }
 
 std::vector<double> subtractConstant(const std::vector<double>& values, double offset) {
@@ -2038,16 +2119,20 @@ void FiltersPage::resetSharedFrequencyXRange() {
 }
 
 void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace) {
-    if (!workspace.filterResult.valid ||
-        workspace.filterResult.left.filterTaps.empty() ||
-        workspace.filterResult.right.filterTaps.empty()) {
-        impulseGraph_.setDefaultXRange(false, 0.0, 1.0);
-        impulseGraph_.setDefaultYRange(false, -1.0, 1.0);
-        impulseGraph_.resetView();
-        return;
+    std::vector<double> impulseTimeMs;
+    const bool differenceView =
+        workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available();
+    if (differenceView) {
+        impulseTimeMs =
+            buildImpulseDifferenceTimeAxisMs(workspace.minimumFilter.result, workspace.mixedFilter.result);
+    } else if (workspace.filterResult.valid &&
+               !workspace.filterResult.left.filterTaps.empty() &&
+               !workspace.filterResult.right.filterTaps.empty()) {
+        impulseTimeMs = buildSharedImpulseTimeAxisMs(workspace.filterResult);
     }
 
-    const std::vector<double> impulseTimeMs = buildSharedImpulseTimeAxisMs(workspace.filterResult);
     if (impulseTimeMs.empty()) {
         impulseGraph_.setDefaultXRange(false, 0.0, 1.0);
         impulseGraph_.setDefaultYRange(false, -1.0, 1.0);
@@ -2061,7 +2146,7 @@ void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace)
     impulseGraph_.setDefaultXRange(true,
                                    clampValue(-kImpulseGraphNegativeWindowMs, fullMinMs, fullMaxMs),
                                    clampValue(kImpulseGraphPositiveWindowMs, fullMinMs, fullMaxMs));
-    impulseGraph_.setDefaultYRange(false, -1.0, 1.0);
+    impulseGraph_.setDefaultYRange(!differenceView, -1.0, 1.0);
     impulseGraph_.resetView();
 }
 
@@ -2483,7 +2568,8 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
         workspace.mixedFilter.available()) {
         const std::vector<double> minimumAxis = buildSharedImpulseTimeAxisMs(workspace.minimumFilter.result);
         const std::vector<double> mixedAxis = buildSharedImpulseTimeAxisMs(workspace.mixedFilter.result);
-        data.xValues = !mixedAxis.empty() ? mixedAxis : minimumAxis;
+        data.xValues =
+            buildImpulseDifferenceTimeAxisMs(workspace.minimumFilter.result, workspace.mixedFilter.result);
         if (data.xValues.empty()) {
             return data;
         }

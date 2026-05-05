@@ -367,6 +367,9 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonNumber(content, "targetCurveGraphVisibleMaxDb")) {
         ui.targetCurveGraphVisibleMaxDb = *value;
     }
+    if (const auto value = findJsonNumber(content, "lastOpenTabIndex")) {
+        ui.lastOpenTabIndex = std::max(0, static_cast<int>(*value));
+    }
     if (const auto value = findJsonString(content, "filterViewMode")) {
         ui.filterViewMode = normalizeFilterViewMode(*value);
     }
@@ -1440,6 +1443,7 @@ void writeWorkspaceSettingsJsonFile(const WorkspaceState& workspace) {
                   << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
                   << "    \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
                   << "    \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << ",\n"
+                  << "    \"lastOpenTabIndex\": " << workspace.ui.lastOpenTabIndex << ",\n"
                   << "    \"filterViewMode\": \"" << escapeJson(workspace.ui.filterViewMode) << "\",\n"
                   << "    \"filterShowInputRight\": " << (workspace.ui.filterShowInputRight ? "true" : "false") << ",\n"
                   << "    \"filterShowInputLeft\": " << (workspace.ui.filterShowInputLeft ? "true" : "false") << ",\n"
@@ -1522,6 +1526,7 @@ void writeUiSettingsJsonFile(const WorkspaceState& workspace) {
            << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
            << "  \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
            << "  \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << ",\n"
+           << "  \"lastOpenTabIndex\": " << workspace.ui.lastOpenTabIndex << ",\n"
            << "  \"filterViewMode\": \"" << escapeJson(workspace.ui.filterViewMode) << "\",\n"
            << "  \"filterShowInputRight\": " << (workspace.ui.filterShowInputRight ? "true" : "false") << ",\n"
            << "  \"filterShowInputLeft\": " << (workspace.ui.filterShowInputLeft ? "true" : "false") << ",\n"
