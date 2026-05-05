@@ -470,7 +470,7 @@ void FiltersPage::createControls() {
     controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | kHelpBubbleChildClipStyle,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonRecalculate)), instance_, nullptr);
     helpBubble_.registerLabel(controls_.labelTapCount, L"Sets the FIR length. More taps allow finer correction but increase latency and processing cost.");
-    helpBubble_.registerLabel(controls_.labelPhaseMode, L"Chooses which stored filter to display: minimum, mixed, or the delta between them.");
+    helpBubble_.registerLabel(controls_.labelPhaseMode, L"Chooses which stored filter to display: minimum, mixed, or the mode delta between them.");
     helpBubble_.registerLabel(controls_.labelLowCorrection, L"Sets the lowest frequency where correction is allowed to operate.");
     helpBubble_.registerLabel(controls_.labelHighCorrection, L"Sets the highest frequency where correction is allowed to operate.");
     helpBubble_.registerLabel(controls_.labelMaxBoost, L"Limits how much positive gain the calculated correction may apply.");
@@ -547,6 +547,17 @@ void FiltersPage::createControls() {
     controls_.labelInversionLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.correctedTitle = CreateWindowW(L"STATIC", L"Predicted Corrected Response", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.buttonCorrectedEffect = CreateWindowW(L"BUTTON",
+                                                    L"Effect",
+                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_PUSHLIKE,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    window_,
+                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonCorrectedEffect)),
+                                                    instance_,
+                                                    nullptr);
     controls_.correctedLegendFrame = CreateWindowW(L"STATIC",
                                                    L"",
                                                    WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
@@ -614,6 +625,17 @@ void FiltersPage::createControls() {
     controls_.labelCorrectedRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.excessPhaseTitle = CreateWindowW(L"STATIC", L"Excess Phase", WS_CHILD | WS_VISIBLE,
                                                0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.buttonExcessPhaseEffect = CreateWindowW(L"BUTTON",
+                                                      L"Effect",
+                                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_PUSHLIKE,
+                                                      0,
+                                                      0,
+                                                      0,
+                                                      0,
+                                                      window_,
+                                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonExcessPhaseEffect)),
+                                                      instance_,
+                                                      nullptr);
     controls_.excessPhaseLegendFrame = CreateWindowW(L"STATIC",
                                                      L"",
                                                      WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
@@ -679,6 +701,17 @@ void FiltersPage::createControls() {
     controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.buttonGroupDelayEffect = CreateWindowW(L"BUTTON",
+                                                     L"Effect",
+                                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_PUSHLIKE,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     window_,
+                                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonGroupDelayEffect)),
+                                                     instance_,
+                                                     nullptr);
     controls_.labelGroupDelayZoom = CreateWindowW(L"STATIC", L"Y Range", WS_CHILD | WS_VISIBLE,
                                                   0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.sliderGroupDelayZoom = CreateWindowW(TRACKBAR_CLASSW,
@@ -896,6 +929,7 @@ void FiltersPage::layout() {
     int y = top + 174;
     const int legendLeft = contentLeft + contentWidth - legendWidth;
     const int graphRight = legendLeft - legendGap;
+    const int effectButtonWidth = 72;
     MoveWindow(controls_.inversionTitle, contentLeft, y, 120, 18, TRUE);
     const int frameTop = y + 24;
     MoveWindow(controls_.inversionLegendFrame, legendLeft, frameTop, legendWidth, graphHeight, TRUE);
@@ -925,6 +959,7 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.correctedTitle, contentLeft, y, contentWidth, 18, TRUE);
+    MoveWindow(controls_.buttonCorrectedEffect, graphRight - effectButtonWidth, y - 2, effectButtonWidth, 22, TRUE);
     MoveWindow(controls_.correctedLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     correctedGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int correctedFirstRowTop = y + 24 + 18;
@@ -945,6 +980,7 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.excessPhaseTitle, contentLeft, y, contentWidth, 18, TRUE);
+    MoveWindow(controls_.buttonExcessPhaseEffect, graphRight - effectButtonWidth, y - 2, effectButtonWidth, 22, TRUE);
     MoveWindow(controls_.excessPhaseLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     excessPhaseGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int excessPhaseFirstRowTop = y + 24 + 18;
@@ -963,7 +999,8 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxAlignGroupDelayLatency, graphRight - 124, y - 2, 124, 20, TRUE);
+    MoveWindow(controls_.checkboxAlignGroupDelayLatency, graphRight - 204, y - 2, 124, 20, TRUE);
+    MoveWindow(controls_.buttonGroupDelayEffect, graphRight - effectButtonWidth, y - 2, effectButtonWidth, 22, TRUE);
     MoveWindow(controls_.labelGroupDelayZoom, contentLeft, y + 26, 52, 18, TRUE);
     MoveWindow(controls_.valueGroupDelayZoom, graphRight - 64, y + 26, 64, 18, TRUE);
     const int groupDelaySliderLeft = contentLeft + 58;
@@ -1040,10 +1077,10 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.editMixedPhaseStrength, formatWideDouble(settings.mixedPhaseStrength, 2));
     setWindowTextValue(controls_.editMixedPhaseCap, formatWideDouble(settings.mixedPhaseMaxCorrectionDegrees, 0));
     refreshExcessPhaseWindowLabel();
-    refreshPhaseModeControls();
-    refreshFilterViewPresentation();
     loadViewSettings(workspace.ui);
     syncViewSettingsToControls();
+    refreshPhaseModeControls();
+    refreshFilterViewPresentation();
     appliedSettings_ = settings;
     filterDesignValid_ = workspace.ui.filterViewMode != "difference" && workspace.filterResult.valid;
     refreshRecalculateButton();
@@ -1182,6 +1219,13 @@ void FiltersPage::refreshPhaseModeControls() const {
 
 void FiltersPage::refreshFilterViewPresentation() const {
     const bool differenceView = differenceViewSelected();
+    const bool correctedEffectView = !differenceView && showCorrectedEffect_;
+    const bool excessPhaseEffectView = !differenceView && showExcessPhaseEffect_;
+    const bool groupDelayEffectView = !differenceView && showGroupDelayEffect_;
+
+    ShowWindow(controls_.buttonCorrectedEffect, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.buttonExcessPhaseEffect, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.buttonGroupDelayEffect, differenceView ? SW_HIDE : SW_SHOW);
 
     ShowWindow(controls_.checkboxShowInputRight, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.lineInputRight, differenceView ? SW_HIDE : SW_SHOW);
@@ -1194,42 +1238,48 @@ void FiltersPage::refreshFilterViewPresentation() const {
     SetWindowTextW(controls_.labelInversionRight, L"R pred");
     SetWindowTextW(controls_.labelInversionLeft, L"L pred");
 
-    ShowWindow(controls_.lineCorrectedTarget, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.labelCorrectedTarget, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.checkboxShowCorrectedInputLeft, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.lineCorrectedInputLeft, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.labelCorrectedInputLeft, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.checkboxShowCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.lineCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.labelCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineCorrectedTarget, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedTarget, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowCorrectedInputLeft, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineCorrectedInputLeft, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedInputLeft, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowCorrectedInputRight, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineCorrectedInputRight, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedInputRight, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
     SetWindowTextW(controls_.labelCorrectedInputLeft, L"L");
     SetWindowTextW(controls_.labelCorrectedInputRight, L"R");
-    SetWindowTextW(controls_.labelCorrectedLeft, L"L pred");
-    SetWindowTextW(controls_.labelCorrectedRight, L"R pred");
+    SetWindowTextW(controls_.labelCorrectedLeft, correctedEffectView ? L"L effect" : L"L pred");
+    SetWindowTextW(controls_.labelCorrectedRight, correctedEffectView ? L"R effect" : L"R pred");
 
-    ShowWindow(controls_.checkboxShowExcessPhaseInputRight, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.lineExcessPhaseInputRight, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.labelExcessPhaseInputRight, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.checkboxShowExcessPhaseInputLeft, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.lineExcessPhaseInputLeft, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.labelExcessPhaseInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowExcessPhaseInputRight, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineExcessPhaseInputRight, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelExcessPhaseInputRight, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowExcessPhaseInputLeft, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineExcessPhaseInputLeft, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelExcessPhaseInputLeft, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
     SetWindowTextW(controls_.labelExcessPhaseInputRight, L"R");
     SetWindowTextW(controls_.labelExcessPhaseInputLeft, L"L");
-    SetWindowTextW(controls_.labelExcessPhasePredictedRight, L"R pred");
-    SetWindowTextW(controls_.labelExcessPhasePredictedLeft, L"L pred");
+    SetWindowTextW(controls_.labelExcessPhasePredictedRight, excessPhaseEffectView ? L"R effect" : L"R pred");
+    SetWindowTextW(controls_.labelExcessPhasePredictedLeft, excessPhaseEffectView ? L"L effect" : L"L pred");
 
-    ShowWindow(controls_.checkboxShowInputGroupDelayLeft, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.lineInputGroupDelayLeft, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.labelInputGroupDelayLeft, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.checkboxShowInputGroupDelayRight, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.lineInputGroupDelayRight, differenceView ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.labelInputGroupDelayRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowInputGroupDelayLeft, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineInputGroupDelayLeft, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelInputGroupDelayLeft, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowInputGroupDelayRight, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineInputGroupDelayRight, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelInputGroupDelayRight, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowFilterGroupDelayLeft, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineGroupDelayLeft, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelGroupDelayLeft, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowFilterGroupDelayRight, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineGroupDelayRight, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelGroupDelayRight, groupDelayEffectView ? SW_HIDE : SW_SHOW);
     SetWindowTextW(controls_.labelInputGroupDelayLeft, L"L");
     SetWindowTextW(controls_.labelInputGroupDelayRight, L"R");
     SetWindowTextW(controls_.labelGroupDelayLeft, L"L filter");
     SetWindowTextW(controls_.labelGroupDelayRight, L"R filter");
-    SetWindowTextW(controls_.labelPredictedGroupDelayLeft, L"L pred");
-    SetWindowTextW(controls_.labelPredictedGroupDelayRight, L"R pred");
+    SetWindowTextW(controls_.labelPredictedGroupDelayLeft, groupDelayEffectView ? L"L effect" : L"L pred");
+    SetWindowTextW(controls_.labelPredictedGroupDelayRight, groupDelayEffectView ? L"R effect" : L"R pred");
 }
 
 void FiltersPage::applyGroupDelayZoomRange() {
@@ -1277,6 +1327,7 @@ void FiltersPage::syncViewSettingsToControls() const {
     SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_SETCHECK, showCorrectedInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.buttonCorrectedEffect, BM_SETCHECK, showCorrectedEffect_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowExcessPhaseInputRight,
                  BM_SETCHECK,
                  showExcessPhaseInputRight_ ? BST_CHECKED : BST_UNCHECKED,
@@ -1293,6 +1344,7 @@ void FiltersPage::syncViewSettingsToControls() const {
                  BM_SETCHECK,
                  showExcessPhasePredictedLeft_ ? BST_CHECKED : BST_UNCHECKED,
                  0);
+    SendMessageW(controls_.buttonExcessPhaseEffect, BM_SETCHECK, showExcessPhaseEffect_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInputGroupDelayLeft,
                  BM_SETCHECK,
                  showInputGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED,
@@ -1317,6 +1369,7 @@ void FiltersPage::syncViewSettingsToControls() const {
                  BM_SETCHECK,
                  showFilterGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED,
                  0);
+    SendMessageW(controls_.buttonGroupDelayEffect, BM_SETCHECK, showGroupDelayEffect_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxAlignGroupDelayLatency,
                  BM_SETCHECK,
                  alignGroupDelayLatency_ ? BST_CHECKED : BST_UNCHECKED,
@@ -1333,6 +1386,7 @@ void FiltersPage::syncViewSettingsFromControls() {
     showCorrectedInputRight_ = SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showCorrectedLeft_ = SendMessageW(controls_.checkboxShowCorrectedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showCorrectedRight_ = SendMessageW(controls_.checkboxShowCorrectedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showCorrectedEffect_ = SendMessageW(controls_.buttonCorrectedEffect, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhaseInputRight_ =
         SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhaseInputLeft_ =
@@ -1341,6 +1395,7 @@ void FiltersPage::syncViewSettingsFromControls() {
         SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhasePredictedLeft_ =
         SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showExcessPhaseEffect_ = SendMessageW(controls_.buttonExcessPhaseEffect, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showInputGroupDelayLeft_ =
         SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showInputGroupDelayRight_ =
@@ -1353,6 +1408,7 @@ void FiltersPage::syncViewSettingsFromControls() {
         SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showFilterGroupDelayRight_ =
         SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showGroupDelayEffect_ = SendMessageW(controls_.buttonGroupDelayEffect, BM_GETCHECK, 0, 0) == BST_CHECKED;
     alignGroupDelayLatency_ = SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
     groupDelayZoomPreset_ = selectedGroupDelayZoomPreset();
 }
@@ -1503,7 +1559,7 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
         OffsetRect(&textRect, 0, 1);
     }
     const wchar_t* label = differenceViewSelected()
-                               ? L"Difference View"
+                               ? L"Mode Delta View"
                                : (recalculateInProgress_
                                       ? L"Calculating..."
                                       : (recalculatePending_ ? L"Recalculate" : L"Up To Date"));
@@ -1557,7 +1613,7 @@ bool FiltersPage::handleCommand(WORD commandId,
             filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
         if (nextViewMode == "difference" &&
             (!workspace.minimumFilter.available() || !workspace.mixedFilter.available())) {
-            std::wstring missingMessage = L"Difference view requires both stored filters.\r\n\r\nMissing:";
+            std::wstring missingMessage = L"Mode Delta view requires both stored filters.\r\n\r\nMissing:";
             if (!workspace.minimumFilter.available()) {
                 missingMessage += L"\r\n- Minimum";
             }
@@ -1607,21 +1663,25 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowCorrectedInputRight ||
          commandId == kCheckboxShowCorrectedLeft ||
          commandId == kCheckboxShowCorrectedRight ||
+         commandId == kButtonCorrectedEffect ||
          commandId == kCheckboxShowExcessPhaseInputRight ||
          commandId == kCheckboxShowExcessPhaseInputLeft ||
          commandId == kCheckboxShowExcessPhasePredictedRight ||
          commandId == kCheckboxShowExcessPhasePredictedLeft ||
+         commandId == kButtonExcessPhaseEffect ||
          commandId == kCheckboxShowInputGroupDelayLeft ||
          commandId == kCheckboxShowInputGroupDelayRight ||
          commandId == kCheckboxShowPredictedGroupDelayRight ||
          commandId == kCheckboxShowPredictedGroupDelayLeft ||
          commandId == kCheckboxShowFilterGroupDelayLeft ||
          commandId == kCheckboxShowFilterGroupDelayRight ||
+         commandId == kButtonGroupDelayEffect ||
          commandId == kCheckboxAlignGroupDelayLatency) &&
         notificationCode == BN_CLICKED) {
         syncViewSettingsFromControls();
         saveViewSettings(workspace.ui);
         viewSettingsChanged = true;
+        refreshFilterViewPresentation();
         correctionGraph_.setData(buildCorrectionGraphData(workspace));
         correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
         excessPhaseGraph_.setData(buildExcessPhaseGraphData(workspace));
@@ -1925,7 +1985,7 @@ void FiltersPage::populatePhaseModeCombo(HWND combo) {
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
     SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Minimum"));
     SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Mixed"));
-    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Difference"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Mode Delta"));
 }
 
 int FiltersPage::comboIndexFromTapCount(int tapCount) {
@@ -2309,6 +2369,40 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
         return data;
     }
 
+    const std::vector<double> leftInputResponseDb =
+        resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
+                             workspace.smoothedResponse.leftChannelDb,
+                             workspace.filterResult.frequencyAxisHz);
+    const std::vector<double> rightInputResponseDb =
+        resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
+                             workspace.smoothedResponse.rightChannelDb,
+                             workspace.filterResult.frequencyAxisHz);
+    if (showCorrectedEffect_) {
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showCorrectedLeft_) {
+            std::vector<double> delta =
+                subtractSeries(workspace.filterResult.left.correctedResponseDb, leftInputResponseDb);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left effect", ui_theme::kGray, std::move(delta)});
+        }
+        if (showCorrectedRight_) {
+            std::vector<double> delta =
+                subtractSeries(workspace.filterResult.right.correctedResponseDb, rightInputResponseDb);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right effect", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double halfSpan = std::max(std::max(std::abs(minY), std::abs(maxY)) + 0.5, 3.0);
+            data.minY = -halfSpan;
+            data.maxY = halfSpan;
+        } else {
+            data.minY = -3.0;
+            data.maxY = 3.0;
+        }
+        return data;
+    }
+
     double minY = std::numeric_limits<double>::max();
     double maxY = std::numeric_limits<double>::lowest();
     const auto accumulateRange = [&](const std::vector<double>& values) {
@@ -2318,14 +2412,6 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
         }
     };
     accumulateRange(workspace.filterResult.targetCurveDb);
-    const std::vector<double> leftInputResponseDb =
-        resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
-                             workspace.smoothedResponse.leftChannelDb,
-                             workspace.filterResult.frequencyAxisHz);
-    const std::vector<double> rightInputResponseDb =
-        resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
-                             workspace.smoothedResponse.rightChannelDb,
-                             workspace.filterResult.frequencyAxisHz);
     if (showCorrectedInputLeft_) {
         accumulateRange(leftInputResponseDb);
     }
@@ -2412,6 +2498,32 @@ PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& works
 
     data.xValues = workspace.filterResult.frequencyAxisHz;
     if (!workspace.filterResult.valid) {
+        return data;
+    }
+
+    if (showExcessPhaseEffect_) {
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showExcessPhasePredictedRight_) {
+            std::vector<double> delta =
+                subtractSeries(workspace.filterResult.right.predictedExcessPhaseContinuousDegrees,
+                               workspace.filterResult.right.inputExcessPhaseContinuousDegrees);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right effect", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (showExcessPhasePredictedLeft_) {
+            std::vector<double> delta =
+                subtractSeries(workspace.filterResult.left.predictedExcessPhaseContinuousDegrees,
+                               workspace.filterResult.left.inputExcessPhaseContinuousDegrees);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left effect", ui_theme::kGray, std::move(delta)});
+        }
+
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double padded = std::max(std::max(std::abs(minY), std::abs(maxY)) + 10.0, 60.0);
+            data.minY = -padded;
+            data.maxY = padded;
+        }
         return data;
     }
 
@@ -2519,17 +2631,46 @@ PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& worksp
         return data;
     }
 
+    const double safeSampleRate = static_cast<double>(std::max(workspace.filterResult.sampleRate, 1));
+    const double leftLatencyMs =
+        std::max(workspace.filterResult.left.impulsePeakIndex, 0) * 1000.0 / safeSampleRate;
+    const double rightLatencyMs =
+        std::max(workspace.filterResult.right.impulsePeakIndex, 0) * 1000.0 / safeSampleRate;
+    if (showGroupDelayEffect_) {
+        std::vector<double> leftPredictedGroupDelay = workspace.filterResult.left.predictedGroupDelayMs;
+        std::vector<double> rightPredictedGroupDelay = workspace.filterResult.right.predictedGroupDelayMs;
+        data.fixedYRange = true;
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showPredictedGroupDelayRight_) {
+            std::vector<double> delta =
+                subtractSeries(rightPredictedGroupDelay, workspace.filterResult.right.inputGroupDelayMs);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right effect", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (showPredictedGroupDelayLeft_) {
+            std::vector<double> delta =
+                subtractSeries(leftPredictedGroupDelay, workspace.filterResult.left.inputGroupDelayMs);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left effect", ui_theme::kGray, std::move(delta)});
+        }
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double padded = std::max(std::max(std::abs(minY), std::abs(maxY)) + 0.5, 5.0);
+            data.minY = -padded;
+            data.maxY = padded;
+        } else {
+            data.minY = -5.0;
+            data.maxY = 5.0;
+        }
+        return data;
+    }
+
     if (showInputGroupDelayLeft_) {
         data.series.push_back({L"Left input", ui_theme::kGreen, workspace.filterResult.left.inputGroupDelayMs});
     }
     if (showInputGroupDelayRight_) {
         data.series.push_back({L"Right input", ui_theme::kRed, workspace.filterResult.right.inputGroupDelayMs});
     }
-    const double safeSampleRate = static_cast<double>(std::max(workspace.filterResult.sampleRate, 1));
-    const double leftLatencyMs =
-        std::max(workspace.filterResult.left.impulsePeakIndex, 0) * 1000.0 / safeSampleRate;
-    const double rightLatencyMs =
-        std::max(workspace.filterResult.right.impulsePeakIndex, 0) * 1000.0 / safeSampleRate;
     const std::vector<double> leftFilterGroupDelay =
         alignGroupDelayLatency_
             ? subtractConstant(workspace.filterResult.left.groupDelayMs, leftLatencyMs)

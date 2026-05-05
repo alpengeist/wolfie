@@ -85,6 +85,7 @@ private:
         HWND lineInversionLeft = nullptr;
         HWND labelInversionLeft = nullptr;
         HWND correctedTitle = nullptr;
+        HWND buttonCorrectedEffect = nullptr;
         HWND correctedLegendFrame = nullptr;
         HWND lineCorrectedTarget = nullptr;
         HWND labelCorrectedTarget = nullptr;
@@ -101,6 +102,7 @@ private:
         HWND lineCorrectedRight = nullptr;
         HWND labelCorrectedRight = nullptr;
         HWND excessPhaseTitle = nullptr;
+        HWND buttonExcessPhaseEffect = nullptr;
         HWND excessPhaseLegendFrame = nullptr;
         HWND checkboxShowExcessPhaseInputRight = nullptr;
         HWND lineExcessPhaseInputRight = nullptr;
@@ -127,6 +129,7 @@ private:
         HWND lineInputGroupDelayRight = nullptr;
         HWND labelInputGroupDelayRight = nullptr;
         HWND groupDelayTitle = nullptr;
+        HWND buttonGroupDelayEffect = nullptr;
         HWND labelGroupDelayZoom = nullptr;
         HWND sliderGroupDelayZoom = nullptr;
         HWND valueGroupDelayZoom = nullptr;
@@ -193,6 +196,9 @@ private:
     static constexpr int kEditMixedPhaseCap = 3446;
     static constexpr int kSliderGroupDelayZoom = 3447;
     static constexpr int kEditExcessPhaseWindow = 3448;
+    static constexpr int kButtonCorrectedEffect = 3449;
+    static constexpr int kButtonExcessPhaseEffect = 3450;
+    static constexpr int kButtonGroupDelayEffect = 3451;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK GroupDelayZoomSliderProc(HWND window,
@@ -264,16 +270,19 @@ private:
     bool showCorrectedInputRight_ = true;
     bool showCorrectedLeft_ = true;
     bool showCorrectedRight_ = true;
+    bool showCorrectedEffect_ = false;
     bool showExcessPhaseInputRight_ = true;
     bool showExcessPhaseInputLeft_ = true;
     bool showExcessPhasePredictedRight_ = true;
     bool showExcessPhasePredictedLeft_ = true;
+    bool showExcessPhaseEffect_ = false;
     bool showInputGroupDelayLeft_ = true;
     bool showInputGroupDelayRight_ = true;
     bool showPredictedGroupDelayRight_ = true;
     bool showPredictedGroupDelayLeft_ = true;
     bool showFilterGroupDelayLeft_ = true;
     bool showFilterGroupDelayRight_ = true;
+    bool showGroupDelayEffect_ = false;
     bool alignGroupDelayLatency_ = false;
     int groupDelayZoomPreset_ = 5;
     bool sharedFrequencyHoverActive_ = false;
