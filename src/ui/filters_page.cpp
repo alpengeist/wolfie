@@ -450,7 +450,7 @@ void FiltersPage::createControls() {
                                                          instance_,
                                                          nullptr);
     controls_.lineInversionRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelInversionRight = CreateWindowW(L"STATIC", L"R inv", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInversionRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowInversionLeft = CreateWindowW(L"BUTTON",
                                                         L"",
                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -463,7 +463,7 @@ void FiltersPage::createControls() {
                                                         instance_,
                                                         nullptr);
     controls_.lineInversionLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelInversionLeft = CreateWindowW(L"STATIC", L"L inv", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInversionLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.correctedTitle = CreateWindowW(L"STATIC", L"Predicted Corrected Response", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.correctedLegendFrame = CreateWindowW(L"STATIC",
@@ -556,7 +556,7 @@ void FiltersPage::createControls() {
                                                                 instance_,
                                                                 nullptr);
     controls_.lineExcessPhaseInputRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhaseInputRight = CreateWindowW(L"STATIC", L"R before", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseInputRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowExcessPhaseInputLeft = CreateWindowW(L"BUTTON",
                                                                L"",
                                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -569,7 +569,7 @@ void FiltersPage::createControls() {
                                                                instance_,
                                                                nullptr);
     controls_.lineExcessPhaseInputLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhaseInputLeft = CreateWindowW(L"STATIC", L"L before", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseInputLeft = CreateWindowW(L"STATIC", L"L", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowExcessPhasePredictedRight = CreateWindowW(L"BUTTON",
                                                                     L"",
                                                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -582,7 +582,7 @@ void FiltersPage::createControls() {
                                                                     instance_,
                                                                     nullptr);
     controls_.lineExcessPhasePredictedRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhasePredictedRight = CreateWindowW(L"STATIC", L"R after", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhasePredictedRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowExcessPhasePredictedLeft = CreateWindowW(L"BUTTON",
                                                                    L"",
                                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -595,7 +595,7 @@ void FiltersPage::createControls() {
                                                                    instance_,
                                                                    nullptr);
     controls_.lineExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L after", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelGroupDelayZoom = CreateWindowW(L"STATIC", L"Y Range", WS_CHILD | WS_VISIBLE,
@@ -650,7 +650,7 @@ void FiltersPage::createControls() {
                                                               instance_,
                                                               nullptr);
     controls_.lineInputGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelInputGroupDelayLeft = CreateWindowW(L"STATIC", L"L input", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInputGroupDelayLeft = CreateWindowW(L"STATIC", L"L", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowInputGroupDelayRight = CreateWindowW(L"BUTTON",
                                                                L"",
                                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -663,7 +663,7 @@ void FiltersPage::createControls() {
                                                                instance_,
                                                                nullptr);
     controls_.lineInputGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelInputGroupDelayRight = CreateWindowW(L"STATIC", L"R input", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInputGroupDelayRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowFilterGroupDelayLeft = CreateWindowW(L"BUTTON",
                                                                L"",
                                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -1094,8 +1094,10 @@ void FiltersPage::refreshFilterViewPresentation() const {
     ShowWindow(controls_.checkboxShowInputLeft, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.lineInputLeft, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.labelInputLeft, differenceView ? SW_HIDE : SW_SHOW);
-    SetWindowTextW(controls_.labelInversionRight, differenceView ? L"Right delta" : L"Right inversion");
-    SetWindowTextW(controls_.labelInversionLeft, differenceView ? L"Left delta" : L"Left inversion");
+    SetWindowTextW(controls_.labelInputRight, L"R");
+    SetWindowTextW(controls_.labelInputLeft, L"L");
+    SetWindowTextW(controls_.labelInversionRight, L"R pred");
+    SetWindowTextW(controls_.labelInversionLeft, L"L pred");
 
     ShowWindow(controls_.lineCorrectedTarget, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.labelCorrectedTarget, differenceView ? SW_HIDE : SW_SHOW);
@@ -1105,8 +1107,10 @@ void FiltersPage::refreshFilterViewPresentation() const {
     ShowWindow(controls_.checkboxShowCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.lineCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.labelCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
-    SetWindowTextW(controls_.labelCorrectedLeft, differenceView ? L"Left delta" : L"Left predicted");
-    SetWindowTextW(controls_.labelCorrectedRight, differenceView ? L"Right delta" : L"Right predicted");
+    SetWindowTextW(controls_.labelCorrectedInputLeft, L"L");
+    SetWindowTextW(controls_.labelCorrectedInputRight, L"R");
+    SetWindowTextW(controls_.labelCorrectedLeft, L"L pred");
+    SetWindowTextW(controls_.labelCorrectedRight, L"R pred");
 
     ShowWindow(controls_.checkboxShowExcessPhaseInputRight, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.lineExcessPhaseInputRight, differenceView ? SW_HIDE : SW_SHOW);
@@ -1114,8 +1118,10 @@ void FiltersPage::refreshFilterViewPresentation() const {
     ShowWindow(controls_.checkboxShowExcessPhaseInputLeft, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.lineExcessPhaseInputLeft, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.labelExcessPhaseInputLeft, differenceView ? SW_HIDE : SW_SHOW);
-    SetWindowTextW(controls_.labelExcessPhasePredictedRight, differenceView ? L"Right delta" : L"Right after");
-    SetWindowTextW(controls_.labelExcessPhasePredictedLeft, differenceView ? L"Left delta" : L"Left after");
+    SetWindowTextW(controls_.labelExcessPhaseInputRight, L"R");
+    SetWindowTextW(controls_.labelExcessPhaseInputLeft, L"L");
+    SetWindowTextW(controls_.labelExcessPhasePredictedRight, L"R pred");
+    SetWindowTextW(controls_.labelExcessPhasePredictedLeft, L"L pred");
 
     ShowWindow(controls_.checkboxShowInputGroupDelayLeft, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.lineInputGroupDelayLeft, differenceView ? SW_HIDE : SW_SHOW);
@@ -1123,12 +1129,12 @@ void FiltersPage::refreshFilterViewPresentation() const {
     ShowWindow(controls_.checkboxShowInputGroupDelayRight, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.lineInputGroupDelayRight, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.labelInputGroupDelayRight, differenceView ? SW_HIDE : SW_SHOW);
-    SetWindowTextW(controls_.labelGroupDelayLeft, differenceView ? L"Left filter delta" : L"Left filter");
-    SetWindowTextW(controls_.labelGroupDelayRight, differenceView ? L"Right filter delta" : L"Right filter");
-    SetWindowTextW(controls_.labelPredictedGroupDelayLeft,
-                   differenceView ? L"Left predicted delta" : L"Left predicted");
-    SetWindowTextW(controls_.labelPredictedGroupDelayRight,
-                   differenceView ? L"Right predicted delta" : L"Right predicted");
+    SetWindowTextW(controls_.labelInputGroupDelayLeft, L"L");
+    SetWindowTextW(controls_.labelInputGroupDelayRight, L"R");
+    SetWindowTextW(controls_.labelGroupDelayLeft, L"L filter");
+    SetWindowTextW(controls_.labelGroupDelayRight, L"R filter");
+    SetWindowTextW(controls_.labelPredictedGroupDelayLeft, L"L pred");
+    SetWindowTextW(controls_.labelPredictedGroupDelayRight, L"R pred");
 }
 
 void FiltersPage::applyGroupDelayZoomRange() {
