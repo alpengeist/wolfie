@@ -94,6 +94,13 @@ std::string normalizeFilterViewMode(std::string value) {
     return "minimum";
 }
 
+void copyMixedPhaseSettings(FilterDesignSettings& target, const FilterDesignSettings& source) {
+    target.mixedPhaseMaxFrequencyHz = source.mixedPhaseMaxFrequencyHz;
+    target.excessPhaseWindowMs = source.excessPhaseWindowMs;
+    target.mixedPhaseStrength = source.mixedPhaseStrength;
+    target.mixedPhaseMaxCorrectionDegrees = source.mixedPhaseMaxCorrectionDegrees;
+}
+
 std::string buildExportTimestampText(const SYSTEMTIME& time) {
     std::ostringstream out;
     out << std::setfill('0')
@@ -1527,12 +1534,17 @@ void WolfieApp::applySelectedFilterView() {
     }
 
     if (selected != nullptr) {
-        workspace_.filters = selected->settings;
+        if (workspace_.ui.filterViewMode == "mixed") {
+            copyMixedPhaseSettings(workspace_.filters, selected->settings);
+        }
         workspace_.filterResult = selected->result;
     } else {
         workspace_.filters.phaseMode = workspace_.ui.filterViewMode == "mixed" ? "mixed" : "minimum";
     }
 
+    if (workspace_.ui.filterViewMode != "difference") {
+        workspace_.filters.phaseMode = workspace_.ui.filterViewMode == "mixed" ? "mixed" : "minimum";
+    }
     measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
 }
 

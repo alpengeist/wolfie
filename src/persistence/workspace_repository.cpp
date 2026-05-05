@@ -84,6 +84,13 @@ std::string normalizeFilterViewMode(std::string value) {
     return "minimum";
 }
 
+void copyMixedPhaseSettings(FilterDesignSettings& target, const FilterDesignSettings& source) {
+    target.mixedPhaseMaxFrequencyHz = source.mixedPhaseMaxFrequencyHz;
+    target.excessPhaseWindowMs = source.excessPhaseWindowMs;
+    target.mixedPhaseStrength = source.mixedPhaseStrength;
+    target.mixedPhaseMaxCorrectionDegrees = source.mixedPhaseMaxCorrectionDegrees;
+}
+
 std::string escapeJson(std::string_view value) {
     std::string escaped;
     escaped.reserve(value.size() + 8);
@@ -1652,8 +1659,11 @@ void applyStoredFilterSelection(WorkspaceState& workspace) {
 
     workspace.filterResult = {};
     if (const StoredFilterDesign* selected = selectedStoredFilter(workspace)) {
-        workspace.filters = selected->settings;
+        if (workspace.ui.filterViewMode == "mixed") {
+            copyMixedPhaseSettings(workspace.filters, selected->settings);
+        }
         workspace.filterResult = selected->result;
+        workspace.filters.phaseMode = workspace.ui.filterViewMode == "mixed" ? "mixed" : "minimum";
         measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
         return;
     }

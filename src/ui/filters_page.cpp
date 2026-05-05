@@ -1016,6 +1016,20 @@ void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
 
 void FiltersPage::setRecalculateInProgress(bool running) {
     recalculateInProgress_ = running;
+    if (!running) {
+        const HWND graphWindows[] = {
+            correctionGraph_.window(),
+            correctedGraph_.window(),
+            excessPhaseGraph_.window(),
+            groupDelayGraph_.window(),
+            impulseGraph_.window(),
+        };
+        for (HWND graphWindow : graphWindows) {
+            if (graphWindow != nullptr && IsWindowVisible(graphWindow)) {
+                RedrawWindow(graphWindow, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+            }
+        }
+    }
     if (controls_.buttonRecalculate != nullptr) {
         EnableWindow(controls_.buttonRecalculate, (!running && recalculatePending_) ? TRUE : FALSE);
         RedrawWindow(controls_.buttonRecalculate, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
