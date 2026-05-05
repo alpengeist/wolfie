@@ -1,12 +1,15 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
 #include "test_harness.h"
 
 #include "core/models.h"
+#include "persistence/microphone_calibration_repository.h"
 #include "measurement/response_analyzer.h"
 #include "measurement/sweet_spot_alignment.h"
 #include "measurement/sweep_generator.h"
@@ -580,6 +583,45 @@ bool expectReferenceMagnitudeResponsePrefersDirectWindow() {
     const wolfie::MeasurementValueSet* selected = result.magnitudeResponse();
     if (selected != result.findValueSet("measurement.direct_magnitude_response")) {
         std::cerr << "reference magnitude response did not prefer the direct window\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectMicrophoneCalibrationImportInvertsDeviationSign() {
+    const std::filesystem::path calibrationPath =
+        std::filesystem::temp_directory_path() / "wolfie-mic-calibration-sign-test.txt";
+    {
+        std::ofstream out(calibrationPath, std::ios::binary);
+        out << "20 1.5\n";
+        out << "1000 -2.25\n";
+    }
+
+    wolfie::AudioSettings audioSettings;
+    audioSettings.microphoneCalibrationPath = calibrationPath;
+
+    std::wstring errorMessage;
+    const bool loaded = wolfie::persistence::loadMicrophoneCalibration(audioSettings, errorMessage);
+
+    std::error_code cleanupError;
+    std::filesystem::remove(calibrationPath, cleanupError);
+
+    if (!loaded) {
+        std::cerr << "microphone calibration file did not load\n";
+        return false;
+    }
+    if (audioSettings.microphoneCalibrationFrequencyHz != std::vector<double>{20.0, 1000.0}) {
+        std::cerr << "microphone calibration frequencies were not preserved\n";
+        return false;
+    }
+    if (audioSettings.microphoneCalibrationCorrectionDb.size() != 2) {
+        std::cerr << "microphone calibration corrections were not loaded\n";
+        return false;
+    }
+    if (std::abs(audioSettings.microphoneCalibrationCorrectionDb[0] + 1.5) > 1.0e-9 ||
+        std::abs(audioSettings.microphoneCalibrationCorrectionDb[1] - 2.25) > 1.0e-9) {
+        std::cerr << "microphone calibration import did not invert file deviation values\n";
         return false;
     }
 
@@ -1238,6 +1280,8 @@ int main() {
         {"expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts", expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts},
         {"expectReferenceLoopbackStaysFlatIntoLowBass", expectReferenceLoopbackStaysFlatIntoLowBass},
         {"expectReferenceMagnitudeResponsePrefersDirectWindow", expectReferenceMagnitudeResponsePrefersDirectWindow},
+        {"expectMicrophoneCalibrationImportInvertsDeviationSign",
+         expectMicrophoneCalibrationImportInvertsDeviationSign},
         {"expectMeasurementPublishesReferenceCompensatedTransferProducts", expectMeasurementPublishesReferenceCompensatedTransferProducts},
         {"expectReferenceCompensationUsesDirectReferenceSpectrum", expectReferenceCompensationUsesDirectReferenceSpectrum},
         {"expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment", expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment},

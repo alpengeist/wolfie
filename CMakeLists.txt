@@ -142,6 +142,8 @@ if(WOLFIE_BUILD_TESTS)
         src/measurement/sweet_spot_alignment.h
         src/measurement/waterfall_builder.cpp
         src/measurement/waterfall_builder.h
+        src/persistence/microphone_calibration_repository.cpp
+        src/persistence/microphone_calibration_repository.h
         src/measurement/sweep_generator.cpp
         src/measurement/sweep_generator.h
         src/measurement/target_curve_designer.cpp

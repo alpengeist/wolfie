@@ -61,14 +61,16 @@ bool loadMicrophoneCalibration(AudioSettings& settings, std::wstring& errorMessa
     while (std::getline(in, line)) {
         std::istringstream row(normalizeCalibrationLine(std::move(line)));
         double frequencyHz = 0.0;
-        double correctionDb = 0.0;
-        if (!(row >> frequencyHz >> correctionDb)) {
+        double fileDb = 0.0;
+        if (!(row >> frequencyHz >> fileDb)) {
             continue;
         }
-        if (!isFinitePositive(frequencyHz) || !isFiniteValue(correctionDb)) {
+        if (!isFinitePositive(frequencyHz) || !isFiniteValue(fileDb)) {
             continue;
         }
-        points.emplace_back(frequencyHz, correctionDb);
+        // Calibration text files describe the microphone's measured deviation.
+        // Internally we store the inverse correction that should be added to the result.
+        points.emplace_back(frequencyHz, -fileDb);
     }
 
     if (points.size() < 2) {

@@ -531,7 +531,7 @@ void FiltersPage::createControls() {
                                                          instance_,
                                                          nullptr);
     controls_.lineInversionRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelInversionRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInversionRight = CreateWindowW(L"STATIC", L"R inv", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowInversionLeft = CreateWindowW(L"BUTTON",
                                                         L"",
                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -544,7 +544,7 @@ void FiltersPage::createControls() {
                                                         instance_,
                                                         nullptr);
     controls_.lineInversionLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelInversionLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInversionLeft = CreateWindowW(L"STATIC", L"L inv", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.correctedTitle = CreateWindowW(L"STATIC", L"Predicted Corrected Response", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonCorrectedEffect = CreateWindowW(L"BUTTON",
@@ -1235,8 +1235,8 @@ void FiltersPage::refreshFilterViewPresentation() const {
     ShowWindow(controls_.labelInputLeft, differenceView ? SW_HIDE : SW_SHOW);
     SetWindowTextW(controls_.labelInputRight, L"R");
     SetWindowTextW(controls_.labelInputLeft, L"L");
-    SetWindowTextW(controls_.labelInversionRight, L"R pred");
-    SetWindowTextW(controls_.labelInversionLeft, L"L pred");
+    SetWindowTextW(controls_.labelInversionRight, L"R inv");
+    SetWindowTextW(controls_.labelInversionLeft, L"L inv");
 
     ShowWindow(controls_.lineCorrectedTarget, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.labelCorrectedTarget, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
