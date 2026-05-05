@@ -196,27 +196,4 @@ if(WOLFIE_BUILD_TESTS)
             wolfie_filter_export_tests
     )
 
-    add_executable(wolfie_workspace_filter_probe
-        tools/workspace_filter_probe.cpp
-        src/core/text_utils.cpp
-        src/measurement/filter_designer.cpp
-        src/measurement/filter_analysis.cpp
-        src/measurement/filter_wav_export.cpp
-        src/measurement/dsp_utils.cpp
-        src/measurement/phase_preparation.cpp
-        src/measurement/room_simulator.cpp
-        src/measurement/response_analyzer.cpp
-        src/measurement/response_smoother.cpp
-        src/measurement/stereo_diagnostics.cpp
-        src/measurement/sweet_spot_alignment.cpp
-        src/measurement/sweep_generator.cpp
-        src/measurement/target_curve_designer.cpp
-        src/measurement/waterfall_builder.cpp
-        src/persistence/filter_store_repository.cpp
-        src/persistence/microphone_calibration_repository.cpp
-        src/persistence/room_simulation_repository.cpp
-        src/persistence/wave_file_repository.cpp
-        src/persistence/workspace_repository.cpp
-    )
-    target_include_directories(wolfie_workspace_filter_probe PRIVATE src)
 endif()

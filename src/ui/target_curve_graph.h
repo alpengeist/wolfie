@@ -59,6 +59,7 @@ private:
         int bandIndex = -1;
         POINT origin{};
         bool changed = false;
+        double originalDisplayOffsetDb = 0.0;
         TargetCurveSettings originalSettings;
     };
 

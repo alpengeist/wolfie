@@ -168,6 +168,7 @@ void appendTargetCurveParameters(std::ostringstream& out, const TargetCurveSetti
     appendParameterLine(out, "target_curve.midFrequencyHz", targetCurve.midFrequencyHz, 2);
     appendParameterLine(out, "target_curve.midGainDb", targetCurve.midGainDb, 2);
     appendParameterLine(out, "target_curve.highGainDb", targetCurve.highGainDb, 2);
+    appendParameterLine(out, "target_curve.levelOffsetDb", targetCurve.levelOffsetDb, 2);
     appendParameterLine(out, "target_curve.bypassEqBands", boolToken(targetCurve.bypassEqBands));
     appendParameterLine(out, "target_curve.eqBandCount", static_cast<int>(targetCurve.eqBands.size()));
     for (std::size_t index = 0; index < targetCurve.eqBands.size(); ++index) {
@@ -2079,7 +2080,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         commandId < kExportSampleRateCheckboxBase + static_cast<WORD>(exportSampleRateChecks_.size())) {
         if (notificationCode == BN_CLICKED) {
             syncExportSampleRatesToWorkspace();
-            workspaceRepository_.save(workspace_);
+            workspaceRepository_.saveUiSettings(workspace_);
             updateExportControls();
         }
         return;

@@ -296,6 +296,7 @@ struct TargetCurveSettings {
     double midFrequencyHz = 1000.0;
     double midGainDb = 0.0;
     double highGainDb = 0.0;
+    double levelOffsetDb = 0.0;
     bool bypassEqBands = false;
     std::vector<TargetEqBand> eqBands;
 };

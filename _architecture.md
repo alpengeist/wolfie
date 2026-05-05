@@ -265,17 +265,28 @@ Practical examples:
 
 `WorkspaceRepository::save()` is the heavy full-workspace persistence path.
 
+Strong warning:
+
+- treat `WorkspaceRepository::save()` as forbidden from routine interactive UI event handlers
+- a click on a checkbox, toggle, tab-local option, legend control, zoom preset, export sample-rate selector, or similar `workspace.ui` field must not trigger the full workspace save path
+- if the edit only changes `workspace.ui`, the correct persistence path is `saveUiSettings()`, not `save()` and not broader settings persistence by habit
+- if this boundary is violated, expect visible lag, unnecessary CPU and disk activity, and repeated regressions from code that "looks harmless" at the call site
+
 Rules:
 
 - do not call `WorkspaceRepository::save()` from interactive UI paths such as sliders, graph zoom handlers, hover updates, or live recalculation feedback
+- do not use `WorkspaceRepository::saveSettings()` for UI-only state when `saveUiSettings()` is sufficient
 - automatic full-workspace writes belong at app exit and workspace switch boundaries
 - explicit user-driven save remains a separate action
 - narrower persistence helpers such as settings-only or UI-only saves should be used for interactive edits that need persistence without rewriting measurement payloads
+- in practice: `saveUiSettings()` is for `workspace.ui` edits; `saveSettings()` is for lighter non-measurement settings changes that are broader than UI state; `save()` is reserved for true full-workspace persistence
 
 Reasoning:
 
 - full workspace writes include much more than lightweight UI state
+- even the narrower settings save path is too broad for pure UI toggles because it still rewrites more than the interaction changed
 - calling the full save path from smoothing or filter controls causes avoidable stalls and regression-prone behavior
+- export sample-rate selection is a canonical example of UI-only state and must stay on the UI-only persistence path
 - this regression has happened repeatedly, so the timing boundary needs to stay explicit in the architecture document
 
 ## Runtime Flow

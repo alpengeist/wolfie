@@ -60,6 +60,25 @@ wolfie::SmoothedResponse buildBoostLimitedDipResponse(double centerFrequencyHz,
     return response;
 }
 
+wolfie::SmoothedResponse buildCutLimitedPeakResponse(double centerFrequencyHz,
+                                                     double heightDb,
+                                                     double logWidth) {
+    wolfie::SmoothedResponse response;
+    response.frequencyAxisHz = wolfie::tests::buildLogAxis(20.0, 20000.0, 512);
+    response.leftChannelDb.reserve(response.frequencyAxisHz.size());
+    response.rightChannelDb.reserve(response.frequencyAxisHz.size());
+    const double safeCenterHz = std::max(centerFrequencyHz, 1.0);
+    const double safeWidth = std::max(logWidth, 1.0e-6);
+    for (const double frequencyHz : response.frequencyAxisHz) {
+        const double logDistance =
+            (std::log10(std::max(frequencyHz, 1.0)) - std::log10(safeCenterHz)) / safeWidth;
+        const double responseDb = heightDb * std::exp(-(logDistance * logDistance));
+        response.leftChannelDb.push_back(responseDb);
+        response.rightChannelDb.push_back(responseDb);
+    }
+    return response;
+}
+
 double maxFiniteValueInBand(const std::vector<double>& frequencyAxisHz,
                             const std::vector<double>& values,
                             double minFrequencyHz,
@@ -329,6 +348,37 @@ bool expectDefaultSettingsUseNoBoostCeiling() {
     return true;
 }
 
+bool expectTargetCurveLevelOffsetSurvivesAnchoring() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    targetCurve.levelOffsetDb = 3.0;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    const wolfie::SmoothedResponse response = wolfie::tests::buildFlatResponse(18.0);
+    const wolfie::measurement::TargetCurvePlotData plot =
+        wolfie::measurement::buildTargetCurvePlotData(response, measurement, targetCurve, std::nullopt);
+    if (plot.frequencyAxisHz.empty() || plot.targetCurveDb.empty()) {
+        std::cerr << "level-offset target-curve plot came back empty\n";
+        return false;
+    }
+
+    double targetMeanDb = 0.0;
+    for (const double value : plot.targetCurveDb) {
+        targetMeanDb += value;
+    }
+    targetMeanDb /= static_cast<double>(plot.targetCurveDb.size());
+    if (std::abs(targetMeanDb - 21.0) > 0.25) {
+        std::cerr << "target-curve level offset was lost after anchoring\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectBoostCeilingHasInertiaForNarrowDips() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -399,6 +449,50 @@ bool expectBoostCeilingHasInertiaForNarrowDips() {
     return true;
 }
 
+bool expectCutsUseConfiguredBudgetMoreLiterally() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    targetCurve.lowGainDb = -6.0;
+    targetCurve.midGainDb = -6.0;
+    targetCurve.highGainDb = -6.0;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.maxBoostDb = 2.0;
+    filterSettings.maxCutDb = 12.0;
+    filterSettings.lowCorrectionHz = 30.0;
+    filterSettings.highCorrectionHz = 18000.0;
+    filterSettings.smoothness = 4.0;
+
+    const wolfie::SmoothedResponse peakResponse = buildCutLimitedPeakResponse(50.0, 11.0, 0.15);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(peakResponse, measurement, targetCurve, filterSettings);
+    if (!result.valid) {
+        std::cerr << "literal cut-budget regression case did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double centerCorrection =
+        interpolateLogFrequency(result.frequencyAxisHz, result.left.correctionCurveDb, 50.0);
+    if (centerCorrection > -8.8) {
+        std::cerr << "cut budget still compressed too much before the solver (center="
+                  << centerCorrection << ")\n";
+        return false;
+    }
+
+    if (centerCorrection < -12.05) {
+        std::cerr << "cut budget exceeded the configured limit (center=" << centerCorrection << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int main() {
@@ -407,7 +501,9 @@ int main() {
         {"expectLowCorrectionBoundChangesBassCorrectionShape", expectLowCorrectionBoundChangesBassCorrectionShape},
         {"expectDefaultSettingsUseNoBoostCeiling", expectDefaultSettingsUseNoBoostCeiling},
         {"expectBoostCeilingHasInertiaForNarrowDips", expectBoostCeilingHasInertiaForNarrowDips},
+        {"expectCutsUseConfiguredBudgetMoreLiterally", expectCutsUseConfiguredBudgetMoreLiterally},
         {"expectExactTargetCurveEvaluationCapturesBellPeak", expectExactTargetCurveEvaluationCapturesBellPeak},
         {"expectTargetCurveAnchorsToMeasuredLevel", expectTargetCurveAnchorsToMeasuredLevel},
+        {"expectTargetCurveLevelOffsetSurvivesAnchoring", expectTargetCurveLevelOffsetSurvivesAnchoring},
     });
 }

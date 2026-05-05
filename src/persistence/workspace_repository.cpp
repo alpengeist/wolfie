@@ -592,6 +592,10 @@ std::optional<TargetCurveProfile> loadTargetCurveProfileFile(const std::filesyst
             profile.curve.highGainDb = std::stod(line.substr(11));
             continue;
         }
+        if (line.rfind("levelOffsetDb=", 0) == 0) {
+            profile.curve.levelOffsetDb = std::stod(line.substr(14));
+            continue;
+        }
         if (line.rfind("bypassEqBands=", 0) == 0) {
             profile.curve.bypassEqBands = trimAscii(line.substr(14)) == "1";
             continue;
@@ -612,6 +616,7 @@ void saveTargetCurveProfileFile(const std::filesystem::path& rootPath, const Tar
         << "midFrequencyHz=" << profile.curve.midFrequencyHz << '\n'
         << "midGainDb=" << profile.curve.midGainDb << '\n'
         << "highGainDb=" << profile.curve.highGainDb << '\n'
+        << "levelOffsetDb=" << profile.curve.levelOffsetDb << '\n'
         << "bypassEqBands=" << (profile.curve.bypassEqBands ? 1 : 0) << '\n'
         << "comment_begin\n"
         << profile.comment << '\n'
@@ -1385,6 +1390,7 @@ void writeWorkspaceSettingsJsonFile(const WorkspaceState& workspace) {
                   << "    \"midFrequencyHz\": " << workspace.targetCurve.midFrequencyHz << ",\n"
                   << "    \"midGainDb\": " << workspace.targetCurve.midGainDb << ",\n"
                   << "    \"highGainDb\": " << workspace.targetCurve.highGainDb << ",\n"
+                  << "    \"levelOffsetDb\": " << workspace.targetCurve.levelOffsetDb << ",\n"
                   << "    \"bypassEqBands\": " << (workspace.targetCurve.bypassEqBands ? "true" : "false") << "\n"
                   << "  },\n"
                   << "  \"activeTargetCurveProfileName\": \"" << escapeJson(workspace.activeTargetCurveProfileName) << "\",\n"
@@ -1780,6 +1786,9 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         }
         if (const auto value = findJsonNumber(*content, "highGainDb")) {
             workspace.targetCurve.highGainDb = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "levelOffsetDb")) {
+            workspace.targetCurve.levelOffsetDb = *value;
         }
         if (const auto value = findJsonBool(*content, "bypassEqBands")) {
             workspace.targetCurve.bypassEqBands = *value;

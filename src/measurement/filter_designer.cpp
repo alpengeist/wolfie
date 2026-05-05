@@ -20,6 +20,8 @@ namespace {
 constexpr double kRadiansToDegrees = 180.0 / std::numbers::pi_v<double>;
 constexpr double kDegreesToRadians = std::numbers::pi_v<double> / 180.0;
 constexpr double kMaxSmoothness = 4.0;
+constexpr double kCutLimitSoftness = 0.8;
+constexpr double kBoostLimitSoftness = 0.92;
 enum class NormalizedPhaseMode {
     Minimum,
     ExcessLf,
@@ -185,6 +187,29 @@ double applyAsymmetricSoftLimit(double valueDb, double minValueDb, double maxVal
     return -cutLimitDb * std::tanh((-valueDb) / cutLimitDb);
 }
 
+double applySoftLimitedCut(double valueDb, double minValueDb) {
+    if (valueDb >= 0.0 || minValueDb >= -1.0e-9) {
+        return 0.0;
+    }
+
+    const double cutLimitDb = std::max(-minValueDb, 0.0);
+    if (cutLimitDb <= 1.0e-9) {
+        return 0.0;
+    }
+
+    const double softenedLimitDb = std::max(cutLimitDb * kCutLimitSoftness, 1.0e-9);
+    return -cutLimitDb * std::tanh((-valueDb) / softenedLimitDb);
+}
+
+double applySoftLimitedBoost(double valueDb, double maxValueDb) {
+    if (valueDb <= 0.0 || maxValueDb <= 1.0e-9) {
+        return 0.0;
+    }
+
+    const double softenedLimitDb = std::max(maxValueDb * kBoostLimitSoftness, 1.0e-9);
+    return maxValueDb * std::tanh(valueDb / softenedLimitDb);
+}
+
 double applyNoBoostSoftTarget(double valueDb) {
     if (valueDb <= 0.0) {
         return valueDb;
@@ -193,7 +218,7 @@ double applyNoBoostSoftTarget(double valueDb) {
 }
 
 double applyCorrectionLimit(double valueDb, double minValueDb, double maxValueDb) {
-    const double cutLimitedDb = applyAsymmetricSoftLimit(std::min(valueDb, 0.0), minValueDb, 0.0);
+    const double cutLimitedDb = applySoftLimitedCut(std::min(valueDb, 0.0), minValueDb);
     if (maxValueDb <= 1.0e-9) {
         if (minValueDb >= -1.0e-9) {
             return 0.0;
@@ -208,7 +233,7 @@ double applyCorrectionLimit(double valueDb, double minValueDb, double maxValueDb
         return cutLimitedDb;
     }
 
-    return applyAsymmetricSoftLimit(valueDb, 0.0, maxValueDb);
+    return applySoftLimitedBoost(valueDb, maxValueDb);
 }
 
 double boostLimitSaturation(double valueDb, double maxValueDb) {
