@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 #include "filter_test_support.h"
@@ -38,6 +39,41 @@ double interpolateLogFrequency(const std::vector<double>& frequencyAxisHz,
     const double y1 = values[upperIndex];
     const double t = std::clamp((x - x0) / std::max(x1 - x0, 1.0e-9), 0.0, 1.0);
     return y0 + ((y1 - y0) * t);
+}
+
+wolfie::SmoothedResponse buildBoostLimitedDipResponse(double centerFrequencyHz,
+                                                      double depthDb,
+                                                      double logWidth) {
+    wolfie::SmoothedResponse response;
+    response.frequencyAxisHz = wolfie::tests::buildLogAxis(20.0, 20000.0, 512);
+    response.leftChannelDb.reserve(response.frequencyAxisHz.size());
+    response.rightChannelDb.reserve(response.frequencyAxisHz.size());
+    const double safeCenterHz = std::max(centerFrequencyHz, 1.0);
+    const double safeWidth = std::max(logWidth, 1.0e-6);
+    for (const double frequencyHz : response.frequencyAxisHz) {
+        const double logDistance =
+            (std::log10(std::max(frequencyHz, 1.0)) - std::log10(safeCenterHz)) / safeWidth;
+        const double responseDb = -depthDb * std::exp(-(logDistance * logDistance));
+        response.leftChannelDb.push_back(responseDb);
+        response.rightChannelDb.push_back(responseDb);
+    }
+    return response;
+}
+
+double maxFiniteValueInBand(const std::vector<double>& frequencyAxisHz,
+                            const std::vector<double>& values,
+                            double minFrequencyHz,
+                            double maxFrequencyHz) {
+    double maximum = -std::numeric_limits<double>::infinity();
+    for (size_t index = 0; index < frequencyAxisHz.size() && index < values.size(); ++index) {
+        if (!std::isfinite(values[index]) ||
+            frequencyAxisHz[index] < minFrequencyHz ||
+            frequencyAxisHz[index] > maxFrequencyHz) {
+            continue;
+        }
+        maximum = std::max(maximum, values[index]);
+    }
+    return maximum;
 }
 
 bool expectDesignedFilterLooksSane() {
@@ -293,6 +329,76 @@ bool expectDefaultSettingsUseNoBoostCeiling() {
     return true;
 }
 
+bool expectBoostCeilingHasInertiaForNarrowDips() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.maxBoostDb = 6.0;
+    filterSettings.maxCutDb = 12.0;
+    filterSettings.lowCorrectionHz = 30.0;
+    filterSettings.highCorrectionHz = 18000.0;
+    filterSettings.smoothness = 1.0;
+
+    const wolfie::SmoothedResponse narrowDip = buildBoostLimitedDipResponse(48.0, 12.0, 0.045);
+    const wolfie::SmoothedResponse broadDip = buildBoostLimitedDipResponse(48.0, 12.0, 0.14);
+    const wolfie::FilterDesignResult narrowResult =
+        wolfie::measurement::designFilters(narrowDip, measurement, targetCurve, filterSettings);
+    const wolfie::FilterDesignResult broadResult =
+        wolfie::measurement::designFilters(broadDip, measurement, targetCurve, filterSettings);
+    if (!narrowResult.valid || !broadResult.valid) {
+        std::cerr << "boost-ceiling inertia regression case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double narrowPeak = maxFiniteValueInBand(narrowResult.frequencyAxisHz,
+                                                   narrowResult.left.correctionCurveDb,
+                                                   30.0,
+                                                   90.0);
+    const double broadPeak = maxFiniteValueInBand(broadResult.frequencyAxisHz,
+                                                  broadResult.left.correctionCurveDb,
+                                                  30.0,
+                                                  90.0);
+    if (!std::isfinite(narrowPeak) || !std::isfinite(broadPeak)) {
+        std::cerr << "boost-ceiling inertia regression case did not publish usable correction values\n";
+        return false;
+    }
+
+    if (narrowPeak > 4.5) {
+        std::cerr << "narrow boost-limited dip still ran too hard into the ceiling (peak="
+                  << narrowPeak << ")\n";
+        return false;
+    }
+
+    const double narrowBandMean = wolfie::tests::bandMeanAbs(narrowResult.frequencyAxisHz,
+                                                             narrowResult.left.correctionCurveDb,
+                                                             35.0,
+                                                             75.0);
+    const double broadBandMean = wolfie::tests::bandMeanAbs(broadResult.frequencyAxisHz,
+                                                            broadResult.left.correctionCurveDb,
+                                                            35.0,
+                                                            75.0);
+    if (broadBandMean < narrowBandMean + 0.35) {
+        std::cerr << "broad dip did not draw materially more boost than the narrow dip (narrow="
+                  << narrowBandMean << ", broad=" << broadBandMean << ")\n";
+        return false;
+    }
+
+    if (broadPeak < 3.25) {
+        std::cerr << "broad dip no longer made meaningful use of the explicit boost budget (peak="
+                  << broadPeak << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int main() {
@@ -300,6 +406,7 @@ int main() {
         {"expectDesignedFilterLooksSane", expectDesignedFilterLooksSane},
         {"expectLowCorrectionBoundChangesBassCorrectionShape", expectLowCorrectionBoundChangesBassCorrectionShape},
         {"expectDefaultSettingsUseNoBoostCeiling", expectDefaultSettingsUseNoBoostCeiling},
+        {"expectBoostCeilingHasInertiaForNarrowDips", expectBoostCeilingHasInertiaForNarrowDips},
         {"expectExactTargetCurveEvaluationCapturesBellPeak", expectExactTargetCurveEvaluationCapturesBellPeak},
         {"expectTargetCurveAnchorsToMeasuredLevel", expectTargetCurveAnchorsToMeasuredLevel},
     });

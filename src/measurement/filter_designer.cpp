@@ -211,6 +211,80 @@ double applyCorrectionLimit(double valueDb, double minValueDb, double maxValueDb
     return applyAsymmetricSoftLimit(valueDb, 0.0, maxValueDb);
 }
 
+double boostLimitSaturation(double valueDb, double maxValueDb) {
+    if (valueDb <= 0.0 || maxValueDb <= 1.0e-9) {
+        return 0.0;
+    }
+    return clampValue(valueDb / maxValueDb, 0.0, 1.0);
+}
+
+double localBoostSharpnessAt(const std::vector<double>& values, size_t index) {
+    if (index == 0 || index + 1 >= values.size()) {
+        return 0.0;
+    }
+
+    const double previous = std::max(values[index - 1], 0.0);
+    const double current = std::max(values[index], 0.0);
+    const double next = std::max(values[index + 1], 0.0);
+    const double secondDifference = std::abs(previous - (2.0 * current) + next);
+    const double edgeSlope = 0.5 * (std::abs(current - previous) + std::abs(current - next));
+    return secondDifference + (0.5 * edgeSlope);
+}
+
+double positiveSupportWidthOctavesAt(const std::vector<double>& frequencyAxisHz,
+                                     const std::vector<double>& values,
+                                     size_t index) {
+    if (index >= values.size() || index >= frequencyAxisHz.size() || values[index] <= 0.0) {
+        return 0.0;
+    }
+
+    size_t left = index;
+    while (left > 0 && values[left - 1] > 0.0) {
+        --left;
+    }
+
+    size_t right = index;
+    while (right + 1 < values.size() && right + 1 < frequencyAxisHz.size() && values[right + 1] > 0.0) {
+        ++right;
+    }
+
+    const double lowFrequencyHz = std::max(frequencyAxisHz[left], 1.0);
+    const double highFrequencyHz = std::max(frequencyAxisHz[right], lowFrequencyHz);
+    return std::log2(highFrequencyHz / lowFrequencyHz);
+}
+
+double boostBudgetFactor(double localSharpnessDb,
+                         double supportWidthOctaves,
+                         double configuredMaxBoostDb) {
+    if (configuredMaxBoostDb <= 1.0e-9) {
+        return 0.0;
+    }
+
+    const double normalizedSharpness =
+        clampValue(localSharpnessDb / std::max(configuredMaxBoostDb, 1.0), 0.0, 1.0);
+    const double sharpnessFactor = 1.0 - (0.25 * smoothRamp(normalizedSharpness));
+    const double widthT = clampValue((supportWidthOctaves - 0.2) / 0.8, 0.0, 1.0);
+    const double widthFactor = 0.45 + (0.55 * smoothRamp(widthT));
+    return clampValue(widthFactor * sharpnessFactor, 0.35, 1.0);
+}
+
+double correctionTrackingWeight(double weight,
+                                double desiredCorrectionDb,
+                                double maxValueDb,
+                                double localSharpnessDb) {
+    const double baseWeight = 0.05 + (0.95 * weight);
+    const double saturation = boostLimitSaturation(desiredCorrectionDb, maxValueDb);
+    if (saturation <= 0.0) {
+        return baseWeight;
+    }
+
+    const double normalizedSharpness =
+        clampValue(localSharpnessDb / std::max(maxValueDb, 1.0), 0.0, 1.0);
+    const double inertiaScale =
+        1.0 - (0.35 * smoothRamp(saturation)) - (0.2 * smoothRamp(normalizedSharpness));
+    return std::max(baseWeight * inertiaScale, 0.02);
+}
+
 double smoothnessRegularizationScale(double smoothness) {
     const double clamped = clampValue(smoothness, 0.1, kMaxSmoothness);
     return std::pow(8.0, clamped - 1.0);
@@ -312,11 +386,10 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
         return {};
     }
 
-    std::vector<double> fullCorrectionDb;
-    fullCorrectionDb.reserve(count);
+    std::vector<double> rawCorrectionDb;
+    rawCorrectionDb.reserve(count);
     for (size_t index = 0; index < count; ++index) {
-        const double rawCorrectionDb = targetCurveDb[index] - sourceCurveDb[index];
-        fullCorrectionDb.push_back(applyCorrectionLimit(rawCorrectionDb, -settings.maxCutDb, settings.maxBoostDb));
+        rawCorrectionDb.push_back(targetCurveDb[index] - sourceCurveDb[index]);
     }
 
     std::vector<double> desiredCorrectionDb;
@@ -327,22 +400,48 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
     lowerBoundsDb.reserve(count);
     std::vector<double> upperBoundsDb;
     upperBoundsDb.reserve(count);
+    double boostSaturationWeightedSum = 0.0;
+    double boostSaturationWeightTotal = 0.0;
 
     for (size_t index = 0; index < count; ++index) {
         const double frequencyHz = frequencyAxisHz[index];
         const double weight = correctionWeightAt(frequencyHz, settings);
-        const double rawCorrectionDb = fullCorrectionDb[index];
+        const double localSharpnessDb = localBoostSharpnessAt(rawCorrectionDb, index);
+        const double supportWidthOctaves =
+            positiveSupportWidthOctavesAt(frequencyAxisHz, rawCorrectionDb, index);
         const double minValueDb = -settings.maxCutDb * weight;
-        const double maxValueDb = settings.maxBoostDb * weight;
-        desiredCorrectionDb.push_back(applyCorrectionLimit(rawCorrectionDb, minValueDb, maxValueDb));
-        trackingWeights.push_back(0.05 + (0.95 * weight));
+        const double boostFactor =
+            rawCorrectionDb[index] > 0.0
+                ? boostBudgetFactor(localSharpnessDb, supportWidthOctaves, settings.maxBoostDb)
+                : 1.0;
+        const double maxValueDb = settings.maxBoostDb * weight * boostFactor;
+        const double desiredCorrectionDbAtFrequency =
+            applyCorrectionLimit(rawCorrectionDb[index], minValueDb, maxValueDb);
+        desiredCorrectionDb.push_back(desiredCorrectionDbAtFrequency);
+        trackingWeights.push_back(correctionTrackingWeight(weight,
+                                                           desiredCorrectionDbAtFrequency,
+                                                           maxValueDb,
+                                                           localSharpnessDb));
         lowerBoundsDb.push_back(minValueDb);
         upperBoundsDb.push_back(maxValueDb);
+
+        const double saturation = boostLimitSaturation(desiredCorrectionDbAtFrequency, maxValueDb);
+        if (saturation > 0.0 && weight > 0.0) {
+            boostSaturationWeightedSum += saturation * weight;
+            boostSaturationWeightTotal += weight;
+        }
+    }
+
+    double boostRegularizationScale = 1.0;
+    if (boostSaturationWeightTotal > 1.0e-9) {
+        const double meanBoostSaturation = boostSaturationWeightedSum / boostSaturationWeightTotal;
+        boostRegularizationScale += 0.75 * clampValue(meanBoostSaturation, 0.0, 1.0);
     }
 
     const double regularization = 12.0 *
                                   std::max(static_cast<double>(count) / 512.0, 1.0) *
-                                  smoothnessRegularizationScale(settings.smoothness);
+                                  smoothnessRegularizationScale(settings.smoothness) *
+                                  boostRegularizationScale;
     std::vector<double> correction = solveRegularizedCurve(desiredCorrectionDb, trackingWeights, regularization);
     for (size_t index = 0; index < correction.size() && index < lowerBoundsDb.size() && index < upperBoundsDb.size(); ++index) {
         correction[index] = applyCorrectionLimit(correction[index], lowerBoundsDb[index], upperBoundsDb[index]);
