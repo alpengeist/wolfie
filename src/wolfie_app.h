@@ -115,6 +115,9 @@ private:
     void ensureFilterResultReady();
     void invalidateFilterAnalysis();
     void invalidateFilterDesign();
+    void invalidateStoredFilters();
+    void storeCurrentFilterVariant();
+    void applySelectedFilterView();
     void ensureFilterDesignReady();
     [[nodiscard]] bool shouldBuildExpectedMeasurementWaterfall() const;
     void refreshMeasurementPageView();

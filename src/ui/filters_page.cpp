@@ -145,6 +145,94 @@ std::vector<double> resampleLogFrequency(const std::vector<double>& sourceAxisHz
     return resampled;
 }
 
+double interpolateLinearAxisValue(const std::vector<double>& sourceAxis,
+                                  const std::vector<double>& sourceValues,
+                                  double xValue) {
+    if (sourceAxis.empty() || sourceValues.size() != sourceAxis.size()) {
+        return 0.0;
+    }
+
+    if (xValue <= sourceAxis.front()) {
+        return sourceValues.front();
+    }
+    if (xValue >= sourceAxis.back()) {
+        return sourceValues.back();
+    }
+
+    const auto upper = std::lower_bound(sourceAxis.begin(), sourceAxis.end(), xValue);
+    if (upper == sourceAxis.begin()) {
+        return sourceValues.front();
+    }
+    if (upper == sourceAxis.end()) {
+        return sourceValues.back();
+    }
+
+    const size_t upperIndex = static_cast<size_t>(upper - sourceAxis.begin());
+    const size_t lowerIndex = upperIndex - 1;
+    return interpolateLinear(xValue,
+                             sourceAxis[lowerIndex],
+                             sourceValues[lowerIndex],
+                             sourceAxis[upperIndex],
+                             sourceValues[upperIndex]);
+}
+
+std::vector<double> resampleLinearAxis(const std::vector<double>& sourceAxis,
+                                       const std::vector<double>& sourceValues,
+                                       const std::vector<double>& targetAxis) {
+    std::vector<double> resampled;
+    if (sourceAxis.empty() || sourceValues.size() != sourceAxis.size() || targetAxis.empty()) {
+        return resampled;
+    }
+
+    resampled.reserve(targetAxis.size());
+    for (const double xValue : targetAxis) {
+        resampled.push_back(interpolateLinearAxisValue(sourceAxis, sourceValues, xValue));
+    }
+    return resampled;
+}
+
+std::vector<double> subtractSeries(const std::vector<double>& minuend, const std::vector<double>& subtrahend) {
+    const size_t count = std::min(minuend.size(), subtrahend.size());
+    std::vector<double> delta;
+    delta.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        delta.push_back(minuend[index] - subtrahend[index]);
+    }
+    return delta;
+}
+
+std::vector<double> buildLogDeltaSeries(const FilterDesignResult& minimumResult,
+                                        const std::vector<double>& minimumValues,
+                                        const FilterDesignResult& mixedResult,
+                                        const std::vector<double>& mixedValues,
+                                        const std::vector<double>& targetAxisHz) {
+    const std::vector<double> minimumResampled =
+        resampleLogFrequency(minimumResult.frequencyAxisHz, minimumValues, targetAxisHz);
+    const std::vector<double> mixedResampled =
+        resampleLogFrequency(mixedResult.frequencyAxisHz, mixedValues, targetAxisHz);
+    return subtractSeries(mixedResampled, minimumResampled);
+}
+
+std::vector<double> buildLinearDeltaSeries(const std::vector<double>& minimumAxis,
+                                           const std::vector<double>& minimumValues,
+                                           const std::vector<double>& mixedAxis,
+                                           const std::vector<double>& mixedValues,
+                                           const std::vector<double>& targetAxis) {
+    const std::vector<double> minimumResampled = resampleLinearAxis(minimumAxis, minimumValues, targetAxis);
+    const std::vector<double> mixedResampled = resampleLinearAxis(mixedAxis, mixedValues, targetAxis);
+    return subtractSeries(mixedResampled, minimumResampled);
+}
+
+void accumulateFiniteRange(const std::vector<double>& values, double& minValue, double& maxValue) {
+    for (const double value : values) {
+        if (!std::isfinite(value)) {
+            continue;
+        }
+        minValue = std::min(minValue, value);
+        maxValue = std::max(maxValue, value);
+    }
+}
+
 std::vector<double> buildSharedImpulseTimeAxisMs(const FilterDesignResult& filterResult) {
     const size_t tapCount = std::min(filterResult.left.filterTaps.size(), filterResult.right.filterTaps.size());
     if (tapCount == 0) {
@@ -241,7 +329,7 @@ void FiltersPage::createControls() {
                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboTapCount)),
                                             instance_,
                                             nullptr);
-    controls_.labelPhaseMode = CreateWindowW(L"STATIC", L"Phase Mode", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelPhaseMode = CreateWindowW(L"STATIC", L"Filter View", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.comboPhaseMode = CreateWindowW(L"COMBOBOX",
                                              nullptr,
                                              WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL | kHelpBubbleChildClipStyle,
@@ -301,7 +389,7 @@ void FiltersPage::createControls() {
     controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | kHelpBubbleChildClipStyle,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonRecalculate)), instance_, nullptr);
     helpBubble_.registerLabel(controls_.labelTapCount, L"Sets the FIR length. More taps allow finer correction but increase latency and processing cost.");
-    helpBubble_.registerLabel(controls_.labelPhaseMode, L"Chooses the phase correction mode used when calculating the filter design.");
+    helpBubble_.registerLabel(controls_.labelPhaseMode, L"Chooses which stored filter to display: minimum, mixed, or the delta between them.");
     helpBubble_.registerLabel(controls_.labelLowCorrection, L"Sets the lowest frequency where correction is allowed to operate.");
     helpBubble_.registerLabel(controls_.labelHighCorrection, L"Sets the highest frequency where correction is allowed to operate.");
     helpBubble_.registerLabel(controls_.labelMaxBoost, L"Limits how much positive gain the calculated correction may apply.");
@@ -859,7 +947,8 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     measurement::normalizeFilterDesignSettings(settings, workspace.measurement.sampleRate);
     sampleRate_ = workspace.measurement.sampleRate;
     SendMessageW(controls_.comboTapCount, CB_SETCURSEL, comboIndexFromTapCount(settings.tapCount), 0);
-    SendMessageW(controls_.comboPhaseMode, CB_SETCURSEL, comboIndexFromPhaseMode(settings.phaseMode), 0);
+    filterViewMode_ = workspace.ui.filterViewMode;
+    SendMessageW(controls_.comboPhaseMode, CB_SETCURSEL, comboIndexFromFilterViewMode(filterViewMode_), 0);
     setWindowTextValue(controls_.editLowCorrection, formatWideDouble(settings.lowCorrectionHz, 0));
     setWindowTextValue(controls_.editHighCorrection, formatWideDouble(settings.highCorrectionHz, 0));
     setWindowTextValue(controls_.editMaxBoost, formatWideDouble(settings.maxBoostDb, 1));
@@ -871,10 +960,11 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.editMixedPhaseCap, formatWideDouble(settings.mixedPhaseMaxCorrectionDegrees, 0));
     refreshExcessPhaseWindowLabel();
     refreshPhaseModeControls();
+    refreshFilterViewPresentation();
     loadViewSettings(workspace.ui);
     syncViewSettingsToControls();
     appliedSettings_ = settings;
-    filterDesignValid_ = workspace.filterResult.valid;
+    filterDesignValid_ = workspace.ui.filterViewMode != "difference" && workspace.filterResult.valid;
     refreshRecalculateButton();
 
     correctionGraph_.setData(buildCorrectionGraphData(workspace));
@@ -889,7 +979,11 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
 
 void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.filters.tapCount = tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
-    workspace.filters.phaseMode = phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    workspace.ui.filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    if (workspace.ui.filterViewMode != "difference") {
+        workspace.filters.phaseMode = workspace.ui.filterViewMode;
+    }
     double value = 0.0;
     workspace.filters.smoothness = selectedSmoothness();
     if (tryParseDouble(getWindowTextValue(controls_.editLowCorrection), value)) {
@@ -964,7 +1058,15 @@ void FiltersPage::refreshGroupDelayZoomValue() const {
 }
 
 bool FiltersPage::mixedModeSelected() const {
-    return phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0))) == "mixed";
+    const std::string filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    return filterViewMode == "mixed";
+}
+
+bool FiltersPage::differenceViewSelected() const {
+    const std::string filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    return filterViewMode == "difference";
 }
 
 void FiltersPage::refreshPhaseModeControls() const {
@@ -983,6 +1085,52 @@ void FiltersPage::refreshPhaseModeControls() const {
     EnableWindow(controls_.unitMixedPhaseCap, mixedEnabled);
 }
 
+void FiltersPage::refreshFilterViewPresentation() const {
+    const bool differenceView = differenceViewSelected();
+
+    ShowWindow(controls_.checkboxShowInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    SetWindowTextW(controls_.labelInversionRight, differenceView ? L"Right delta" : L"Right inversion");
+    SetWindowTextW(controls_.labelInversionLeft, differenceView ? L"Left delta" : L"Left inversion");
+
+    ShowWindow(controls_.lineCorrectedTarget, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedTarget, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowCorrectedInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineCorrectedInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    SetWindowTextW(controls_.labelCorrectedLeft, differenceView ? L"Left delta" : L"Left predicted");
+    SetWindowTextW(controls_.labelCorrectedRight, differenceView ? L"Right delta" : L"Right predicted");
+
+    ShowWindow(controls_.checkboxShowExcessPhaseInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineExcessPhaseInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelExcessPhaseInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowExcessPhaseInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineExcessPhaseInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelExcessPhaseInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    SetWindowTextW(controls_.labelExcessPhasePredictedRight, differenceView ? L"Right delta" : L"Right after");
+    SetWindowTextW(controls_.labelExcessPhasePredictedLeft, differenceView ? L"Left delta" : L"Left after");
+
+    ShowWindow(controls_.checkboxShowInputGroupDelayLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineInputGroupDelayLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelInputGroupDelayLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowInputGroupDelayRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineInputGroupDelayRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelInputGroupDelayRight, differenceView ? SW_HIDE : SW_SHOW);
+    SetWindowTextW(controls_.labelGroupDelayLeft, differenceView ? L"Left filter delta" : L"Left filter");
+    SetWindowTextW(controls_.labelGroupDelayRight, differenceView ? L"Right filter delta" : L"Right filter");
+    SetWindowTextW(controls_.labelPredictedGroupDelayLeft,
+                   differenceView ? L"Left predicted delta" : L"Left predicted");
+    SetWindowTextW(controls_.labelPredictedGroupDelayRight,
+                   differenceView ? L"Right predicted delta" : L"Right predicted");
+}
+
 void FiltersPage::applyGroupDelayZoomRange() {
     const int preset = selectedGroupDelayZoomPreset();
     if (preset == kGroupDelayZoomFitPreset) {
@@ -995,6 +1143,7 @@ void FiltersPage::applyGroupDelayZoomRange() {
 }
 
 void FiltersPage::loadViewSettings(const UiSettings& ui) {
+    filterViewMode_ = ui.filterViewMode;
     showInputRight_ = ui.filterShowInputRight;
     showInputLeft_ = ui.filterShowInputLeft;
     showInversionRight_ = ui.filterShowInversionRight;
@@ -1108,6 +1257,8 @@ void FiltersPage::syncViewSettingsFromControls() {
 }
 
 void FiltersPage::saveViewSettings(UiSettings& ui) const {
+    ui.filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
     ui.filterShowInputRight = SendMessageW(controls_.checkboxShowInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterShowInputLeft = SendMessageW(controls_.checkboxShowInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterShowInversionRight = SendMessageW(controls_.checkboxShowInversionRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -1146,7 +1297,11 @@ void FiltersPage::saveViewSettings(UiSettings& ui) const {
 FilterDesignSettings FiltersPage::currentSettings() const {
     FilterDesignSettings settings = appliedSettings_;
     settings.tapCount = tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
-    settings.phaseMode = phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    const std::string filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    if (filterViewMode != "difference") {
+        settings.phaseMode = filterViewMode;
+    }
     settings.smoothness = selectedSmoothness();
 
     double value = 0.0;
@@ -1194,7 +1349,8 @@ bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const Filte
 }
 
 void FiltersPage::refreshRecalculateButton() {
-    recalculatePending_ = !filterDesignValid_ || !areSettingsEqual(currentSettings(), appliedSettings_);
+    recalculatePending_ =
+        !differenceViewSelected() && (!filterDesignValid_ || !areSettingsEqual(currentSettings(), appliedSettings_));
     if (controls_.buttonRecalculate != nullptr) {
         EnableWindow(controls_.buttonRecalculate, (!recalculateInProgress_ && recalculatePending_) ? TRUE : FALSE);
         InvalidateRect(controls_.buttonRecalculate, nullptr, TRUE);
@@ -1245,9 +1401,11 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
     if (pressed) {
         OffsetRect(&textRect, 0, 1);
     }
-    const wchar_t* label = recalculateInProgress_
-                               ? L"Calculating..."
-                               : (recalculatePending_ ? L"Recalculate" : L"Up To Date");
+    const wchar_t* label = differenceViewSelected()
+                               ? L"Difference View"
+                               : (recalculateInProgress_
+                                      ? L"Calculating..."
+                                      : (recalculatePending_ ? L"Recalculate" : L"Up To Date"));
     DrawTextW(hdc, label, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     if (focused && !disabled) {
@@ -1266,7 +1424,8 @@ bool FiltersPage::handleCommand(WORD commandId,
                                 WorkspaceState& workspace,
                                 bool& settingsChanged,
                                 bool& recalculateRequested,
-                                bool& viewSettingsChanged) {
+                                bool& viewSettingsChanged,
+                                bool& selectionChanged) {
     PlotGraph* frequencyGraph = frequencyGraphForCommandId(commandId);
     if (frequencyGraph != nullptr && notificationCode == PlotGraph::kHoverChangedNotification) {
         sharedFrequencyHoverActive_ = frequencyGraph->hasHoveredXValue();
@@ -1293,13 +1452,33 @@ bool FiltersPage::handleCommand(WORD commandId,
     }
 
     if (commandId == kComboPhaseMode && notificationCode == CBN_SELCHANGE) {
-        workspace.filters.phaseMode =
-            phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
-        measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
+        const std::string nextViewMode =
+            filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+        if (nextViewMode == "difference" &&
+            (!workspace.minimumFilter.available() || !workspace.mixedFilter.available())) {
+            std::wstring missingMessage = L"Difference view requires both stored filters.\r\n\r\nMissing:";
+            if (!workspace.minimumFilter.available()) {
+                missingMessage += L"\r\n- Minimum";
+            }
+            if (!workspace.mixedFilter.available()) {
+                missingMessage += L"\r\n- Mixed";
+            }
+            MessageBoxW(window_, missingMessage.c_str(), L"Filters", MB_OK | MB_ICONINFORMATION);
+            SendMessageW(controls_.comboPhaseMode, CB_SETCURSEL, comboIndexFromFilterViewMode(filterViewMode_), 0);
+            return true;
+        }
+
+        filterViewMode_ = nextViewMode;
+        workspace.ui.filterViewMode = filterViewMode_;
+        if (filterViewMode_ != "difference") {
+            workspace.filters.phaseMode = filterViewMode_;
+            measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
+        }
         refreshPhaseModeControls();
-        filterDesignValid_ = false;
+        refreshFilterViewPresentation();
+        filterDesignValid_ = !differenceViewSelected() && workspace.filterResult.valid;
         refreshRecalculateButton();
-        settingsChanged = true;
+        selectionChanged = true;
         return true;
     }
 
@@ -1351,6 +1530,9 @@ bool FiltersPage::handleCommand(WORD commandId,
     }
 
     if (commandId == kButtonRecalculate && notificationCode == BN_CLICKED) {
+        if (differenceViewSelected()) {
+            return true;
+        }
         syncToWorkspace(workspace);
         recalculateRequested = true;
         return true;
@@ -1640,8 +1822,9 @@ void FiltersPage::populateTapCountCombo(HWND combo) {
 
 void FiltersPage::populatePhaseModeCombo(HWND combo) {
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
-    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Minimum phase"));
-    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Mixed phase"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Minimum"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Mixed"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Difference"));
 }
 
 int FiltersPage::comboIndexFromTapCount(int tapCount) {
@@ -1672,12 +1855,24 @@ int FiltersPage::tapCountFromComboIndex(int index) {
     }
 }
 
-int FiltersPage::comboIndexFromPhaseMode(const std::string& phaseMode) {
-    return phaseMode == "mixed" ? 1 : 0;
+int FiltersPage::comboIndexFromFilterViewMode(const std::string& filterViewMode) {
+    if (filterViewMode == "mixed") {
+        return 1;
+    }
+    if (filterViewMode == "difference") {
+        return 2;
+    }
+    return 0;
 }
 
-std::string FiltersPage::phaseModeFromComboIndex(int index) {
-    return index == 1 ? "mixed" : "minimum";
+std::string FiltersPage::filterViewModeFromComboIndex(int index) {
+    if (index == 1) {
+        return "mixed";
+    }
+    if (index == 2) {
+        return "difference";
+    }
+    return "minimum";
 }
 
 void FiltersPage::updateScrollBar() {
@@ -1852,10 +2047,52 @@ void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace)
 
 PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
-    data.xValues = workspace.filterResult.frequencyAxisHz;
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"dB";
+    if (workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available()) {
+        const FilterDesignResult& minimumResult = workspace.minimumFilter.result;
+        const FilterDesignResult& mixedResult = workspace.mixedFilter.result;
+        data.xValues = !mixedResult.frequencyAxisHz.empty() ? mixedResult.frequencyAxisHz : minimumResult.frequencyAxisHz;
+        if (data.xValues.empty()) {
+            return data;
+        }
+
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showInversionRight_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.right.correctionCurveDb,
+                                                            mixedResult,
+                                                            mixedResult.right.correctionCurveDb,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right delta", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (showInversionLeft_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.left.correctionCurveDb,
+                                                            mixedResult,
+                                                            mixedResult.left.correctionCurveDb,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left delta", ui_theme::kGray, std::move(delta)});
+        }
+        data.fixedYRange = true;
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double halfSpan = std::max(std::max(std::abs(minY), std::abs(maxY)) + 0.5, 3.0);
+            data.minY = -std::ceil(halfSpan / 1.0);
+            data.maxY = std::ceil(halfSpan / 1.0);
+        } else {
+            data.minY = -3.0;
+            data.maxY = 3.0;
+        }
+        return data;
+    }
+
+    data.xValues = workspace.filterResult.frequencyAxisHz;
     if (!workspace.filterResult.valid) {
         data.fixedYRange = true;
         data.minY = -workspace.filters.maxCutDb - 3.0;
@@ -1913,11 +2150,54 @@ PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& worksp
 
 PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
-    data.xValues = workspace.filterResult.frequencyAxisHz;
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"dB";
     data.fixedYRange = true;
+    if (workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available()) {
+        const FilterDesignResult& minimumResult = workspace.minimumFilter.result;
+        const FilterDesignResult& mixedResult = workspace.mixedFilter.result;
+        data.xValues = !mixedResult.frequencyAxisHz.empty() ? mixedResult.frequencyAxisHz : minimumResult.frequencyAxisHz;
+        if (data.xValues.empty()) {
+            data.minY = -3.0;
+            data.maxY = 3.0;
+            return data;
+        }
+
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showCorrectedLeft_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.left.correctedResponseDb,
+                                                            mixedResult,
+                                                            mixedResult.left.correctedResponseDb,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left delta", ui_theme::kGray, std::move(delta)});
+        }
+        if (showCorrectedRight_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.right.correctedResponseDb,
+                                                            mixedResult,
+                                                            mixedResult.right.correctedResponseDb,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right delta", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double halfSpan = std::max(std::max(std::abs(minY), std::abs(maxY)) + 0.5, 3.0);
+            data.minY = -halfSpan;
+            data.maxY = halfSpan;
+        } else {
+            data.minY = -3.0;
+            data.maxY = 3.0;
+        }
+        return data;
+    }
+
+    data.xValues = workspace.filterResult.frequencyAxisHz;
     if (!workspace.filterResult.valid) {
         data.minY = -18.0;
         data.maxY = 12.0;
@@ -1983,10 +2263,49 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
 
 PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
-    data.xValues = workspace.filterResult.frequencyAxisHz;
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"deg";
+    if (workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available()) {
+        const FilterDesignResult& minimumResult = workspace.minimumFilter.result;
+        const FilterDesignResult& mixedResult = workspace.mixedFilter.result;
+        data.xValues = !mixedResult.frequencyAxisHz.empty() ? mixedResult.frequencyAxisHz : minimumResult.frequencyAxisHz;
+        if (data.xValues.empty()) {
+            return data;
+        }
+
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showExcessPhasePredictedRight_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.right.predictedExcessPhaseContinuousDegrees,
+                                                            mixedResult,
+                                                            mixedResult.right.predictedExcessPhaseContinuousDegrees,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right delta", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (showExcessPhasePredictedLeft_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.left.predictedExcessPhaseContinuousDegrees,
+                                                            mixedResult,
+                                                            mixedResult.left.predictedExcessPhaseContinuousDegrees,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left delta", ui_theme::kGray, std::move(delta)});
+        }
+
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double padded = std::max(std::max(std::abs(minY), std::abs(maxY)) + 15.0, 180.0);
+            data.minY = -padded;
+            data.maxY = padded;
+        }
+        return data;
+    }
+
+    data.xValues = workspace.filterResult.frequencyAxisHz;
     if (!workspace.filterResult.valid) {
         return data;
     }
@@ -2038,10 +2357,59 @@ PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& works
 
 PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
-    data.xValues = workspace.filterResult.frequencyAxisHz;
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"ms";
+    if (workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available()) {
+        const FilterDesignResult& minimumResult = workspace.minimumFilter.result;
+        const FilterDesignResult& mixedResult = workspace.mixedFilter.result;
+        data.xValues = !mixedResult.frequencyAxisHz.empty() ? mixedResult.frequencyAxisHz : minimumResult.frequencyAxisHz;
+        if (data.xValues.empty()) {
+            return data;
+        }
+
+        if (showFilterGroupDelayLeft_) {
+            data.series.push_back({L"Left filter delta",
+                                   ui_theme::kTeal,
+                                   buildLogDeltaSeries(minimumResult,
+                                                       minimumResult.left.groupDelayMs,
+                                                       mixedResult,
+                                                       mixedResult.left.groupDelayMs,
+                                                       data.xValues)});
+        }
+        if (showFilterGroupDelayRight_) {
+            data.series.push_back({L"Right filter delta",
+                                   ui_theme::kOrange,
+                                   buildLogDeltaSeries(minimumResult,
+                                                       minimumResult.right.groupDelayMs,
+                                                       mixedResult,
+                                                       mixedResult.right.groupDelayMs,
+                                                       data.xValues)});
+        }
+        if (showPredictedGroupDelayRight_) {
+            data.series.push_back({L"Right predicted delta",
+                                   ui_theme::kMagenta,
+                                   buildLogDeltaSeries(minimumResult,
+                                                       minimumResult.right.predictedGroupDelayMs,
+                                                       mixedResult,
+                                                       mixedResult.right.predictedGroupDelayMs,
+                                                       data.xValues)});
+        }
+        if (showPredictedGroupDelayLeft_) {
+            data.series.push_back({L"Left predicted delta",
+                                   ui_theme::kGray,
+                                   buildLogDeltaSeries(minimumResult,
+                                                       minimumResult.left.predictedGroupDelayMs,
+                                                       mixedResult,
+                                                       mixedResult.left.predictedGroupDelayMs,
+                                                       data.xValues)});
+        }
+        return data;
+    }
+
+    data.xValues = workspace.filterResult.frequencyAxisHz;
     if (!workspace.filterResult.valid) {
         return data;
     }
@@ -2090,6 +2458,33 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
     data.yAxisMode = PlotGraphYAxisMode::SymmetricAroundZero;
     data.xUnit = L"ms";
     data.yUnit = L"linear";
+    if (workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available()) {
+        const std::vector<double> minimumAxis = buildSharedImpulseTimeAxisMs(workspace.minimumFilter.result);
+        const std::vector<double> mixedAxis = buildSharedImpulseTimeAxisMs(workspace.mixedFilter.result);
+        data.xValues = !mixedAxis.empty() ? mixedAxis : minimumAxis;
+        if (data.xValues.empty()) {
+            return data;
+        }
+
+        data.series.push_back({L"Left delta",
+                               ui_theme::kGray,
+                               buildLinearDeltaSeries(minimumAxis,
+                                                      workspace.minimumFilter.result.left.filterTaps,
+                                                      mixedAxis,
+                                                      workspace.mixedFilter.result.left.filterTaps,
+                                                      data.xValues)});
+        data.series.push_back({L"Right delta",
+                               ui_theme::kMagenta,
+                               buildLinearDeltaSeries(minimumAxis,
+                                                      workspace.minimumFilter.result.right.filterTaps,
+                                                      mixedAxis,
+                                                      workspace.mixedFilter.result.right.filterTaps,
+                                                      data.xValues)});
+        return data;
+    }
+
     if (!workspace.filterResult.valid ||
         workspace.filterResult.left.filterTaps.empty() ||
         workspace.filterResult.right.filterTaps.empty()) {

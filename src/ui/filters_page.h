@@ -31,7 +31,8 @@ public:
                        WorkspaceState& workspace,
                        bool& settingsChanged,
                        bool& recalculateRequested,
-                       bool& viewSettingsChanged);
+                       bool& viewSettingsChanged,
+                       bool& selectionChanged);
 
     [[nodiscard]] HWND window() const { return window_; }
 
@@ -207,20 +208,22 @@ private:
     static void populatePhaseModeCombo(HWND combo);
     static int comboIndexFromTapCount(int tapCount);
     static int tapCountFromComboIndex(int index);
-    static int comboIndexFromPhaseMode(const std::string& phaseMode);
-    static std::string phaseModeFromComboIndex(int index);
+    static int comboIndexFromFilterViewMode(const std::string& filterViewMode);
+    static std::string filterViewModeFromComboIndex(int index);
     static bool areSettingsEqual(const FilterDesignSettings& left, const FilterDesignSettings& right);
 
     void createControls();
     [[nodiscard]] double selectedSmoothness() const;
     void setSelectedSmoothness(double smoothness) const;
     [[nodiscard]] bool mixedModeSelected() const;
+    [[nodiscard]] bool differenceViewSelected() const;
     void refreshSmoothnessValue() const;
     void refreshExcessPhaseWindowLabel() const;
     [[nodiscard]] int selectedGroupDelayZoomPreset() const;
     void setSelectedGroupDelayZoomPreset(int preset) const;
     void refreshGroupDelayZoomValue() const;
     void refreshPhaseModeControls() const;
+    void refreshFilterViewPresentation() const;
     void applyGroupDelayZoomRange();
     [[nodiscard]] FilterDesignSettings currentSettings() const;
     void loadViewSettings(const UiSettings& ui);
@@ -252,6 +255,7 @@ private:
     PlotGraph excessPhaseGraph_;
     PlotGraph groupDelayGraph_;
     PlotGraph impulseGraph_;
+    std::string filterViewMode_ = "minimum";
     bool showInputRight_ = true;
     bool showInputLeft_ = true;
     bool showInversionRight_ = true;

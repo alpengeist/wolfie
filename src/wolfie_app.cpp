@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <iomanip>
@@ -81,6 +82,16 @@ std::wstring getWindowTextValue(HWND control) {
 
 std::string boolToken(bool value) {
     return value ? "true" : "false";
+}
+
+std::string normalizeFilterViewMode(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (value == "mixed" || value == "difference") {
+        return value;
+    }
+    return "minimum";
 }
 
 std::string buildExportTimestampText(const SYSTEMTIME& time) {
@@ -1222,6 +1233,7 @@ void WolfieApp::finishCalibrationReanalysis() {
     workspace_.result = std::move(taskResult.result);
     workspace_.smoothedResponse = {};
     invalidateFilterDesign();
+    invalidateStoredFilters();
     invalidateFilterAnalysis();
     ensureSmoothedResponseReady();
     refreshAlignmentPageView();
@@ -1310,6 +1322,7 @@ void WolfieApp::finishFilterAnalysisRefresh() {
     workspace_.smoothedResponse = std::move(taskResult.smoothedResponse);
     workspace_.filterResult = std::move(taskResult.filterResult);
     workspace_.filterAnalysis = std::move(taskResult.filterAnalysis);
+    storeCurrentFilterVariant();
 
     refreshMeasurementPageView();
     analysisPage_.populate(workspace_);
@@ -1476,6 +1489,53 @@ void WolfieApp::invalidateFilterDesign() {
     workspace_.filterResult = {};
 }
 
+void WolfieApp::invalidateStoredFilters() {
+    workspace_.minimumFilter = {};
+    workspace_.mixedFilter = {};
+}
+
+void WolfieApp::storeCurrentFilterVariant() {
+    if (!workspace_.filterResult.valid) {
+        return;
+    }
+
+    measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
+    if (workspace_.filters.phaseMode == "mixed") {
+        workspace_.mixedFilter.settings = workspace_.filters;
+        workspace_.mixedFilter.result = workspace_.filterResult;
+    } else if (workspace_.filters.phaseMode == "minimum") {
+        workspace_.minimumFilter.settings = workspace_.filters;
+        workspace_.minimumFilter.result = workspace_.filterResult;
+    }
+}
+
+void WolfieApp::applySelectedFilterView() {
+    workspace_.ui.filterViewMode = normalizeFilterViewMode(workspace_.ui.filterViewMode);
+    workspace_.filterResult = {};
+
+    const StoredFilterDesign* selected = nullptr;
+    if (workspace_.ui.filterViewMode == "mixed") {
+        selected = workspace_.mixedFilter.available() ? &workspace_.mixedFilter : nullptr;
+    } else if (workspace_.ui.filterViewMode == "difference") {
+        if (workspace_.mixedFilter.available()) {
+            selected = &workspace_.mixedFilter;
+        } else if (workspace_.minimumFilter.available()) {
+            selected = &workspace_.minimumFilter;
+        }
+    } else {
+        selected = workspace_.minimumFilter.available() ? &workspace_.minimumFilter : nullptr;
+    }
+
+    if (selected != nullptr) {
+        workspace_.filters = selected->settings;
+        workspace_.filterResult = selected->result;
+    } else {
+        workspace_.filters.phaseMode = workspace_.ui.filterViewMode == "mixed" ? "mixed" : "minimum";
+    }
+
+    measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
+}
+
 void WolfieApp::ensureFilterResultReady() {
     if (workspace_.filterResult.valid) {
         return;
@@ -1503,6 +1563,7 @@ void WolfieApp::ensureFilterResultReady() {
     for (const std::string& entry : workspace_.filterResult.processLog) {
         appendLog(L"Filter design: " + toWide(entry));
     }
+    storeCurrentFilterVariant();
 }
 
 void WolfieApp::ensureFilterDesignReady() {
@@ -1767,6 +1828,7 @@ void WolfieApp::generateRoomSimulationMeasurement(const std::string& name,
     workspace_.result = measurement::buildSimulatedRoomMeasurement(workspace_.measurement, settings, name);
     workspace_.smoothedResponse = {};
     invalidateFilterDesign();
+    invalidateStoredFilters();
     invalidateFilterAnalysis();
 
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
@@ -1853,6 +1915,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         }
         if (sampleRateChanged) {
             invalidateFilterDesign();
+            invalidateStoredFilters();
             invalidateFilterAnalysis();
             syncStateFromControls();
             workspaceRepository_.save(workspace_);
@@ -1885,6 +1948,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         if (smoothingModelChanged) {
             workspace_.smoothedResponse = {};
             invalidateFilterDesign();
+            invalidateStoredFilters();
             invalidateFilterAnalysis();
             ensureSmoothedResponseReady();
             smoothingPage_.populate(workspace_);
@@ -1922,6 +1986,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
                                        targetCurvePersistNowRequested)) {
         if (targetCurveChanged) {
             invalidateFilterDesign();
+            invalidateStoredFilters();
             invalidateFilterAnalysis();
         }
         if (targetCurvePersistencePending) {
@@ -1938,12 +2003,23 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     bool filterSettingsChanged = false;
     bool filtersRecalculateRequested = false;
     bool filterViewSettingsChanged = false;
+    bool filterSelectionChanged = false;
     if (filtersPage_.handleCommand(commandId,
                                    notificationCode,
                                    workspace_,
                                    filterSettingsChanged,
                                    filtersRecalculateRequested,
-                                   filterViewSettingsChanged)) {
+                                   filterViewSettingsChanged,
+                                   filterSelectionChanged)) {
+        if (filterSelectionChanged) {
+            applySelectedFilterView();
+            invalidateFilterAnalysis();
+            refreshMeasurementPageView();
+            analysisPage_.populate(workspace_);
+            filtersPage_.populate(workspace_);
+            syncStateFromControls();
+            workspaceRepository_.saveSettings(workspace_);
+        }
         if (filterSettingsChanged) {
             invalidateFilterDesign();
             invalidateFilterAnalysis();
@@ -2041,6 +2117,7 @@ void WolfieApp::onHScroll(HWND source) {
         if (smoothingResolutionChanged) {
             workspace_.smoothedResponse = {};
             invalidateFilterDesign();
+            invalidateStoredFilters();
             invalidateFilterAnalysis();
             ensureSmoothedResponseReady();
             smoothingPage_.populate(workspace_);
@@ -2057,6 +2134,7 @@ void WolfieApp::onHScroll(HWND source) {
     if (targetCurvePage_.handleHScroll(source, workspace_, targetCurveChanged, targetCurvePersistencePending)) {
         if (targetCurveChanged) {
             invalidateFilterDesign();
+            invalidateStoredFilters();
             invalidateFilterAnalysis();
         }
         if (targetCurvePersistencePending) {
@@ -2261,7 +2339,6 @@ void WolfieApp::openWorkspace(const std::filesystem::path& path) {
     saveCurrentWorkspaceIfOpen();
     workspace_ = workspaceRepository_.load(path);
     alignmentResult_ = {};
-    invalidateFilterDesign();
     if (exportCommentEdit_ != nullptr) {
         SetWindowTextW(exportCommentEdit_, L"");
     }
@@ -2354,6 +2431,7 @@ void WolfieApp::startMeasurement(MeasurementRunMode runMode) {
         workspace_.result = {};
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
+        invalidateStoredFilters();
         invalidateFilterAnalysis();
         analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
@@ -2423,8 +2501,11 @@ void WolfieApp::stopMeasurement() {
         workspace_.result = persistedWorkspace.result;
         workspace_.referenceResult = persistedWorkspace.referenceResult;
         workspace_.filterAnalysis = persistedWorkspace.filterAnalysis;
+        workspace_.minimumFilter = persistedWorkspace.minimumFilter;
+        workspace_.mixedFilter = persistedWorkspace.mixedFilter;
+        workspace_.ui.filterViewMode = persistedWorkspace.ui.filterViewMode;
         workspace_.smoothedResponse = {};
-        invalidateFilterDesign();
+        applySelectedFilterView();
         refreshMeasurementPageView();
         analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
@@ -2449,6 +2530,7 @@ void WolfieApp::finalizeMeasurement() {
         workspace_.result = measurementController_.result();
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
+        invalidateStoredFilters();
         invalidateFilterAnalysis();
         const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
         if (selected == 3 || selected == 4 || selected == 5) {
