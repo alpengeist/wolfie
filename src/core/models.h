@@ -86,6 +86,8 @@ struct UiSettings {
     bool targetCurveGraphHasCustomVisibleDbRange = false;
     double targetCurveGraphVisibleMinDb = -12.0;
     double targetCurveGraphVisibleMaxDb = 12.0;
+    int lastOpenTabIndex = 0;
+    std::string filterViewMode = "minimum";
     bool filterShowInputRight = true;
     bool filterShowInputLeft = true;
     bool filterShowInversionRight = true;
@@ -412,6 +414,15 @@ struct FilterDesignResult {
     FilterDesignChannelResult right;
 };
 
+struct StoredFilterDesign {
+    FilterDesignSettings settings;
+    FilterDesignResult result;
+
+    [[nodiscard]] bool available() const {
+        return result.valid;
+    }
+};
+
 struct WorkspaceState {
     std::filesystem::path rootPath;
     AudioSettings audio;
@@ -430,6 +441,8 @@ struct WorkspaceState {
     SmoothedResponse smoothedResponse;
     FilterDesignResult filterResult;
     FilterAnalysisResult filterAnalysis;
+    StoredFilterDesign minimumFilter;
+    StoredFilterDesign mixedFilter;
 };
 
 struct AppState {

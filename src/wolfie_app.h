@@ -115,6 +115,9 @@ private:
     void ensureFilterResultReady();
     void invalidateFilterAnalysis();
     void invalidateFilterDesign();
+    void invalidateStoredFilters();
+    void storeCurrentFilterVariant();
+    void applySelectedFilterView();
     void ensureFilterDesignReady();
     [[nodiscard]] bool shouldBuildExpectedMeasurementWaterfall() const;
     void refreshMeasurementPageView();
@@ -157,6 +160,8 @@ private:
     HWND pageSmoothing_ = nullptr;
     HWND pageTargetCurve_ = nullptr;
     HWND pageExport_ = nullptr;
+    HWND exportCommentLabel_ = nullptr;
+    HWND exportCommentEdit_ = nullptr;
     HWND exportButton_ = nullptr;
     HWND exportProgress_ = nullptr;
     HWND exportStatus_ = nullptr;

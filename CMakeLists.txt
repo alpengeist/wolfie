@@ -68,6 +68,8 @@ add_executable(wolfie WIN32
     src/measurement/waterfall_builder.h
     src/persistence/app_state_repository.cpp
     src/persistence/app_state_repository.h
+    src/persistence/filter_store_repository.cpp
+    src/persistence/filter_store_repository.h
     src/persistence/microphone_calibration_repository.cpp
     src/persistence/microphone_calibration_repository.h
     src/persistence/room_simulation_repository.cpp

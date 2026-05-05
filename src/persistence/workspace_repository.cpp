@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "persistence/microphone_calibration_repository.h"
+#include "persistence/filter_store_repository.h"
 #include "persistence/room_simulation_repository.h"
 #include "measurement/filter_designer.h"
 #include "measurement/response_smoother.h"
@@ -21,6 +22,11 @@ namespace {
 
 const RoomSimulationRepository& roomSimulationRepository() {
     static const RoomSimulationRepository repository;
+    return repository;
+}
+
+const FilterStoreRepository& filterStoreRepository() {
+    static const FilterStoreRepository repository;
     return repository;
 }
 
@@ -66,6 +72,23 @@ int legacyProcessLogHeight(ProcessLogSize size) {
     default:
         return 190;
     }
+}
+
+std::string normalizeFilterViewMode(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (value == "mixed" || value == "difference") {
+        return value;
+    }
+    return "minimum";
+}
+
+void copyMixedPhaseSettings(FilterDesignSettings& target, const FilterDesignSettings& source) {
+    target.mixedPhaseMaxFrequencyHz = source.mixedPhaseMaxFrequencyHz;
+    target.excessPhaseWindowMs = source.excessPhaseWindowMs;
+    target.mixedPhaseStrength = source.mixedPhaseStrength;
+    target.mixedPhaseMaxCorrectionDegrees = source.mixedPhaseMaxCorrectionDegrees;
 }
 
 std::string escapeJson(std::string_view value) {
@@ -343,6 +366,12 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     }
     if (const auto value = findJsonNumber(content, "targetCurveGraphVisibleMaxDb")) {
         ui.targetCurveGraphVisibleMaxDb = *value;
+    }
+    if (const auto value = findJsonNumber(content, "lastOpenTabIndex")) {
+        ui.lastOpenTabIndex = std::max(0, static_cast<int>(*value));
+    }
+    if (const auto value = findJsonString(content, "filterViewMode")) {
+        ui.filterViewMode = normalizeFilterViewMode(*value);
     }
     if (const auto value = findJsonBool(content, "filterShowInputRight")) {
         ui.filterShowInputRight = *value;
@@ -1414,6 +1443,8 @@ void writeWorkspaceSettingsJsonFile(const WorkspaceState& workspace) {
                   << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
                   << "    \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
                   << "    \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << ",\n"
+                  << "    \"lastOpenTabIndex\": " << workspace.ui.lastOpenTabIndex << ",\n"
+                  << "    \"filterViewMode\": \"" << escapeJson(workspace.ui.filterViewMode) << "\",\n"
                   << "    \"filterShowInputRight\": " << (workspace.ui.filterShowInputRight ? "true" : "false") << ",\n"
                   << "    \"filterShowInputLeft\": " << (workspace.ui.filterShowInputLeft ? "true" : "false") << ",\n"
                   << "    \"filterShowInversionRight\": " << (workspace.ui.filterShowInversionRight ? "true" : "false") << ",\n"
@@ -1495,6 +1526,8 @@ void writeUiSettingsJsonFile(const WorkspaceState& workspace) {
            << (workspace.ui.targetCurveGraphHasCustomVisibleDbRange ? "true" : "false") << ",\n"
            << "  \"targetCurveGraphVisibleMinDb\": " << workspace.ui.targetCurveGraphVisibleMinDb << ",\n"
            << "  \"targetCurveGraphVisibleMaxDb\": " << workspace.ui.targetCurveGraphVisibleMaxDb << ",\n"
+           << "  \"lastOpenTabIndex\": " << workspace.ui.lastOpenTabIndex << ",\n"
+           << "  \"filterViewMode\": \"" << escapeJson(workspace.ui.filterViewMode) << "\",\n"
            << "  \"filterShowInputRight\": " << (workspace.ui.filterShowInputRight ? "true" : "false") << ",\n"
            << "  \"filterShowInputLeft\": " << (workspace.ui.filterShowInputLeft ? "true" : "false") << ",\n"
            << "  \"filterShowInversionRight\": " << (workspace.ui.filterShowInversionRight ? "true" : "false") << ",\n"
@@ -1604,6 +1637,44 @@ void saveTargetCurveProfiles(const WorkspaceState& workspace) {
 
     std::filesystem::remove(workspace.rootPath / "target-curve" / "bands.csv");
     std::filesystem::remove(workspace.rootPath / "target-curve");
+}
+
+bool canShowFilterDifference(const WorkspaceState& workspace) {
+    return workspace.minimumFilter.available() && workspace.mixedFilter.available();
+}
+
+const StoredFilterDesign* selectedStoredFilter(const WorkspaceState& workspace) {
+    if (workspace.ui.filterViewMode == "mixed") {
+        return workspace.mixedFilter.available() ? &workspace.mixedFilter : nullptr;
+    }
+    if (workspace.ui.filterViewMode == "difference") {
+        if (workspace.mixedFilter.available()) {
+            return &workspace.mixedFilter;
+        }
+        return workspace.minimumFilter.available() ? &workspace.minimumFilter : nullptr;
+    }
+    return workspace.minimumFilter.available() ? &workspace.minimumFilter : nullptr;
+}
+
+void applyStoredFilterSelection(WorkspaceState& workspace) {
+    workspace.ui.filterViewMode = normalizeFilterViewMode(workspace.ui.filterViewMode);
+    if (workspace.ui.filterViewMode == "difference" && !canShowFilterDifference(workspace)) {
+        workspace.ui.filterViewMode = workspace.mixedFilter.available() ? "mixed" : "minimum";
+    }
+
+    workspace.filterResult = {};
+    if (const StoredFilterDesign* selected = selectedStoredFilter(workspace)) {
+        if (workspace.ui.filterViewMode == "mixed") {
+            copyMixedPhaseSettings(workspace.filters, selected->settings);
+        }
+        workspace.filterResult = selected->result;
+        workspace.filters.phaseMode = workspace.ui.filterViewMode == "mixed" ? "mixed" : "minimum";
+        measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
+        return;
+    }
+
+    workspace.filters.phaseMode = workspace.ui.filterViewMode == "mixed" ? "mixed" : "minimum";
+    measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
 }
 
 }  // namespace
@@ -1749,6 +1820,7 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         if (const auto value = findJsonString(*content, "filterPhaseMode")) {
             workspace.filters.phaseMode = *value;
         }
+        workspace.ui.filterViewMode = workspace.filters.phaseMode == "mixed" ? "mixed" : "minimum";
         if (const auto value = findJsonNumber(*content, "filterMixedPhaseMaxFrequencyHz")) {
             workspace.filters.mixedPhaseMaxFrequencyHz = *value;
         }
@@ -1777,6 +1849,8 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
     loadReferenceResultFile(workspace);
     loadReferenceAnalysisFile(workspace);
     loadFilterAnalysisFile(workspace);
+    filterStoreRepository().load(path, workspace.minimumFilter, workspace.mixedFilter);
+    applyStoredFilterSelection(workspace);
     workspace.roomSimulations = roomSimulationRepository().loadAll(path);
     if (workspace.activeRoomSimulationName.empty() && !workspace.roomSimulations.empty()) {
         workspace.activeRoomSimulationName = workspace.roomSimulations.front().name;
@@ -1811,6 +1885,7 @@ void WorkspaceRepository::save(const WorkspaceState& workspace) const {
     saveReferenceResultFile(workspace);
     saveReferenceAnalysisFile(workspace);
     saveFilterAnalysisFile(workspace);
+    filterStoreRepository().save(workspace.rootPath, workspace.minimumFilter, workspace.mixedFilter);
     for (const RoomSimulationDefinition& simulation : workspace.roomSimulations) {
         roomSimulationRepository().save(workspace.rootPath, simulation);
     }
@@ -1825,6 +1900,7 @@ void WorkspaceRepository::saveSettings(const WorkspaceState& workspace) const {
     writeWorkspaceSettingsJsonFile(workspace);
     writeUiSettingsJsonFile(workspace);
     saveFilterAnalysisFile(workspace);
+    filterStoreRepository().save(workspace.rootPath, workspace.minimumFilter, workspace.mixedFilter);
 }
 
 void WorkspaceRepository::saveUiSettings(const WorkspaceState& workspace) const {

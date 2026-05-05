@@ -31,7 +31,8 @@ public:
                        WorkspaceState& workspace,
                        bool& settingsChanged,
                        bool& recalculateRequested,
-                       bool& viewSettingsChanged);
+                       bool& viewSettingsChanged,
+                       bool& selectionChanged);
 
     [[nodiscard]] HWND window() const { return window_; }
 
@@ -84,6 +85,7 @@ private:
         HWND lineInversionLeft = nullptr;
         HWND labelInversionLeft = nullptr;
         HWND correctedTitle = nullptr;
+        HWND buttonCorrectedEffect = nullptr;
         HWND correctedLegendFrame = nullptr;
         HWND lineCorrectedTarget = nullptr;
         HWND labelCorrectedTarget = nullptr;
@@ -100,6 +102,7 @@ private:
         HWND lineCorrectedRight = nullptr;
         HWND labelCorrectedRight = nullptr;
         HWND excessPhaseTitle = nullptr;
+        HWND buttonExcessPhaseEffect = nullptr;
         HWND excessPhaseLegendFrame = nullptr;
         HWND checkboxShowExcessPhaseInputRight = nullptr;
         HWND lineExcessPhaseInputRight = nullptr;
@@ -126,6 +129,7 @@ private:
         HWND lineInputGroupDelayRight = nullptr;
         HWND labelInputGroupDelayRight = nullptr;
         HWND groupDelayTitle = nullptr;
+        HWND buttonGroupDelayEffect = nullptr;
         HWND labelGroupDelayZoom = nullptr;
         HWND sliderGroupDelayZoom = nullptr;
         HWND valueGroupDelayZoom = nullptr;
@@ -192,6 +196,9 @@ private:
     static constexpr int kEditMixedPhaseCap = 3446;
     static constexpr int kSliderGroupDelayZoom = 3447;
     static constexpr int kEditExcessPhaseWindow = 3448;
+    static constexpr int kButtonCorrectedEffect = 3449;
+    static constexpr int kButtonExcessPhaseEffect = 3450;
+    static constexpr int kButtonGroupDelayEffect = 3451;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK GroupDelayZoomSliderProc(HWND window,
@@ -207,20 +214,22 @@ private:
     static void populatePhaseModeCombo(HWND combo);
     static int comboIndexFromTapCount(int tapCount);
     static int tapCountFromComboIndex(int index);
-    static int comboIndexFromPhaseMode(const std::string& phaseMode);
-    static std::string phaseModeFromComboIndex(int index);
+    static int comboIndexFromFilterViewMode(const std::string& filterViewMode);
+    static std::string filterViewModeFromComboIndex(int index);
     static bool areSettingsEqual(const FilterDesignSettings& left, const FilterDesignSettings& right);
 
     void createControls();
     [[nodiscard]] double selectedSmoothness() const;
     void setSelectedSmoothness(double smoothness) const;
     [[nodiscard]] bool mixedModeSelected() const;
+    [[nodiscard]] bool differenceViewSelected() const;
     void refreshSmoothnessValue() const;
     void refreshExcessPhaseWindowLabel() const;
     [[nodiscard]] int selectedGroupDelayZoomPreset() const;
     void setSelectedGroupDelayZoomPreset(int preset) const;
     void refreshGroupDelayZoomValue() const;
     void refreshPhaseModeControls() const;
+    void refreshFilterViewPresentation() const;
     void applyGroupDelayZoomRange();
     [[nodiscard]] FilterDesignSettings currentSettings() const;
     void loadViewSettings(const UiSettings& ui);
@@ -252,6 +261,7 @@ private:
     PlotGraph excessPhaseGraph_;
     PlotGraph groupDelayGraph_;
     PlotGraph impulseGraph_;
+    std::string filterViewMode_ = "minimum";
     bool showInputRight_ = true;
     bool showInputLeft_ = true;
     bool showInversionRight_ = true;
@@ -260,16 +270,19 @@ private:
     bool showCorrectedInputRight_ = true;
     bool showCorrectedLeft_ = true;
     bool showCorrectedRight_ = true;
+    bool showCorrectedEffect_ = false;
     bool showExcessPhaseInputRight_ = true;
     bool showExcessPhaseInputLeft_ = true;
     bool showExcessPhasePredictedRight_ = true;
     bool showExcessPhasePredictedLeft_ = true;
+    bool showExcessPhaseEffect_ = false;
     bool showInputGroupDelayLeft_ = true;
     bool showInputGroupDelayRight_ = true;
     bool showPredictedGroupDelayRight_ = true;
     bool showPredictedGroupDelayLeft_ = true;
     bool showFilterGroupDelayLeft_ = true;
     bool showFilterGroupDelayRight_ = true;
+    bool showGroupDelayEffect_ = false;
     bool alignGroupDelayLatency_ = false;
     int groupDelayZoomPreset_ = 5;
     bool sharedFrequencyHoverActive_ = false;
