@@ -4,7 +4,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <iomanip>
 #include <sstream>
+#include <string_view>
 
 #include <commctrl.h>
 #include <richedit.h>
@@ -61,6 +63,161 @@ std::string sanitizeFileComponent(std::string_view value) {
     return sanitized;
 }
 
+std::wstring getWindowTextValue(HWND control) {
+    if (control == nullptr) {
+        return {};
+    }
+
+    const int length = GetWindowTextLengthW(control);
+    if (length <= 0) {
+        return {};
+    }
+
+    std::wstring text(static_cast<size_t>(length) + 1, L'\0');
+    const int written = GetWindowTextW(control, text.data(), length + 1);
+    text.resize(static_cast<size_t>(std::max(written, 0)));
+    return text;
+}
+
+std::string boolToken(bool value) {
+    return value ? "true" : "false";
+}
+
+std::string buildExportTimestampText(const SYSTEMTIME& time) {
+    std::ostringstream out;
+    out << std::setfill('0')
+        << std::setw(4) << time.wYear
+        << '-'
+        << std::setw(2) << time.wMonth
+        << '-'
+        << std::setw(2) << time.wDay
+        << 'T'
+        << std::setw(2) << time.wHour
+        << ':'
+        << std::setw(2) << time.wMinute;
+    return out.str();
+}
+
+std::string buildExportTimestampFileToken(const SYSTEMTIME& time) {
+    std::ostringstream out;
+    out << std::setfill('0')
+        << std::setw(4) << time.wYear
+        << '-'
+        << std::setw(2) << time.wMonth
+        << '-'
+        << std::setw(2) << time.wDay
+        << 'T'
+        << std::setw(2) << time.wHour
+        << '-'
+        << std::setw(2) << time.wMinute;
+    return out.str();
+}
+
+void appendParameterLine(std::ostringstream& out, std::string_view key, std::string_view value) {
+    out << key << '=';
+    for (const char ch : value) {
+        switch (ch) {
+        case '\\':
+            out << "\\\\";
+            break;
+        case '\r':
+            break;
+        case '\n':
+            out << "\\n";
+            break;
+        default:
+            out << ch;
+            break;
+        }
+    }
+    out << '\n';
+}
+
+void appendParameterLine(std::ostringstream& out, std::string_view key, const std::wstring& value) {
+    appendParameterLine(out, key, toUtf8(value));
+}
+
+void appendParameterLine(std::ostringstream& out, std::string_view key, double value, int decimals) {
+    appendParameterLine(out, key, formatDouble(value, decimals));
+}
+
+void appendParameterLine(std::ostringstream& out, std::string_view key, int value) {
+    appendParameterLine(out, key, std::to_string(value));
+}
+
+void appendTargetCurveParameters(std::ostringstream& out, const TargetCurveSettings& targetCurve) {
+    appendParameterLine(out, "target_curve.lowGainDb", targetCurve.lowGainDb, 2);
+    appendParameterLine(out, "target_curve.midFrequencyHz", targetCurve.midFrequencyHz, 2);
+    appendParameterLine(out, "target_curve.midGainDb", targetCurve.midGainDb, 2);
+    appendParameterLine(out, "target_curve.highGainDb", targetCurve.highGainDb, 2);
+    appendParameterLine(out, "target_curve.bypassEqBands", boolToken(targetCurve.bypassEqBands));
+    appendParameterLine(out, "target_curve.eqBandCount", static_cast<int>(targetCurve.eqBands.size()));
+    for (std::size_t index = 0; index < targetCurve.eqBands.size(); ++index) {
+        const TargetEqBand& band = targetCurve.eqBands[index];
+        const std::string prefix = "target_curve.eqBand[" + std::to_string(index) + "].";
+        appendParameterLine(out, prefix + "enabled", boolToken(band.enabled));
+        appendParameterLine(out, prefix + "colorIndex", band.colorIndex);
+        appendParameterLine(out, prefix + "frequencyHz", band.frequencyHz, 2);
+        appendParameterLine(out, prefix + "gainDb", band.gainDb, 2);
+        appendParameterLine(out, prefix + "q", band.q, 3);
+    }
+}
+
+void appendSmoothingParameters(std::ostringstream& out, const ResponseSmoothingSettings& smoothing) {
+    appendParameterLine(out, "smoothing.psychoacousticModel", smoothing.psychoacousticModel);
+    appendParameterLine(out, "smoothing.resolutionPercent", smoothing.resolutionPercent);
+    appendParameterLine(out, "smoothing.lowFrequencyWindowCycles", smoothing.lowFrequencyWindowCycles, 2);
+    appendParameterLine(out, "smoothing.highFrequencyWindowCycles", smoothing.highFrequencyWindowCycles, 2);
+    appendParameterLine(out, "smoothing.highFrequencySlopeCutoffHz", smoothing.highFrequencySlopeCutoffHz, 2);
+}
+
+void appendFilterParameters(std::ostringstream& out, const FilterDesignSettings& filters) {
+    appendParameterLine(out, "filters.tapCount", filters.tapCount);
+    appendParameterLine(out, "filters.phaseMode", filters.phaseMode);
+    appendParameterLine(out, "filters.maxBoostDb", filters.maxBoostDb, 2);
+    appendParameterLine(out, "filters.maxCutDb", filters.maxCutDb, 2);
+    appendParameterLine(out, "filters.smoothness", filters.smoothness, 2);
+    appendParameterLine(out, "filters.lowCorrectionHz", filters.lowCorrectionHz, 2);
+    appendParameterLine(out, "filters.lowTaperOctaves", filters.lowTaperOctaves, 2);
+    appendParameterLine(out, "filters.highCorrectionHz", filters.highCorrectionHz, 2);
+    appendParameterLine(out, "filters.highTaperOctaves", filters.highTaperOctaves, 2);
+    appendParameterLine(out, "filters.displayPointCount", filters.displayPointCount);
+    appendParameterLine(out, "filters.mixedPhaseMaxFrequencyHz", filters.mixedPhaseMaxFrequencyHz, 2);
+    appendParameterLine(out, "filters.excessPhaseWindowMs", filters.excessPhaseWindowMs, 2);
+    appendParameterLine(out, "filters.mixedPhaseStrength", filters.mixedPhaseStrength, 2);
+    appendParameterLine(out, "filters.mixedPhaseMaxCorrectionDegrees", filters.mixedPhaseMaxCorrectionDegrees, 2);
+}
+
+std::string buildExportParametersText(const WorkspaceState& workspace,
+                                      const std::vector<int>& sampleRates,
+                                      std::wstring_view exportComment,
+                                      std::string_view exportTimestamp) {
+    std::ostringstream out;
+    appendParameterLine(out, "export.timestamp", exportTimestamp);
+    appendParameterLine(out,
+                        "export.sampleRatesHz",
+                        [&sampleRates]() {
+                            std::ostringstream values;
+                            for (std::size_t index = 0; index < sampleRates.size(); ++index) {
+                                if (index > 0) {
+                                    values << ',';
+                                }
+                                values << sampleRates[index];
+                            }
+                            return values.str();
+                        }());
+    appendParameterLine(out, "export.comment", toUtf8(exportComment));
+    appendParameterLine(out, "target_curve.profile", workspace.activeTargetCurveProfileName);
+    appendParameterLine(out, "target_curve.comment", workspace.activeTargetCurveComment);
+    out << '\n';
+    appendSmoothingParameters(out, workspace.smoothing);
+    out << '\n';
+    appendTargetCurveParameters(out, workspace.targetCurve);
+    out << '\n';
+    appendFilterParameters(out, workspace.filters);
+    return out.str();
+}
+
 constexpr int kMenuFileNew = 1001;
 constexpr int kMenuFileOpen = 1002;
 constexpr int kMenuFileSave = 1003;
@@ -72,8 +229,9 @@ constexpr int kProcessLog = 3015;
 constexpr int kProcessLogSizeCompact = 3016;
 constexpr int kProcessLogSizeMedium = 3017;
 constexpr int kProcessLogSizeExpanded = 3018;
-constexpr int kButtonExportRoon = 3019;
-constexpr int kExportSampleRateCheckboxBase = 3020;
+constexpr int kButtonExportRoon = 3701;
+constexpr int kExportSampleRateCheckboxBase = 3710;
+constexpr int kEditExportComment = 3730;
 constexpr wchar_t kMainClassName[] = L"WolfieMainWindow";
 constexpr int kLogDividerHeight = 2;
 constexpr int kLogLabelHeight = 20;
@@ -397,6 +555,30 @@ void WolfieApp::createLayout() {
         SendMessageW(checkbox, BM_SETCHECK, BST_CHECKED, 0);
         exportSampleRateChecks_.push_back(checkbox);
     }
+    exportCommentLabel_ = CreateWindowW(L"STATIC",
+                                        L"Comment",
+                                        WS_CHILD | WS_VISIBLE,
+                                        0,
+                                        0,
+                                        0,
+                                        0,
+                                        pageExport_,
+                                        nullptr,
+                                        instance_,
+                                        nullptr);
+    exportCommentEdit_ = CreateWindowExW(WS_EX_CLIENTEDGE,
+                                         L"EDIT",
+                                         L"",
+                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | ES_MULTILINE |
+                                             ES_AUTOVSCROLL | ES_WANTRETURN,
+                                         0,
+                                         0,
+                                         0,
+                                         0,
+                                         pageExport_,
+                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditExportComment)),
+                                         instance_,
+                                         nullptr);
     exportButton_ = CreateWindowW(L"BUTTON",
                                   L"Generate Roon ZIP",
                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP,
@@ -652,13 +834,20 @@ void WolfieApp::layoutContent() {
     const int checkboxRowCount =
         exportSampleRateChecks_.empty() ? 0 : ((static_cast<int>(exportSampleRateChecks_.size()) + checkboxColumns - 1) /
                                                checkboxColumns);
-    const int buttonTop = checkboxTop +
-                          (checkboxRowCount * checkboxHeight) +
-                          (std::max(0, checkboxRowCount - 1) * checkboxGapY) +
-                          18;
+    const int commentLabelTop = checkboxTop +
+                                (checkboxRowCount * checkboxHeight) +
+                                (std::max(0, checkboxRowCount - 1) * checkboxGapY) +
+                                18;
+    const int commentEditTop = commentLabelTop + 22;
+    const int commentHeight = 76;
+    const int buttonTop = commentEditTop + commentHeight + 14;
+    const int statusHeight = 56;
+    const int statusTop = buttonTop + 44;
+    MoveWindow(exportCommentLabel_, 24, commentLabelTop, exportWidth, 18, TRUE);
+    MoveWindow(exportCommentEdit_, 24, commentEditTop, exportWidth, commentHeight, TRUE);
     MoveWindow(exportButton_, 24, buttonTop, 180, 28, TRUE);
     MoveWindow(exportProgress_, 24, buttonTop, exportWidth, 28, TRUE);
-    MoveWindow(exportStatus_, 24, buttonTop + 44, exportWidth, 48, TRUE);
+    MoveWindow(exportStatus_, 24, statusTop, exportWidth, statusHeight, TRUE);
     alignmentPage_.layout();
     measurementPage_.layout();
     analysisPage_.layout();
@@ -1364,6 +1553,9 @@ void WolfieApp::setExportInProgress(bool running) {
     for (HWND checkbox : exportSampleRateChecks_) {
         EnableWindow(checkbox, running ? FALSE : TRUE);
     }
+    if (exportCommentEdit_ != nullptr) {
+        EnableWindow(exportCommentEdit_, running ? FALSE : TRUE);
+    }
 
     ShowWindow(exportButton_, running ? SW_HIDE : SW_SHOW);
     ShowWindow(exportProgress_, running ? SW_SHOW : SW_HIDE);
@@ -1406,6 +1598,9 @@ void WolfieApp::updateExportControls() {
 
     for (HWND checkbox : exportSampleRateChecks_) {
         EnableWindow(checkbox, exportRunning_ ? FALSE : TRUE);
+    }
+    if (exportCommentEdit_ != nullptr) {
+        EnableWindow(exportCommentEdit_, exportRunning_ ? FALSE : TRUE);
     }
 
     ShowWindow(exportButton_, exportRunning_ ? SW_HIDE : SW_SHOW);
@@ -1453,24 +1648,46 @@ void WolfieApp::exportRoonFilters() {
         return;
     }
 
+    WorkspaceState exportWorkspace = workspace_;
+    measurement::syncDerivedMeasurementSettings(exportWorkspace.measurement);
+    measurement::normalizeResponseSmoothingSettings(exportWorkspace.smoothing);
+    measurement::normalizeFilterDesignSettings(exportWorkspace.filters, exportWorkspace.measurement.sampleRate);
+    const auto targetPlot = measurement::buildTargetCurvePlotData(exportWorkspace.smoothedResponse,
+                                                                  exportWorkspace.measurement,
+                                                                  exportWorkspace.targetCurve,
+                                                                  std::nullopt);
+    measurement::normalizeTargetCurveSettings(exportWorkspace.targetCurve, targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz);
+
+    SYSTEMTIME localTime{};
+    GetLocalTime(&localTime);
+    const std::string exportTimestamp = buildExportTimestampText(localTime);
+    const std::string archiveBaseName = "_roon_" + buildExportTimestampFileToken(localTime);
+    const std::wstring exportComment = getWindowTextValue(exportCommentEdit_);
+    if (exportCommentEdit_ != nullptr) {
+        SetWindowTextW(exportCommentEdit_, L"");
+    }
+    const std::string parametersText =
+        buildExportParametersText(exportWorkspace, selectedSampleRates, exportComment, exportTimestamp);
+
     const std::string activeProfileName = workspace_.activeTargetCurveProfileName.empty()
                                               ? std::string("Default")
                                               : workspace_.activeTargetCurveProfileName;
     const std::filesystem::path exportDirectory = workspace_.rootPath / "export" / sanitizeFileComponent(activeProfileName);
-    appendLog(L"Roon export started: writing filter set to " + exportDirectory.wstring());
+    const std::filesystem::path zipPath = measurement::roonFilterArchivePath(exportDirectory, archiveBaseName);
+    appendLog(L"Roon export started: writing filter set to " + zipPath.wstring());
     setExportInProgress(true);
     SetWindowTextW(exportStatus_,
-                   (L"Writing the Roon filter set to:\r\n" + exportDirectory.wstring()).c_str());
+                   (L"Writing the Roon filter set to:\r\n" + zipPath.wstring()).c_str());
     showExportProgress(L"Preparing sample-rate export...");
 
     std::vector<std::filesystem::path> generatedFiles;
     std::wstring errorMessage;
     if (!measurement::exportRoonFilterWavSet(exportDirectory,
-                                             workspace_.smoothedResponse,
-                                             workspace_.measurement,
-                                             workspace_.targetCurve,
-                                             workspace_.filters,
-                                             &workspace_.result,
+                                             exportWorkspace.smoothedResponse,
+                                             exportWorkspace.measurement,
+                                             exportWorkspace.targetCurve,
+                                             exportWorkspace.filters,
+                                             &exportWorkspace.result,
                                              selectedSampleRates,
                                              generatedFiles,
                                              errorMessage,
@@ -1484,7 +1701,9 @@ void WolfieApp::exportRoonFilters() {
                                                                     sampleRateLabel +
                                                                     L" (" + std::to_wstring(sampleRateIndex) +
                                                                     L"/" + std::to_wstring(totalSampleRates) + L")");
-                                             })) {
+                                             },
+                                             archiveBaseName,
+                                             parametersText)) {
         setExportInProgress(false);
         SetWindowTextW(exportStatus_, errorMessage.c_str());
         appendLog(L"Roon export failed: " + errorMessage, LogSeverity::Error);
@@ -1493,7 +1712,6 @@ void WolfieApp::exportRoonFilters() {
 
     setExportInProgress(false);
     const std::size_t exportedSampleRateCount = selectedSampleRates.size();
-    const std::filesystem::path zipPath = measurement::roonFilterArchivePath(exportDirectory);
     const std::wstring status =
         L"Generated " + std::to_wstring(exportedSampleRateCount) +
         L" WAV/config pairs and packed them into:\r\n" + zipPath.wstring();
@@ -2019,6 +2237,9 @@ void WolfieApp::newWorkspace() {
     workspace_.targetCurveProfiles.push_back({workspace_.activeTargetCurveProfileName,
                                               workspace_.activeTargetCurveComment,
                                               workspace_.targetCurve});
+    if (exportCommentEdit_ != nullptr) {
+        SetWindowTextW(exportCommentEdit_, L"");
+    }
     populateControlsFromState();
     refreshWindowTitle();
     measurementPage_.invalidateGraph();
@@ -2041,6 +2262,9 @@ void WolfieApp::openWorkspace(const std::filesystem::path& path) {
     workspace_ = workspaceRepository_.load(path);
     alignmentResult_ = {};
     invalidateFilterDesign();
+    if (exportCommentEdit_ != nullptr) {
+        SetWindowTextW(exportCommentEdit_, L"");
+    }
     touchRecentWorkspace(path);
     populateControlsFromState();
     refreshWindowTitle();

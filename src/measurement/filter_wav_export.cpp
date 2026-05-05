@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -97,8 +98,26 @@ std::filesystem::path roonConfigFilePath(const std::filesystem::path& directory,
     return directory / ("roon 2.0_" + roonConfigSampleRateToken(sampleRate) + ".cfg");
 }
 
-std::filesystem::path roonArchiveFilePath(const std::filesystem::path& directory) {
-    return directory / "roon.zip";
+std::filesystem::path roonArchiveFilePath(const std::filesystem::path& directory, std::string_view archiveBaseName) {
+    std::string baseName(archiveBaseName);
+    if (baseName.empty()) {
+        baseName = "roon";
+    }
+    return directory / (baseName + ".zip");
+}
+
+std::filesystem::path roonParametersFilePath(const std::filesystem::path& directory) {
+    return directory / "parameters.txt";
+}
+
+bool writeTextFile(const std::filesystem::path& path, std::string_view text) {
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        return false;
+    }
+
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    return static_cast<bool>(out);
 }
 
 void writeUint16(std::ofstream& out, uint16_t value) {
@@ -266,8 +285,12 @@ std::filesystem::path roonFilterConfigPath(const std::filesystem::path& director
     return roonConfigFilePath(directory, sampleRate);
 }
 
-std::filesystem::path roonFilterArchivePath(const std::filesystem::path& directory) {
-    return roonArchiveFilePath(directory);
+std::filesystem::path roonFilterParametersPath(const std::filesystem::path& directory) {
+    return roonParametersFilePath(directory);
+}
+
+std::filesystem::path roonFilterArchivePath(const std::filesystem::path& directory, std::string_view archiveBaseName) {
+    return roonArchiveFilePath(directory, archiveBaseName);
 }
 
 bool exportRoonFilterWavSet(const std::filesystem::path& directory,
@@ -279,7 +302,9 @@ bool exportRoonFilterWavSet(const std::filesystem::path& directory,
                             const std::vector<int>& sampleRates,
                             std::vector<std::filesystem::path>& generatedFiles,
                             std::wstring& errorMessage,
-                            const RoonFilterExportProgressCallback& progressCallback) {
+                            const RoonFilterExportProgressCallback& progressCallback,
+                            std::string_view archiveBaseName,
+                            std::string_view parametersText) {
     generatedFiles.clear();
     errorMessage.clear();
 
@@ -341,7 +366,14 @@ bool exportRoonFilterWavSet(const std::filesystem::path& directory,
         generatedFiles.push_back(cfgPath);
     }
 
-    const std::filesystem::path zipPath = roonArchiveFilePath(directory);
+    const std::filesystem::path parametersPath = roonParametersFilePath(directory);
+    if (!writeTextFile(parametersPath, parametersText)) {
+        errorMessage = L"Could not write export parameters: " + parametersPath.wstring();
+        return false;
+    }
+    generatedFiles.push_back(parametersPath);
+
+    const std::filesystem::path zipPath = roonArchiveFilePath(directory, archiveBaseName);
     if (!writeStoredZipArchive(zipPath, generatedFiles)) {
         errorMessage = L"Could not write Roon archive: " + zipPath.wstring();
         return false;
