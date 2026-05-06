@@ -78,6 +78,14 @@ Reasoning:
 - Signal analysis, target evaluation, and filter design are domain logic.
 - UI code should not own FFTs, smoothing, phase handling, or filter prediction rules.
 
+Filter-design shaping rules:
+
+- When inversion reduces measured peaks, do not force the predicted response to sit exactly on or below the target at every point.
+- Prefer a smooth, tapered correction shape over literal target tracking when those goals conflict.
+- It is acceptable for the predicted response to remain slightly above the target through a reduced peak if that avoids a sharper underswing after the cut.
+- Avoid hard clamp behavior in the magnitude correction path; abrupt cut enforcement can trade a cleaner magnitude trace for worse phase and group-delay behavior.
+- Correction limits and solver targets should soften into the boundary so realized filters stay well-behaved in both magnitude and time-domain diagnostics.
+
 ### `src/audio`
 
 Purpose: audio I/O and driver-related platform services.
@@ -239,6 +247,7 @@ Real-workspace regression rule:
 - the real-workspace check should load the workspace through `WorkspaceRepository`, rebuild `SmoothedResponse`, and rerun `measurement::designFilters(...)` with the saved `MeasurementResult`, smoothing settings, target curve, and filter settings
 - for mixed-phase regressions, compare minimum and mixed mode on that real workspace using realized outputs such as `filterResponseDb`, `correctedResponseDb`, filter peak location, post-peak FIR level, and expected waterfall data rather than relying only on synthetic phase fixtures
 - when the complaint is artifact level rather than basic correctness, also verify the same workspace across at least two tap counts so the acceptance check captures whether a larger FIR budget actually improves the realized result
+- when the complaint is peak-cut overshoot or underswing around the target, acceptance should check more than target error alone: verify that the corrected response reduces the peak, does not swing materially below target, and does not require a hard-clamped correction shape to get there
 - temporary probe executables are acceptable for diagnosis, but the lasting protection should end up in focused native tests and documented acceptance criteria rather than leaving ad hoc tooling in the tree
 
 ## Dependency Direction

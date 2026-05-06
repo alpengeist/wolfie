@@ -5,6 +5,7 @@
 #include <complex>
 
 #include "measurement/dsp_utils.h"
+#include "measurement/response_smoother.h"
 
 namespace wolfie::measurement {
 
@@ -16,6 +17,65 @@ T clampValue(T value, T low, T high) {
 }
 
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kWaterfallSliceHopMs = 8.0;
+constexpr double kWaterfallMaxDurationMs = 3000.0;
+constexpr size_t kWaterfallDisplayFrequencyPointCount = 512;
+constexpr size_t kWaterfallSmoothingFrequencyPointCount = 2048;
+
+std::vector<double> smoothWaterfallSliceDb(const std::vector<double>& frequencyAxisHz,
+                                           const std::vector<double>& sliceValuesDb) {
+    if (frequencyAxisHz.empty() || sliceValuesDb.size() != frequencyAxisHz.size()) {
+        return sliceValuesDb;
+    }
+
+    ResponseSmoothingSettings settings;
+    settings.psychoacousticModel = "octave sliding window";
+    settings.resolutionPercent = 100;
+    settings.highFrequencySlopeCutoffHz = frequencyAxisHz.back();
+    return smoothMagnitudeSeries(frequencyAxisHz, sliceValuesDb, settings);
+}
+
+double interpolateLogFrequency(const std::vector<double>& frequencyAxisHz,
+                               const std::vector<double>& values,
+                               double frequencyHz) {
+    if (frequencyAxisHz.empty() || values.empty()) {
+        return 0.0;
+    }
+
+    const size_t count = std::min(frequencyAxisHz.size(), values.size());
+    if (count == 1 || frequencyHz <= frequencyAxisHz.front()) {
+        return values.front();
+    }
+    if (frequencyHz >= frequencyAxisHz[count - 1]) {
+        return values[count - 1];
+    }
+
+    const auto upper = std::lower_bound(frequencyAxisHz.begin(),
+                                        frequencyAxisHz.begin() + static_cast<std::ptrdiff_t>(count),
+                                        frequencyHz);
+    const size_t upperIndex = static_cast<size_t>(std::distance(frequencyAxisHz.begin(), upper));
+    if (upperIndex == 0) {
+        return values.front();
+    }
+
+    const size_t lowerIndex = upperIndex - 1;
+    const double x = std::log10(std::max(frequencyHz, 1.0));
+    const double x0 = std::log10(std::max(frequencyAxisHz[lowerIndex], 1.0));
+    const double x1 = std::log10(std::max(frequencyAxisHz[upperIndex], 1.0));
+    const double blend = clampValue((x - x0) / std::max(x1 - x0, 1.0e-12), 0.0, 1.0);
+    return values[lowerIndex] + ((values[upperIndex] - values[lowerIndex]) * blend);
+}
+
+std::vector<double> resampleLogFrequency(const std::vector<double>& sourceFrequencyAxisHz,
+                                         const std::vector<double>& sourceValues,
+                                         const std::vector<double>& targetFrequencyAxisHz) {
+    std::vector<double> resampled;
+    resampled.reserve(targetFrequencyAxisHz.size());
+    for (const double frequencyHz : targetFrequencyAxisHz) {
+        resampled.push_back(interpolateLogFrequency(sourceFrequencyAxisHz, sourceValues, frequencyHz));
+    }
+    return resampled;
+}
 
 std::complex<double> interpolateSpectrumAtFrequency(const std::vector<std::complex<double>>& spectrum,
                                                     int sampleRate,
@@ -171,17 +231,26 @@ WaterfallPlotData buildWaterfallPlotDataFromImpulse(const MeasurementResult& res
         return plot;
     }
 
-    plot.frequencyAxisHz = buildLogFrequencyAxis(20.0, maxFrequencyHz, 160);
+    plot.frequencyAxisHz = buildLogFrequencyAxis(20.0, maxFrequencyHz, kWaterfallDisplayFrequencyPointCount);
     if (plot.frequencyAxisHz.empty()) {
+        return plot;
+    }
+    const std::vector<double> smoothingFrequencyAxisHz =
+        buildLogFrequencyAxis(20.0, maxFrequencyHz, kWaterfallSmoothingFrequencyPointCount);
+    if (smoothingFrequencyAxisHz.empty()) {
         return plot;
     }
 
     const double availableDurationMs =
         static_cast<double>(positiveImpulse.size()) * 1000.0 / static_cast<double>(sampleRate);
-    const double maxSliceDurationMs = std::min(400.0, availableDurationMs);
-    const int sliceCount = clampValue(static_cast<int>(std::floor(maxSliceDurationMs / 16.0)), 14, 24);
+    const double maxSliceDurationMs = std::min(kWaterfallMaxDurationMs, availableDurationMs);
+    const int sliceCount =
+        clampValue(static_cast<int>(std::floor(maxSliceDurationMs / kWaterfallSliceHopMs)) + 1, 24, 256);
     const size_t maxStartSample =
         positiveImpulse.size() > windowLength ? positiveImpulse.size() - windowLength : 0;
+    const size_t maxDisplayedStartSample = std::min(
+        maxStartSample,
+        static_cast<size_t>(std::lround((maxSliceDurationMs * static_cast<double>(sampleRate)) / 1000.0)));
 
     std::vector<std::vector<double>> linearMagnitudes;
     linearMagnitudes.reserve(static_cast<size_t>(sliceCount));
@@ -191,7 +260,8 @@ WaterfallPlotData buildWaterfallPlotDataFromImpulse(const MeasurementResult& res
         const double sliceT = sliceCount <= 1
                                   ? 0.0
                                   : static_cast<double>(sliceIndex) / static_cast<double>(sliceCount - 1);
-        const size_t startSample = static_cast<size_t>(std::lround(sliceT * static_cast<double>(maxStartSample)));
+        const size_t startSample =
+            static_cast<size_t>(std::lround(sliceT * static_cast<double>(maxDisplayedStartSample)));
         std::vector<double> windowed(windowLength, 0.0);
         std::copy_n(positiveImpulse.begin() + static_cast<std::ptrdiff_t>(startSample),
                     windowLength,
@@ -204,8 +274,8 @@ WaterfallPlotData buildWaterfallPlotDataFromImpulse(const MeasurementResult& res
         }
 
         std::vector<double> sliceMagnitudes;
-        sliceMagnitudes.reserve(plot.frequencyAxisHz.size());
-        for (const double frequencyHz : plot.frequencyAxisHz) {
+        sliceMagnitudes.reserve(smoothingFrequencyAxisHz.size());
+        for (const double frequencyHz : smoothingFrequencyAxisHz) {
             const double magnitude = std::abs(interpolateSpectrumAtFrequency(spectrum, sampleRate, frequencyHz));
             sliceMagnitudes.push_back(magnitude);
             globalPeakMagnitude = std::max(globalPeakMagnitude, magnitude);
@@ -223,12 +293,17 @@ WaterfallPlotData buildWaterfallPlotDataFromImpulse(const MeasurementResult& res
     }
 
     for (size_t i = 0; i < plot.slices.size() && i < linearMagnitudes.size(); ++i) {
-        plot.slices[i].valuesDb.reserve(linearMagnitudes[i].size());
+        std::vector<double> sliceValuesDb;
+        sliceValuesDb.reserve(linearMagnitudes[i].size());
         for (const double magnitude : linearMagnitudes[i]) {
             const double relativeMagnitude = std::max(magnitude, 1.0e-12) / globalPeakMagnitude;
             const double valueDb = 20.0 * std::log10(relativeMagnitude);
-            plot.slices[i].valuesDb.push_back(clampValue(valueDb, plot.minDb, plot.maxDb));
+            sliceValuesDb.push_back(clampValue(valueDb, plot.minDb, plot.maxDb));
         }
+        const std::vector<double> smoothedSliceValuesDb =
+            smoothWaterfallSliceDb(smoothingFrequencyAxisHz, sliceValuesDb);
+        plot.slices[i].valuesDb =
+            resampleLogFrequency(smoothingFrequencyAxisHz, smoothedSliceValuesDb, plot.frequencyAxisHz);
     }
 
     return plot.valid() ? plot : WaterfallPlotData{};

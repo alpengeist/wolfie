@@ -1238,7 +1238,7 @@ bool expectWaterfallPlotData() {
     settings.fadeInSeconds = 0.05;
     settings.fadeOutSeconds = 0.05;
     settings.leadInSamples = 1024;
-    settings.targetLengthSamples = 8192;
+    settings.targetLengthSamples = 131072;
 
     const int delaySamples = 120;
     const wolfie::measurement::SweepPlaybackPlan plan =
@@ -1259,12 +1259,31 @@ bool expectWaterfallPlotData() {
         std::cerr << "waterfall plot data was not generated\n";
         return false;
     }
-    if (plot.slices.size() < 6 || plot.frequencyAxisHz.size() < 64) {
+    if (plot.slices.size() < 24 || plot.frequencyAxisHz.size() < 256) {
         std::cerr << "waterfall plot data is too sparse\n";
         return false;
     }
     if (plot.slices.front().timeMilliseconds != 0.0) {
         std::cerr << "waterfall did not start at zero milliseconds\n";
+        return false;
+    }
+    if (plot.slices.size() >= 2) {
+        const double hopMs = plot.slices[1].timeMilliseconds - plot.slices[0].timeMilliseconds;
+        if (hopMs <= 0.0 || hopMs > 12.0) {
+            std::cerr << "waterfall time hops were too coarse (hop="
+                      << hopMs
+                      << " ms, slices="
+                      << plot.slices.size()
+                      << ", last="
+                      << plot.slices.back().timeMilliseconds
+                      << " ms)\n";
+            return false;
+        }
+    }
+    if (plot.slices.back().timeMilliseconds < 1800.0) {
+        std::cerr << "waterfall duration was too short (last="
+                  << plot.slices.back().timeMilliseconds
+                  << " ms)\n";
         return false;
     }
 
