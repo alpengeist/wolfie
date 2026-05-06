@@ -29,12 +29,6 @@ wolfie::MeasurementResult buildPhaseMeasurement(int sampleRate,
                                                 double delaySeconds,
                                                 double leftExcessScale = 0.0,
                                                 double rightExcessScale = 0.0);
-wolfie::MeasurementResult buildPhaseMeasurementWithExcessShape(int sampleRate,
-                                                               double delaySeconds,
-                                                               double leftExcessScale,
-                                                               double rightExcessScale,
-                                                               double centerFrequencyHz,
-                                                               double logWidth);
 wolfie::MeasurementResult buildPhaseMeasurementWithSourceAvailability(int sampleRate,
                                                                       double delaySeconds,
                                                                       bool includeDirect,

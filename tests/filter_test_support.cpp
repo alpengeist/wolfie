@@ -7,14 +7,6 @@
 
 namespace wolfie::tests {
 
-wolfie::MeasurementValueSet buildWrappedPhaseSpectrumWithShape(const std::vector<double>& frequencyAxisHz,
-                                                               const std::string& key,
-                                                               double delaySeconds,
-                                                               double leftExcessScale,
-                                                               double rightExcessScale,
-                                                               double centerFrequencyHz,
-                                                               double logWidth);
-
 std::vector<double> buildLogAxis(double minFrequencyHz, double maxFrequencyHz, int pointCount) {
     std::vector<double> axis;
     axis.reserve(static_cast<size_t>(pointCount));
@@ -100,22 +92,6 @@ wolfie::MeasurementValueSet buildWrappedPhaseSpectrum(const std::vector<double>&
                                                       double delaySeconds,
                                                       double leftExcessScale,
                                                       double rightExcessScale) {
-    return buildWrappedPhaseSpectrumWithShape(frequencyAxisHz,
-                                              key,
-                                              delaySeconds,
-                                              leftExcessScale,
-                                              rightExcessScale,
-                                              70.0,
-                                              0.22);
-}
-
-wolfie::MeasurementValueSet buildWrappedPhaseSpectrumWithShape(const std::vector<double>& frequencyAxisHz,
-                                                               const std::string& key,
-                                                               double delaySeconds,
-                                                               double leftExcessScale,
-                                                               double rightExcessScale,
-                                                               double centerFrequencyHz,
-                                                               double logWidth) {
     wolfie::MeasurementValueSet valueSet;
     valueSet.key = key;
     valueSet.xQuantity = "frequency";
@@ -128,9 +104,7 @@ wolfie::MeasurementValueSet buildWrappedPhaseSpectrumWithShape(const std::vector
     for (const double frequencyHz : frequencyAxisHz) {
         const double linearDelayDegrees = -360.0 * frequencyHz * delaySeconds;
         const double safeFrequencyHz = std::max(frequencyHz, 1.0);
-        const double excessShape = std::exp(-std::pow((std::log10(safeFrequencyHz) - std::log10(std::max(centerFrequencyHz, 1.0))) /
-                                                      std::max(logWidth, 0.05),
-                                                      2.0)) *
+        const double excessShape = std::exp(-std::pow((std::log10(safeFrequencyHz) - std::log10(70.0)) / 0.22, 2.0)) *
                                    (1.0 - std::exp(-safeFrequencyHz / 22.0));
         valueSet.leftValues.push_back(wrapDegrees(linearDelayDegrees + (leftExcessScale * 75.0 * excessShape)));
         valueSet.rightValues.push_back(wrapDegrees(linearDelayDegrees + (rightExcessScale * 75.0 * excessShape)));
@@ -168,20 +142,6 @@ wolfie::MeasurementResult buildPhaseMeasurement(int sampleRate,
                                                 double delaySeconds,
                                                 double leftExcessScale,
                                                 double rightExcessScale) {
-    return buildPhaseMeasurementWithExcessShape(sampleRate,
-                                                delaySeconds,
-                                                leftExcessScale,
-                                                rightExcessScale,
-                                                70.0,
-                                                0.22);
-}
-
-wolfie::MeasurementResult buildPhaseMeasurementWithExcessShape(int sampleRate,
-                                                               double delaySeconds,
-                                                               double leftExcessScale,
-                                                               double rightExcessScale,
-                                                               double centerFrequencyHz,
-                                                               double logWidth) {
     wolfie::MeasurementResult result;
     const std::vector<double> phaseAxisHz = buildLinearAxis(static_cast<double>(sampleRate) * 0.5, 4097);
     result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
@@ -190,29 +150,23 @@ wolfie::MeasurementResult buildPhaseMeasurementWithExcessShape(int sampleRate,
     result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
     result.valueSets.back().key = "measurement.direct_impulse_response";
     result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.raw_magnitude_spectrum"));
-    result.valueSets.push_back(buildWrappedPhaseSpectrumWithShape(phaseAxisHz,
-                                                                  "measurement.raw_phase_spectrum",
-                                                                  delaySeconds,
-                                                                  leftExcessScale,
-                                                                  rightExcessScale,
-                                                                  centerFrequencyHz,
-                                                                  logWidth));
+    result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
+                                                        "measurement.raw_phase_spectrum",
+                                                        delaySeconds,
+                                                        leftExcessScale,
+                                                        rightExcessScale));
     result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.room_magnitude_spectrum"));
-    result.valueSets.push_back(buildWrappedPhaseSpectrumWithShape(phaseAxisHz,
-                                                                  "measurement.room_phase_spectrum",
-                                                                  delaySeconds,
-                                                                  leftExcessScale,
-                                                                  rightExcessScale,
-                                                                  centerFrequencyHz,
-                                                                  logWidth));
+    result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
+                                                        "measurement.room_phase_spectrum",
+                                                        delaySeconds,
+                                                        leftExcessScale,
+                                                        rightExcessScale));
     result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.direct_magnitude_spectrum"));
-    result.valueSets.push_back(buildWrappedPhaseSpectrumWithShape(phaseAxisHz,
-                                                                  "measurement.direct_phase_spectrum",
-                                                                  delaySeconds,
-                                                                  leftExcessScale,
-                                                                  rightExcessScale,
-                                                                  centerFrequencyHz,
-                                                                  logWidth));
+    result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
+                                                        "measurement.direct_phase_spectrum",
+                                                        delaySeconds,
+                                                        leftExcessScale,
+                                                        rightExcessScale));
     return result;
 }
 
