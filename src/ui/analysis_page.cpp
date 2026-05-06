@@ -21,8 +21,8 @@ T clampValue(T value, T low, T high) {
 }
 
 const StereoDiagnosticsResult& selectFilterDiagnostics(const FilterAnalysisResult& filterAnalysis,
-                                                       std::string_view window) {
-    return window == "room" ? filterAnalysis.room : filterAnalysis.direct;
+                                                       std::string_view /*window*/) {
+    return filterAnalysis.room;
 }
 
 }  // namespace
@@ -459,16 +459,15 @@ LRESULT CALLBACK AnalysisPage::PageWindowProc(HWND window, UINT message, WPARAM 
 
 void AnalysisPage::populateWindowCombo(HWND combo) {
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
-    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Direct"));
     SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Room"));
 }
 
-int AnalysisPage::comboIndexFromWindow(const std::string& window) {
-    return window == "room" ? 1 : 0;
+int AnalysisPage::comboIndexFromWindow(const std::string& /*window*/) {
+    return 0;
 }
 
-std::string AnalysisPage::windowFromComboIndex(int index) {
-    return index == 1 ? "room" : "direct";
+std::string AnalysisPage::windowFromComboIndex(int /*index*/) {
+    return "room";
 }
 
 std::wstring AnalysisPage::formatMetricValue(double value,

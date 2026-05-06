@@ -200,7 +200,7 @@ bool expectExcessPhasePreparationIgnoresDisplayResponseShape() {
     return true;
 }
 
-bool expectPhasePreparationPrefersDirectSource() {
+bool expectPhasePreparationPrefersRoomSource() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
     measurement.startFrequencyHz = 20.0;
@@ -213,7 +213,7 @@ bool expectPhasePreparationPrefersDirectSource() {
     filterSettings.tapCount = 16384;
 
     const wolfie::SmoothedResponse response = wolfie::tests::buildFlatResponse(0.0);
-    const wolfie::MeasurementResult directPreferredMeasurement =
+    const wolfie::MeasurementResult roomPreferredMeasurement =
         wolfie::tests::buildPhaseMeasurementWithSourceAvailability(measurement.sampleRate,
                                                                    0.0,
                                                                    true,
@@ -255,7 +255,7 @@ bool expectPhasePreparationPrefersDirectSource() {
                                            measurement,
                                            targetCurve,
                                            filterSettings,
-                                           &directPreferredMeasurement);
+                                           &roomPreferredMeasurement);
     const wolfie::FilterDesignResult directResult =
         wolfie::measurement::designFilters(response,
                                            measurement,
@@ -283,8 +283,8 @@ bool expectPhasePreparationPrefersDirectSource() {
                                                                    roomResult.left.inputExcessPhaseContinuousDegrees,
                                                                    20.0,
                                                                    300.0);
-    if (preferredVsDirect > 1.0 || preferredVsRoom < 15.0) {
-        std::cerr << "phase preparation did not prefer the direct source as expected (direct delta="
+    if (preferredVsRoom > 1.0 || preferredVsDirect < 15.0) {
+        std::cerr << "phase preparation did not prefer the room source as expected (direct delta="
                   << preferredVsDirect << ", room delta=" << preferredVsRoom << ")\n";
         return false;
     }
@@ -292,7 +292,7 @@ bool expectPhasePreparationPrefersDirectSource() {
     return true;
 }
 
-bool expectPhasePreparationFallsBackToRawSource() {
+bool expectPhasePreparationIgnoresRawOnlySource() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
     measurement.startFrequencyHz = 20.0;
@@ -323,21 +323,16 @@ bool expectPhasePreparationFallsBackToRawSource() {
                                            filterSettings,
                                            &rawOnlyMeasurement);
     if (!result.valid) {
-        std::cerr << "raw-source fallback case did not produce a valid filter result\n";
+        std::cerr << "raw-only phase-source case did not produce a valid filter result\n";
         return false;
     }
 
-    const double leftBandMean = wolfie::tests::bandMeanAbs(result.frequencyAxisHz,
-                                                           result.left.inputExcessPhaseDegrees,
-                                                           20.0,
-                                                           300.0);
-    const double rightBandMean = wolfie::tests::bandMeanAbs(result.frequencyAxisHz,
-                                                            result.right.inputExcessPhaseDegrees,
-                                                            20.0,
-                                                            300.0);
-    if (leftBandMean < 15.0 || rightBandMean < 15.0) {
-        std::cerr << "raw-source fallback did not publish the expected excess-phase content (left="
-                  << leftBandMean << ", right=" << rightBandMean << ")\n";
+    if (!result.phasePreparationSourceWindow.empty() ||
+        !result.phasePreparationSourceKey.empty() ||
+        !result.left.inputExcessPhaseDegrees.empty() ||
+        !result.right.inputExcessPhaseDegrees.empty()) {
+        std::cerr << "raw-only source was still used for phase preparation (window="
+                  << result.phasePreparationSourceWindow << ", key=" << result.phasePreparationSourceKey << ")\n";
         return false;
     }
 
@@ -356,6 +351,7 @@ bool expectExcessPhaseWindowReducesLateTailContribution() {
     wolfie::FilterDesignSettings fullWindowSettings;
     fullWindowSettings.tapCount = 16384;
     fullWindowSettings.phaseMode = "mixed";
+    fullWindowSettings.excessPhaseWindowMs = 40.0;
 
     wolfie::FilterDesignSettings shortWindowSettings = fullWindowSettings;
     shortWindowSettings.excessPhaseWindowMs = 4.0;
@@ -409,12 +405,12 @@ bool expectExcessPhaseWindowPreservesResponseAxisDensity() {
     wolfie::MeasurementResult measurement;
     const std::vector<double> responseAxisHz = wolfie::tests::buildLogAxis(20.0, 20000.0, 512);
     measurement.valueSets.push_back(wolfie::tests::buildImpulseValueSet(0.0));
-    measurement.valueSets.back().key = "measurement.direct_impulse_response";
+    measurement.valueSets.back().key = "measurement.room_impulse_response";
     measurement.valueSets.push_back(
-        wolfie::tests::buildFlatMagnitudeSpectrum(responseAxisHz, "measurement.direct_magnitude_response"));
+        wolfie::tests::buildFlatMagnitudeSpectrum(responseAxisHz, "measurement.room_magnitude_response"));
     measurement.valueSets.push_back(
         wolfie::tests::buildWrappedPhaseSpectrum(responseAxisHz,
-                                                "measurement.direct_phase_response",
+                                                "measurement.room_phase_response",
                                                 0.0,
                                                 1.5,
                                                 -1.0));
@@ -479,8 +475,8 @@ bool expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog() {
         return false;
     }
 
-    if (result.phasePreparationSourceWindow != "direct" ||
-        result.phasePreparationSourceKey != "measurement.direct" ||
+    if (result.phasePreparationSourceWindow != "room" ||
+        result.phasePreparationSourceKey != "measurement.room" ||
         result.phasePreparationSeriesKind != "spectrum") {
         std::cerr << "filter result did not publish the expected phase-preparation metadata (window="
                   << result.phasePreparationSourceWindow << ", key=" << result.phasePreparationSourceKey
@@ -495,7 +491,7 @@ bool expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog() {
 
     if (result.processLog.size() < 6 ||
         !wolfie::tests::processLogContains(result, "Starting filter design") ||
-        !wolfie::tests::processLogContains(result, "Prepared matched phase data from measurement.direct") ||
+        !wolfie::tests::processLogContains(result, "Prepared matched phase data from measurement.room") ||
         (!wolfie::tests::processLogContains(result, "Built per-channel low-frequency mixed-phase correction") &&
          !wolfie::tests::processLogContains(result, "Built shared low-frequency mixed-phase correction")) ||
         !wolfie::tests::processLogContains(result, "Designed left filter channel") ||
@@ -515,8 +511,8 @@ int main() {
         {"expectMinimumPhaseInputNeedsNoExcessCorrection", expectMinimumPhaseInputNeedsNoExcessCorrection},
         {"expectBulkDelayIsNotTreatedAsExcessPhase", expectBulkDelayIsNotTreatedAsExcessPhase},
         {"expectExcessPhasePreparationIgnoresDisplayResponseShape", expectExcessPhasePreparationIgnoresDisplayResponseShape},
-        {"expectPhasePreparationPrefersDirectSource", expectPhasePreparationPrefersDirectSource},
-        {"expectPhasePreparationFallsBackToRawSource", expectPhasePreparationFallsBackToRawSource},
+        {"expectPhasePreparationPrefersRoomSource", expectPhasePreparationPrefersRoomSource},
+        {"expectPhasePreparationIgnoresRawOnlySource", expectPhasePreparationIgnoresRawOnlySource},
         {"expectExcessPhaseWindowReducesLateTailContribution", expectExcessPhaseWindowReducesLateTailContribution},
         {"expectExcessPhaseWindowPreservesResponseAxisDensity", expectExcessPhaseWindowPreservesResponseAxisDensity},
         {"expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog", expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog},

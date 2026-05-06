@@ -495,13 +495,9 @@ MeasurementResult buildSimulatedRoomMeasurement(const MeasurementSettings& measu
 
     const size_t fftSize = nextPowerOfTwo(std::max({roomLeftImpulse.size(),
                                                     roomRightImpulse.size(),
-                                                    directLeftImpulse.size(),
-                                                    directRightImpulse.size(),
                                                     size_t{4096}}));
     const std::vector<std::complex<double>> leftRoomSpectrum = fftOfRealSignal(roomLeftImpulse, fftSize);
     const std::vector<std::complex<double>> rightRoomSpectrum = fftOfRealSignal(roomRightImpulse, fftSize);
-    const std::vector<std::complex<double>> leftDirectSpectrum = fftOfRealSignal(directLeftImpulse, fftSize);
-    const std::vector<std::complex<double>> rightDirectSpectrum = fftOfRealSignal(directRightImpulse, fftSize);
 
     const double maxFrequencyHz = std::min(measurementSettings.endFrequencyHz, static_cast<double>(sampleRate) * 0.5);
     const size_t positiveBinCount = (fftSize / 2) + 1;
@@ -553,23 +549,6 @@ MeasurementResult buildSimulatedRoomMeasurement(const MeasurementSettings& measu
                                             rightRoomSpectrum,
                                             sampleRate,
                                             false));
-    appendIfValid(result,
-                  buildFullSpectrumValueSet("measurement.direct_magnitude_spectrum",
-                                            "level",
-                                            "dB",
-                                            leftDirectSpectrum,
-                                            rightDirectSpectrum,
-                                            sampleRate,
-                                            true));
-    appendIfValid(result,
-                  buildFullSpectrumValueSet("measurement.direct_phase_spectrum",
-                                            "phase",
-                                            "degrees",
-                                            leftDirectSpectrum,
-                                            rightDirectSpectrum,
-                                            sampleRate,
-                                            false));
-
     MeasurementValueSet rawMagnitudeResponse = buildMagnitudeResponseValueSet("measurement.raw_magnitude_response",
                                                                               displayFrequencyAxisHz,
                                                                               leftRoomSpectrum,
@@ -597,19 +576,6 @@ MeasurementResult buildSimulatedRoomMeasurement(const MeasurementSettings& measu
                                              leftRoomSpectrum,
                                              rightRoomSpectrum,
                                              sampleRate));
-    appendIfValid(result,
-                  buildMagnitudeResponseValueSet("measurement.direct_magnitude_response",
-                                                 displayFrequencyAxisHz,
-                                                 leftDirectSpectrum,
-                                                 rightDirectSpectrum,
-                                                 sampleRate));
-    appendIfValid(result,
-                  buildPhaseResponseValueSet("measurement.direct_phase_response",
-                                             displayFrequencyAxisHz,
-                                             leftDirectSpectrum,
-                                             rightDirectSpectrum,
-                                             sampleRate));
-
     MeasurementAnalysis& analysis = result.analysis;
     analysis.analyzerVersion = "room-sim-v1";
     analysis.measurementKind = "room-simulation";

@@ -72,7 +72,7 @@ struct UiSettings {
     bool measurementShowRoomRight = true;
     bool measurementShowReference = true;
     bool measurementMetadataCollapsed = true;
-    std::string analysisWindow = "direct";
+    std::string analysisWindow = "room";
     bool analysisGraphHasCustomFrequencyRange = false;
     double analysisGraphVisibleMinFrequencyHz = 20.0;
     double analysisGraphVisibleMaxFrequencyHz = 20000.0;
@@ -233,13 +233,6 @@ struct MeasurementResult {
     }
 
     [[nodiscard]] const MeasurementValueSet* magnitudeResponse() const {
-        if (analysis.measurementKind == "reference") {
-            if (const MeasurementValueSet* direct = findValueSet("measurement.direct_magnitude_response")) {
-                if (direct->valid()) {
-                    return direct;
-                }
-            }
-        }
         if (const MeasurementValueSet* canonical = findValueSet("measurement.magnitude_response")) {
             if (canonical->valid()) {
                 return canonical;
@@ -375,7 +368,7 @@ struct FilterDesignSettings {
     int displayPointCount = 2048;
     std::string phaseMode = "minimum";
     double mixedPhaseMaxFrequencyHz = 220.0;
-    double excessPhaseWindowMs = 0.0;
+    double excessPhaseWindowMs = 1.0;
     double mixedPhaseStrength = 1.0;
     double mixedPhaseMaxCorrectionDegrees = 360.0;
 };

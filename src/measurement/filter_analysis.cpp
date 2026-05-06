@@ -346,9 +346,8 @@ FilterAnalysisResult buildFilterAnalysis(const MeasurementResult& measurement,
         return result;
     }
 
-    result.direct = buildFilteredDiagnostics(measurement, filterResult, "direct", progressCallback);
     result.room = buildFilteredDiagnostics(measurement, filterResult, "room", progressCallback);
-    result.available = result.direct.available || result.room.available;
+    result.available = result.room.available;
     return result;
 }
 

@@ -400,10 +400,12 @@ Mixed-phase regression policy:
 
 ### Phase And Group-Delay Inputs
 
-The measurement layer publishes two transfer-function product families for each source window such as `raw`, `room`, `direct`, and `reference_compensated_direct`:
+The measurement layer publishes two transfer-function product families for transfer windows such as `raw`, `room`, and `reference_compensated_room`:
 
-- `_spectrum` pairs such as `measurement.direct_magnitude_spectrum` and `measurement.direct_phase_spectrum`
-- `_response` pairs such as `measurement.direct_magnitude_response` and `measurement.direct_phase_response`
+- `_spectrum` pairs such as `measurement.room_magnitude_spectrum` and `measurement.room_phase_spectrum`
+- `_response` pairs such as `measurement.room_magnitude_response` and `measurement.room_phase_response`
+
+In addition, the analyzer may publish time-domain impulse products such as `measurement.direct_impulse_response` for alignment and other direct-arrival tools.
 
 These represent the same transfer function at different resolutions and for different purposes.
 
@@ -423,7 +425,7 @@ Current filter-design and phase-preparation decisions:
 
 - excess-phase preparation must use matched magnitude and phase products from the same source window
 - phase-preparation source selection prefers matched `_response` pairs first, then matched `_spectrum` pairs as fallback
-- direct-window products are preferred over room-window products, and room-window products are preferred over raw products
+- phase preparation uses `reference_compensated_room` when available and otherwise `room`
 - bulk delay is removed before minimum-phase reconstruction and excess-phase derivation
 - group-delay publication is derived from the prepared phase data, then resampled for display
 - minimum-phase magnitude correction still operates from `SmoothedResponse`
@@ -431,7 +433,7 @@ Current filter-design and phase-preparation decisions:
 Reasoning:
 
 - matched magnitude and phase inputs matter more than reusing unrelated display products
-- direct-window transfer products are the better default for excess-phase meaning and bulk-delay estimation
+- the room transfer remains the load-bearing acoustic input, while phase preparation derives its own effective direct-path view by windowing the reconstructed prepared-transfer impulse
 - pure delay appears as a large linear phase ramp and should be separated from excess phase
 - group delay is the more trustworthy chart for timing trend; excess phase is a phase-shape diagnostic
 - `_spectrum` remains the higher-fidelity representation, but `_response` is currently the preferred preparation input because it keeps interactive recalculation costs acceptable

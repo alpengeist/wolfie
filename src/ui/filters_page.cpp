@@ -461,7 +461,7 @@ void FiltersPage::createControls() {
     controls_.editMixedPhaseMax = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseMax)), instance_, nullptr);
     controls_.unitMixedPhaseMax = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhaseWindow = CreateWindowW(L"STATIC", L"Excess", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseWindow = CreateWindowW(L"STATIC", L"Phase Window", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editExcessPhaseWindow = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditExcessPhaseWindow)), instance_, nullptr);
     controls_.unitExcessPhaseWindow = CreateWindowW(L"STATIC", L"ms", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -483,7 +483,7 @@ void FiltersPage::createControls() {
     helpBubble_.registerLabel(controls_.labelMaxCut, L"Limits how much attenuation the calculated correction may apply.");
     helpBubble_.registerLabel(controls_.labelSmoothness, L"Controls how tightly the correction follows response detail instead of smoothing it out.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseMax, L"Sets the highest frequency where mixed-phase correction is allowed.");
-    helpBubble_.registerLabel(controls_.labelExcessPhaseWindow, L"Optionally windows the prepared excess-phase impulse in milliseconds before mixed-phase correction is derived. Set 0 to keep the full prepared response.");
+    helpBubble_.registerLabel(controls_.labelExcessPhaseWindow, L"Sets the time window in milliseconds used to derive the phase-preparation transfer before mixed-phase correction is computed.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseStrength, L"Controls how strongly mixed-phase correction is applied within the allowed range.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseCap, L"Caps the maximum phase rotation the mixed-phase solver may request.");
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
@@ -1177,10 +1177,7 @@ void FiltersPage::refreshSmoothnessValue() const {
 }
 
 void FiltersPage::refreshExcessPhaseWindowLabel() const {
-    double value = 0.0;
-    const bool parsed = tryParseDouble(getWindowTextValue(controls_.editExcessPhaseWindow), value);
-    const bool off = !parsed || std::abs(value) < 0.0005;
-    SetWindowTextW(controls_.labelExcessPhaseWindow, off ? L"Excess (Off)" : L"Excess");
+    SetWindowTextW(controls_.labelExcessPhaseWindow, L"Phase Window");
 }
 
 int FiltersPage::selectedGroupDelayZoomPreset() const {

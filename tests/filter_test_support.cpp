@@ -236,14 +236,14 @@ wolfie::MeasurementResult buildImpulsePhaseMeasurement(int sampleRate,
     wolfie::measurement::fft(spectrum, false);
 
     wolfie::MeasurementValueSet magnitude;
-    magnitude.key = "measurement.direct_magnitude_spectrum";
+    magnitude.key = "measurement.room_magnitude_spectrum";
     magnitude.xQuantity = "frequency";
     magnitude.xUnit = "Hz";
     magnitude.yQuantity = "level";
     magnitude.yUnit = "dB";
 
     wolfie::MeasurementValueSet phase;
-    phase.key = "measurement.direct_phase_spectrum";
+    phase.key = "measurement.room_phase_spectrum";
     phase.xQuantity = "frequency";
     phase.xUnit = "Hz";
     phase.yQuantity = "phase";
@@ -270,9 +270,11 @@ wolfie::MeasurementResult buildImpulsePhaseMeasurement(int sampleRate,
     }
 
     result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
-    result.valueSets.back().key = "measurement.direct_impulse_response";
-    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
     result.valueSets.back().key = "measurement.raw_impulse_response";
+    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+    result.valueSets.back().key = "measurement.room_impulse_response";
+    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+    result.valueSets.back().key = "measurement.direct_impulse_response";
     result.valueSets.push_back(std::move(magnitude));
     result.valueSets.push_back(std::move(phase));
     return result;

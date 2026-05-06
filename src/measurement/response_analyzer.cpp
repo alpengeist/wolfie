@@ -767,9 +767,9 @@ StoredSpectrum loadReferenceCompensationSpectrum(const MeasurementResult* result
 
     if (result->analysis.measurementKind == "reference") {
         return loadStoredSpectrum(result,
-                                  "measurement.direct_magnitude_spectrum",
                                   "measurement.raw_magnitude_spectrum",
-                                  "measurement.direct_phase_spectrum",
+                                  "measurement.raw_magnitude_spectrum",
+                                  "measurement.raw_phase_spectrum",
                                   "measurement.raw_phase_spectrum");
     }
 
@@ -1390,17 +1390,11 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                     commonPreRollFrames,
                                     rightDirectFadeFrames);
     size_t kernelRoomFadeFrames = 0;
-    size_t kernelDirectFadeFrames = 0;
     const std::vector<double> kernelRoomWindowedImpulse =
         buildWindowedImpulseSegment(deconvolutionKernelImpulse,
                                     deconvolutionKernelImpulse.size(),
                                     commonPreRollFrames,
                                     kernelRoomFadeFrames);
-    const std::vector<double> kernelDirectWindowedImpulse =
-        buildWindowedImpulseSegment(deconvolutionKernelImpulse,
-                                    std::min(directWindowLength, deconvolutionKernelImpulse.size()),
-                                    commonPreRollFrames,
-                                    kernelDirectFadeFrames);
 
     appendValueSetIfValid(result,
                           buildImpulseValueSet("measurement.room_impulse_response",
@@ -1415,27 +1409,16 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
 
     const size_t fftSize = nextPowerOfTwo(std::max({leftRoomWindowedImpulse.size(),
                                                     rightRoomWindowedImpulse.size(),
-                                                    leftDirectWindowedImpulse.size(),
-                                                    rightDirectWindowedImpulse.size(),
                                                     kernelRoomWindowedImpulse.size(),
-                                                    kernelDirectWindowedImpulse.size(),
                                                     size_t{4096}}));
     const std::vector<std::complex<double>> rawLeftRoomSpectrum = fftOfRealSignal(leftRoomWindowedImpulse, fftSize);
     const std::vector<std::complex<double>> rawRightRoomSpectrum = fftOfRealSignal(rightRoomWindowedImpulse, fftSize);
-    const std::vector<std::complex<double>> rawLeftDirectSpectrum = fftOfRealSignal(leftDirectWindowedImpulse, fftSize);
-    const std::vector<std::complex<double>> rawRightDirectSpectrum = fftOfRealSignal(rightDirectWindowedImpulse, fftSize);
     const std::vector<std::complex<double>> kernelRoomSpectrum = fftOfRealSignal(kernelRoomWindowedImpulse, fftSize);
-    const std::vector<std::complex<double>> kernelDirectSpectrum = fftOfRealSignal(kernelDirectWindowedImpulse, fftSize);
     const std::vector<std::complex<double>> leftRoomSpectrum =
         compensateTransferSpectrum(rawLeftRoomSpectrum, kernelRoomSpectrum);
     const std::vector<std::complex<double>> rightRoomSpectrum =
         compensateTransferSpectrum(rawRightRoomSpectrum, kernelRoomSpectrum);
-    const std::vector<std::complex<double>> leftDirectSpectrum =
-        compensateTransferSpectrum(rawLeftDirectSpectrum, kernelDirectSpectrum);
-    const std::vector<std::complex<double>> rightDirectSpectrum =
-        compensateTransferSpectrum(rawRightDirectSpectrum, kernelDirectSpectrum);
-    if (leftRoomSpectrum.empty() || rightRoomSpectrum.empty() ||
-        leftDirectSpectrum.empty() || rightDirectSpectrum.empty()) {
+    if (leftRoomSpectrum.empty() || rightRoomSpectrum.empty()) {
         return result;
     }
 
@@ -1471,23 +1454,6 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                     rightRoomSpectrum,
                                                     sampleRate,
                                                     false));
-    appendValueSetIfValid(result,
-                          buildFullSpectrumValueSet("measurement.direct_magnitude_spectrum",
-                                                    "level",
-                                                    "dB",
-                                                    leftDirectSpectrum,
-                                                    rightDirectSpectrum,
-                                                    sampleRate,
-                                                    true));
-    appendValueSetIfValid(result,
-                          buildFullSpectrumValueSet("measurement.direct_phase_spectrum",
-                                                    "phase",
-                                                    "degrees",
-                                                    leftDirectSpectrum,
-                                                    rightDirectSpectrum,
-                                                    sampleRate,
-                                                    false));
-
     const size_t positiveBinCount = (std::min(leftRoomSpectrum.size(), rightRoomSpectrum.size()) / 2) + 1;
     if (positiveBinCount == 0) {
         return result;
@@ -1528,19 +1494,6 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                      leftRoomSpectrum,
                                                      rightRoomSpectrum,
                                                      sampleRate));
-    appendValueSetIfValid(result,
-                          buildMagnitudeResponseValueSet("measurement.direct_magnitude_response",
-                                                         displayFrequencyAxisHz,
-                                                         leftDirectSpectrum,
-                                                         rightDirectSpectrum,
-                                                         sampleRate));
-    appendValueSetIfValid(result,
-                          buildPhaseResponseValueSet("measurement.direct_phase_response",
-                                                     displayFrequencyAxisHz,
-                                                     leftDirectSpectrum,
-                                                     rightDirectSpectrum,
-                                                     sampleRate));
-
     const bool hasMicrophoneCalibration =
         audioSettings.microphoneCalibrationFrequencyHz.size() >= 2 &&
         audioSettings.microphoneCalibrationFrequencyHz.size() == audioSettings.microphoneCalibrationCorrectionDb.size();
@@ -1572,14 +1525,6 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                 rightRoomSpectrum,
                                                 sampleRate,
                                                 displayFrequencyAxisHz);
-    appendReferenceCompensatedTransferValueSets(result,
-                                                referenceResult,
-                                                "direct",
-                                                leftDirectSpectrum,
-                                                rightDirectSpectrum,
-                                                sampleRate,
-                                                displayFrequencyAxisHz);
-
     fillChannelMetrics(result.analysis.left, leftAnalysis, playbackPlan, sampleRate);
     fillChannelMetrics(result.analysis.right, rightAnalysis, playbackPlan, sampleRate);
 

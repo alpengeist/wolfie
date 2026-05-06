@@ -491,7 +491,6 @@ double bulkDelaySecondsFromImpulse(const MeasurementResult* result) {
     }
 
     constexpr std::string_view impulseKeys[] = {
-        "measurement.direct_impulse_response",
         "measurement.room_impulse_response",
         "measurement.raw_impulse_response"
     };
@@ -529,22 +528,6 @@ PhaseSourceSelection selectPhaseSource(const MeasurementResult* result) {
     };
 
     constexpr Candidate candidates[] = {
-        {"direct", "measurement.reference_compensated_direct",
-         "response",
-         "measurement.reference_compensated_direct_magnitude_response",
-         "measurement.reference_compensated_direct_phase_response"},
-        {"direct", "measurement.reference_compensated_direct",
-         "spectrum",
-         "measurement.reference_compensated_direct_magnitude_spectrum",
-         "measurement.reference_compensated_direct_phase_spectrum"},
-        {"direct", "measurement.direct",
-         "response",
-         "measurement.direct_magnitude_response",
-         "measurement.direct_phase_response"},
-        {"direct", "measurement.direct",
-         "spectrum",
-         "measurement.direct_magnitude_spectrum",
-         "measurement.direct_phase_spectrum"},
         {"room", "measurement.reference_compensated_room",
          "response",
          "measurement.reference_compensated_room_magnitude_response",
@@ -560,15 +543,7 @@ PhaseSourceSelection selectPhaseSource(const MeasurementResult* result) {
         {"room", "measurement.room",
          "spectrum",
          "measurement.room_magnitude_spectrum",
-         "measurement.room_phase_spectrum"},
-        {"raw", "measurement.raw",
-         "response",
-         "measurement.raw_magnitude_response",
-         "measurement.raw_phase_response"},
-        {"raw", "measurement.raw",
-         "spectrum",
-         "measurement.raw_magnitude_spectrum",
-         "measurement.raw_phase_spectrum"}
+         "measurement.room_phase_spectrum"}
     };
 
     for (const Candidate& candidate : candidates) {

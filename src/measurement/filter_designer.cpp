@@ -1333,7 +1333,7 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     settings.displayPointCount = clampValue(settings.displayPointCount, 256, 4096);
     settings.mixedPhaseMaxFrequencyHz =
         clampValue(settings.mixedPhaseMaxFrequencyHz, 60.0, static_cast<double>(std::max((nyquist / 2), 120)));
-    settings.excessPhaseWindowMs = clampValue(settings.excessPhaseWindowMs, 0.0, 1000.0);
+    settings.excessPhaseWindowMs = clampValue(settings.excessPhaseWindowMs, 1.0, 1000.0);
     settings.mixedPhaseStrength = clampValue(settings.mixedPhaseStrength, 0.0, 1.0);
     settings.mixedPhaseMaxCorrectionDegrees =
         clampValue(settings.mixedPhaseMaxCorrectionDegrees, 30.0, 720.0);
