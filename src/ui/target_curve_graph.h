@@ -29,6 +29,7 @@ public:
     void setModel(const SmoothedResponse& response,
                   const MeasurementSettings& measurement,
                   const TargetCurveSettings& settings,
+                  const TargetCurveSettings* ghostSettings,
                   int selectedBandIndex);
     void setVisibleDbRange(bool hasCustomRange, double minDb, double maxDb);
     void resetVisibleDbRange();
@@ -42,6 +43,7 @@ public:
     [[nodiscard]] const SmoothedResponse& response() const { return response_; }
     [[nodiscard]] const TargetCurveSettings& settings() const { return settings_; }
     [[nodiscard]] const measurement::TargetCurvePlotData& plot() const { return plot_; }
+    [[nodiscard]] const measurement::TargetCurvePlotData& ghostPlot() const { return ghostPlot_; }
     [[nodiscard]] int selectedBandIndex() const { return selectedBandIndex_; }
 
 private:
@@ -103,6 +105,8 @@ private:
     SmoothedResponse response_;
     TargetCurveSettings settings_;
     measurement::TargetCurvePlotData plot_;
+    std::optional<TargetCurveSettings> ghostSettings_;
+    measurement::TargetCurvePlotData ghostPlot_;
     DragState drag_;
     HoverState hover_;
     BrushState brush_;

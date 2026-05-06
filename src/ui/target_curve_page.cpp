@@ -94,6 +94,37 @@ T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
 }
 
+bool nearlyEqual(double first, double second) {
+    return std::abs(first - second) <= 1.0e-6;
+}
+
+bool targetEqBandEqual(const TargetEqBand& first, const TargetEqBand& second) {
+    return first.enabled == second.enabled &&
+           first.colorIndex == second.colorIndex &&
+           nearlyEqual(first.frequencyHz, second.frequencyHz) &&
+           nearlyEqual(first.gainDb, second.gainDb) &&
+           nearlyEqual(first.q, second.q);
+}
+
+bool targetCurveSettingsEqual(const TargetCurveSettings& first, const TargetCurveSettings& second) {
+    if (!nearlyEqual(first.lowGainDb, second.lowGainDb) ||
+        !nearlyEqual(first.midFrequencyHz, second.midFrequencyHz) ||
+        !nearlyEqual(first.midGainDb, second.midGainDb) ||
+        !nearlyEqual(first.highGainDb, second.highGainDb) ||
+        !nearlyEqual(first.levelOffsetDb, second.levelOffsetDb) ||
+        first.bypassEqBands != second.bypassEqBands ||
+        first.eqBands.size() != second.eqBands.size()) {
+        return false;
+    }
+
+    for (size_t index = 0; index < first.eqBands.size(); ++index) {
+        if (!targetEqBandEqual(first.eqBands[index], second.eqBands[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 COLORREF blendColor(COLORREF first, COLORREF second, double t) {
     const double blend = clampValue(t, 0.0, 1.0);
     const auto channel = [blend](BYTE a, BYTE b) -> BYTE {
@@ -141,6 +172,8 @@ void TargetCurvePage::createControls() {
                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboProfiles)),
                                             instance_,
                                             nullptr);
+    controls_.buttonUndoProfile = CreateWindowW(L"BUTTON", L"Undo", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonUndoProfile)), instance_, nullptr);
     controls_.buttonNewProfile = CreateWindowW(L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonNewProfile)), instance_, nullptr);
     controls_.graphLabel = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -234,9 +267,10 @@ void TargetCurvePage::layout() {
 
     MoveWindow(controls_.profileLabel, sidebarLeft, contentTop, 56, 20, TRUE);
     MoveWindow(controls_.comboProfiles, sidebarLeft, contentTop + 22, sidebarWidth - 80, 240, TRUE);
-    MoveWindow(controls_.buttonNewProfile, sidebarLeft + sidebarWidth - 72, contentTop + 21, 72, 26, TRUE);
-    MoveWindow(controls_.checkboxBypassAll, sidebarLeft, contentTop + 58, sidebarWidth, 20, TRUE);
-    const int listTop = contentTop + 86;
+    MoveWindow(controls_.buttonUndoProfile, sidebarLeft + sidebarWidth - 72, contentTop + 21, 72, 26, TRUE);
+    MoveWindow(controls_.buttonNewProfile, sidebarLeft + sidebarWidth - 72, contentTop + 51, 72, 26, TRUE);
+    MoveWindow(controls_.checkboxBypassAll, sidebarLeft, contentTop + 88, sidebarWidth, 20, TRUE);
+    const int listTop = contentTop + 116;
     const int listHeight = 180;
     MoveWindow(controls_.listBands, sidebarLeft, listTop, sidebarWidth, listHeight, TRUE);
     const int bandButtonTop = listTop + listHeight + 10;
@@ -275,7 +309,19 @@ void TargetCurvePage::setVisible(bool visible) const {
     ShowWindow(window_, visible ? SW_SHOW : SW_HIDE);
 }
 
+void TargetCurvePage::captureLoadingState(const WorkspaceState& workspace) {
+    hasLoadingState_ = true;
+    loadingProfileName_ = workspace.activeTargetCurveProfileName;
+    loadingComment_ = workspace.activeTargetCurveComment;
+    loadingCurve_ = workspace.targetCurve;
+    refreshUndoButton(workspace);
+    refreshGraph(workspace);
+}
+
 void TargetCurvePage::populate(const WorkspaceState& workspace) {
+    if (!hasLoadingState_) {
+        captureLoadingState(workspace);
+    }
     updatingControls_ = true;
     refreshProfileControls(workspace);
     SendMessageW(controls_.checkboxBypassAll,
@@ -330,6 +376,7 @@ bool TargetCurvePage::handleCommand(WORD commandId,
         workspace.targetCurve = graph_.settings();
         selectedBandIndex_ = graph_.selectedBandIndex();
         refreshDetailControls(workspace);
+        refreshUndoButton(workspace);
         return true;
     }
     if (commandId == kGraph && notificationCode == TargetCurveGraph::kModelChangedNotification) {
@@ -337,12 +384,18 @@ bool TargetCurvePage::handleCommand(WORD commandId,
         selectedBandIndex_ = graph_.selectedBandIndex();
         refreshList(workspace);
         refreshDetailControls(workspace);
+        refreshUndoButton(workspace);
         curveChanged = true;
         persistencePending = true;
         return true;
     }
 
     switch (commandId) {
+    case kButtonUndoProfile:
+        curveChanged = hasLoadingCurveChanges(workspace);
+        undoToLoadingState(workspace);
+        persistencePending = true;
+        return true;
     case kButtonNewProfile:
         createProfile(workspace);
         curveChanged = true;
@@ -372,6 +425,7 @@ bool TargetCurvePage::handleCommand(WORD commandId,
         refreshList(workspace);
         refreshDetailControls(workspace);
         refreshGraph(workspace);
+        refreshUndoButton(workspace);
         curveChanged = true;
         persistencePending = true;
         return true;
@@ -411,6 +465,7 @@ bool TargetCurvePage::handleCommand(WORD commandId,
             refreshList(workspace);
             refreshDetailControls(workspace);
             refreshGraph(workspace);
+            refreshUndoButton(workspace);
             curveChanged = true;
             persistencePending = true;
             return true;
@@ -424,6 +479,7 @@ bool TargetCurvePage::handleCommand(WORD commandId,
                 wchar_t buffer[256] = {};
                 SendMessageW(controls_.comboProfiles, CB_GETLBTEXT, selection, reinterpret_cast<LPARAM>(buffer));
                 selectActiveProfile(workspace, toUtf8(buffer));
+                captureLoadingState(workspace);
                 populate(workspace);
             }
             curveChanged = true;
@@ -438,6 +494,7 @@ bool TargetCurvePage::handleCommand(WORD commandId,
         if (notificationCode == EN_CHANGE) {
             workspace.activeTargetCurveComment = toUtf8(getWindowTextValue(controls_.commentValue));
             syncActiveProfileFromWorkspaceState(workspace);
+            refreshUndoButton(workspace);
             persistencePending = true;
             return true;
         }
@@ -481,6 +538,7 @@ bool TargetCurvePage::handleCommand(WORD commandId,
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
+    refreshUndoButton(workspace);
     curveChanged = true;
     persistencePending = true;
     return true;
@@ -515,6 +573,7 @@ bool TargetCurvePage::handleHScroll(HWND source, WorkspaceState& workspace, bool
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
+    refreshUndoButton(workspace);
     curveChanged = true;
     persistencePending = true;
     return true;
@@ -955,6 +1014,7 @@ void TargetCurvePage::refreshProfileControls(const WorkspaceState& workspace) {
         SendMessageW(controls_.comboProfiles, CB_SETCURSEL, selectedIndex, 0);
     }
     setWindowTextValue(controls_.commentValue, toWide(workspace.activeTargetCurveComment));
+    refreshUndoButton(workspace);
 }
 
 void TargetCurvePage::refreshDetailControls(const WorkspaceState& workspace) {
@@ -994,8 +1054,16 @@ void TargetCurvePage::refreshDetailControls(const WorkspaceState& workspace) {
     updatingControls_ = false;
 }
 
+void TargetCurvePage::refreshUndoButton(const WorkspaceState& workspace) {
+    EnableWindow(controls_.buttonUndoProfile, hasLoadingState_ && hasLoadingChanges(workspace));
+}
+
 void TargetCurvePage::refreshGraph(const WorkspaceState& workspace) {
-    graph_.setModel(workspace.smoothedResponse, workspace.measurement, workspace.targetCurve, selectedBandIndex_);
+    graph_.setModel(workspace.smoothedResponse,
+                    workspace.measurement,
+                    workspace.targetCurve,
+                    hasLoadingState_ ? &loadingCurve_ : nullptr,
+                    selectedBandIndex_);
 }
 
 void TargetCurvePage::selectBand(int index, WorkspaceState& workspace) {
@@ -1035,6 +1103,7 @@ void TargetCurvePage::addBand(WorkspaceState& workspace) {
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
+    refreshUndoButton(workspace);
     syncActiveProfileFromWorkspaceState(workspace);
 }
 
@@ -1068,6 +1137,7 @@ void TargetCurvePage::createProfile(WorkspaceState& workspace) {
     workspace.activeTargetCurveComment.clear();
     workspace.targetCurveProfiles.push_back(profile);
     selectedBandIndex_ = workspace.targetCurve.eqBands.empty() ? -1 : 0;
+    captureLoadingState(workspace);
     populate(workspace);
 }
 
@@ -1085,6 +1155,7 @@ void TargetCurvePage::deleteSelectedBand(WorkspaceState& workspace) {
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
+    refreshUndoButton(workspace);
     syncActiveProfileFromWorkspaceState(workspace);
 }
 
@@ -1096,6 +1167,21 @@ void TargetCurvePage::resetTarget(WorkspaceState& workspace) {
     syncAllOffState(workspace.targetCurve);
     selectedBandIndex_ = workspace.targetCurve.eqBands.empty() ? -1 : 0;
     syncActiveProfileFromWorkspaceState(workspace);
+    populate(workspace);
+}
+
+void TargetCurvePage::undoToLoadingState(WorkspaceState& workspace) {
+    if (!hasLoadingState_) {
+        return;
+    }
+
+    workspace.activeTargetCurveProfileName = loadingProfileName_;
+    workspace.targetCurve = loadingCurve_;
+    workspace.activeTargetCurveComment = loadingComment_;
+    syncActiveProfileFromWorkspaceState(workspace);
+    if (selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
+        selectedBandIndex_ = workspace.targetCurve.eqBands.empty() ? -1 : static_cast<int>(workspace.targetCurve.eqBands.size() - 1);
+    }
     populate(workspace);
 }
 
@@ -1112,7 +1198,21 @@ void TargetCurvePage::toggleBandEnabled(int index, WorkspaceState& workspace) {
     refreshList(workspace);
     refreshDetailControls(workspace);
     refreshGraph(workspace);
+    refreshUndoButton(workspace);
     syncActiveProfileFromWorkspaceState(workspace);
+}
+
+bool TargetCurvePage::hasLoadingChanges(const WorkspaceState& workspace) const {
+    return hasLoadingState_ &&
+           (workspace.activeTargetCurveProfileName != loadingProfileName_ ||
+            workspace.activeTargetCurveComment != loadingComment_ ||
+            !targetCurveSettingsEqual(workspace.targetCurve, loadingCurve_));
+}
+
+bool TargetCurvePage::hasLoadingCurveChanges(const WorkspaceState& workspace) const {
+    return hasLoadingState_ &&
+           (workspace.activeTargetCurveProfileName != loadingProfileName_ ||
+            !targetCurveSettingsEqual(workspace.targetCurve, loadingCurve_));
 }
 
 }  // namespace wolfie::ui

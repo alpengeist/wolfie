@@ -92,6 +92,12 @@ COLORREF blendColor(COLORREF color, COLORREF target, double ratio) {
                blendChannel(GetBValue(color), GetBValue(target)));
 }
 
+bool getComboBoxInfoSafe(HWND combo, COMBOBOXINFO& info) {
+    info = {};
+    info.cbSize = sizeof(info);
+    return combo != nullptr && GetComboBoxInfo(combo, &info) != FALSE;
+}
+
 double interpolateLinear(double x, double x0, double y0, double x1, double y1) {
     if (std::abs(x1 - x0) < 1.0e-9) {
         return y0;
@@ -849,6 +855,8 @@ void FiltersPage::createControls() {
 
     populateTapCountCombo(controls_.comboTapCount);
     populatePhaseModeCombo(controls_.comboPhaseMode);
+    SendMessageW(controls_.comboTapCount, CB_SETCURSEL, comboIndexFromTapCount(appliedSettings_.tapCount), 0);
+    SendMessageW(controls_.comboPhaseMode, CB_SETCURSEL, comboIndexFromFilterViewMode(filterViewMode_), 0);
     SendMessageW(controls_.sliderSmoothness, TBM_SETRANGEMIN, FALSE, 0);
     SendMessageW(controls_.sliderSmoothness, TBM_SETRANGEMAX, FALSE, static_cast<LPARAM>(kSmoothnessStepCount - 1));
     SendMessageW(controls_.sliderSmoothness, TBM_SETTICFREQ, 1, 0);
@@ -892,10 +900,10 @@ void FiltersPage::layout() {
     const int top = contentTop - scrollOffset_;
     const int comboDropHeight = 220;
 
-    MoveWindow(controls_.labelTapCount, contentLeft, top, 84, 18, TRUE);
-    MoveWindow(controls_.comboTapCount, contentLeft, top + 22, 120, comboDropHeight, TRUE);
-    MoveWindow(controls_.labelPhaseMode, contentLeft + 148, top, 84, 18, TRUE);
-    MoveWindow(controls_.comboPhaseMode, contentLeft + 148, top + 22, 132, comboDropHeight, TRUE);
+    MoveWindow(controls_.labelPhaseMode, contentLeft, top, 84, 18, TRUE);
+    MoveWindow(controls_.comboPhaseMode, contentLeft, top + 22, 132, comboDropHeight, TRUE);
+    MoveWindow(controls_.labelTapCount, contentLeft + 160, top, 84, 18, TRUE);
+    MoveWindow(controls_.comboTapCount, contentLeft + 160, top + 22, 120, comboDropHeight, TRUE);
     MoveWindow(controls_.labelLowCorrection, contentLeft + 292, top, 72, 18, TRUE);
     MoveWindow(controls_.editLowCorrection, contentLeft + 292, top + 22, 68, 26, TRUE);
     MoveWindow(controls_.unitLowCorrection, contentLeft + 364, top + 26, 22, 18, TRUE);
@@ -1081,6 +1089,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     syncViewSettingsToControls();
     refreshPhaseModeControls();
     refreshFilterViewPresentation();
+    appliedSettings_ = settings;
     refreshRecalculateButton();
 
     correctionGraph_.setData(buildCorrectionGraphData(workspace));
@@ -1449,7 +1458,143 @@ void FiltersPage::saveViewSettings(UiSettings& ui) const {
     ui.filterGroupDelayZoomPreset = selectedGroupDelayZoomPreset();
 }
 
+FilterDesignSettings FiltersPage::currentSettings() const {
+    FilterDesignSettings settings = appliedSettings_;
+    settings.tapCount =
+        tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
+    const std::string filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    if (filterViewMode != "difference") {
+        settings.phaseMode = filterViewMode;
+    }
+    settings.smoothness = selectedSmoothness();
+
+    double value = 0.0;
+    if (tryParseDouble(getWindowTextValue(controls_.editLowCorrection), value)) {
+        settings.lowCorrectionHz = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editHighCorrection), value)) {
+        settings.highCorrectionHz = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMaxBoost), value)) {
+        settings.maxBoostDb = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMaxCut), value)) {
+        settings.maxCutDb = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseMax), value)) {
+        settings.mixedPhaseMaxFrequencyHz = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editExcessPhaseWindow), value)) {
+        settings.excessPhaseWindowMs = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseStrength), value)) {
+        settings.mixedPhaseStrength = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseCap), value)) {
+        settings.mixedPhaseMaxCorrectionDegrees = value;
+    }
+
+    measurement::normalizeFilterDesignSettings(settings, sampleRate_);
+    return settings;
+}
+
+bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const FilterDesignSettings& right) {
+    return left.tapCount == right.tapCount &&
+           left.phaseMode == right.phaseMode &&
+           std::abs(left.smoothness - right.smoothness) < 0.001 &&
+           std::abs(left.lowCorrectionHz - right.lowCorrectionHz) < 0.001 &&
+           std::abs(left.highCorrectionHz - right.highCorrectionHz) < 0.001 &&
+           std::abs(left.maxBoostDb - right.maxBoostDb) < 0.001 &&
+           std::abs(left.maxCutDb - right.maxCutDb) < 0.001 &&
+           std::abs(left.mixedPhaseMaxFrequencyHz - right.mixedPhaseMaxFrequencyHz) < 0.001 &&
+           std::abs(left.excessPhaseWindowMs - right.excessPhaseWindowMs) < 0.001 &&
+           std::abs(left.mixedPhaseStrength - right.mixedPhaseStrength) < 0.001 &&
+           std::abs(left.mixedPhaseMaxCorrectionDegrees - right.mixedPhaseMaxCorrectionDegrees) < 0.001;
+}
+
+void FiltersPage::refreshPendingHighlightState() {
+    const FilterDesignSettings settings = currentSettings();
+    const auto hasPendingNumericEdit = [this](HWND control, double appliedValue, double currentValue) {
+        double parsedValue = 0.0;
+        if (!tryParseDouble(getWindowTextValue(control), parsedValue)) {
+            return true;
+        }
+        return std::abs(currentValue - appliedValue) >= 0.001;
+    };
+
+    tapCountPending_ = settings.tapCount != appliedSettings_.tapCount;
+    lowCorrectionPending_ =
+        hasPendingNumericEdit(controls_.editLowCorrection, appliedSettings_.lowCorrectionHz, settings.lowCorrectionHz);
+    highCorrectionPending_ =
+        hasPendingNumericEdit(controls_.editHighCorrection, appliedSettings_.highCorrectionHz, settings.highCorrectionHz);
+    maxBoostPending_ =
+        hasPendingNumericEdit(controls_.editMaxBoost, appliedSettings_.maxBoostDb, settings.maxBoostDb);
+    maxCutPending_ = hasPendingNumericEdit(controls_.editMaxCut, appliedSettings_.maxCutDb, settings.maxCutDb);
+    smoothnessPending_ = std::abs(settings.smoothness - appliedSettings_.smoothness) >= 0.001;
+    mixedPhaseMaxPending_ = hasPendingNumericEdit(controls_.editMixedPhaseMax,
+                                                  appliedSettings_.mixedPhaseMaxFrequencyHz,
+                                                  settings.mixedPhaseMaxFrequencyHz);
+    excessPhaseWindowPending_ = hasPendingNumericEdit(controls_.editExcessPhaseWindow,
+                                                      appliedSettings_.excessPhaseWindowMs,
+                                                      settings.excessPhaseWindowMs);
+    mixedPhaseStrengthPending_ = hasPendingNumericEdit(controls_.editMixedPhaseStrength,
+                                                       appliedSettings_.mixedPhaseStrength,
+                                                       settings.mixedPhaseStrength);
+    mixedPhaseCapPending_ = hasPendingNumericEdit(controls_.editMixedPhaseCap,
+                                                  appliedSettings_.mixedPhaseMaxCorrectionDegrees,
+                                                  settings.mixedPhaseMaxCorrectionDegrees);
+
+    const HWND controlsToInvalidate[] = {
+        controls_.labelTapCount,
+        controls_.comboTapCount,
+        controls_.labelLowCorrection,
+        controls_.editLowCorrection,
+        controls_.unitLowCorrection,
+        controls_.labelHighCorrection,
+        controls_.editHighCorrection,
+        controls_.unitHighCorrection,
+        controls_.labelMaxBoost,
+        controls_.editMaxBoost,
+        controls_.unitMaxBoost,
+        controls_.labelMaxCut,
+        controls_.editMaxCut,
+        controls_.unitMaxCut,
+        controls_.labelSmoothness,
+        controls_.sliderSmoothness,
+        controls_.valueSmoothness,
+        controls_.labelMixedPhaseMax,
+        controls_.editMixedPhaseMax,
+        controls_.unitMixedPhaseMax,
+        controls_.labelExcessPhaseWindow,
+        controls_.editExcessPhaseWindow,
+        controls_.unitExcessPhaseWindow,
+        controls_.labelMixedPhaseStrength,
+        controls_.editMixedPhaseStrength,
+        controls_.unitMixedPhaseStrength,
+        controls_.labelMixedPhaseCap,
+        controls_.editMixedPhaseCap,
+        controls_.unitMixedPhaseCap,
+    };
+    for (HWND control : controlsToInvalidate) {
+        if (control != nullptr) {
+            InvalidateRect(control, nullptr, TRUE);
+        }
+    }
+
+    COMBOBOXINFO comboInfo{};
+    if (getComboBoxInfoSafe(controls_.comboTapCount, comboInfo)) {
+        if (comboInfo.hwndItem != nullptr) {
+            InvalidateRect(comboInfo.hwndItem, nullptr, TRUE);
+        }
+        if (comboInfo.hwndList != nullptr) {
+            InvalidateRect(comboInfo.hwndList, nullptr, TRUE);
+        }
+    }
+}
+
 void FiltersPage::refreshRecalculateButton() {
+    refreshPendingHighlightState();
     if (controls_.buttonRecalculate != nullptr) {
         EnableWindow(controls_.buttonRecalculate, (!recalculateInProgress_ && !differenceViewSelected()) ? TRUE : FALSE);
         InvalidateRect(controls_.buttonRecalculate, nullptr, TRUE);
@@ -1541,11 +1686,7 @@ bool FiltersPage::handleCommand(WORD commandId,
     }
 
     if (commandId == kComboTapCount && notificationCode == CBN_SELCHANGE) {
-        workspace.filters.tapCount =
-            tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
-        measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
         refreshRecalculateButton();
-        settingsChanged = true;
         return true;
     }
 
@@ -1744,6 +1885,7 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORBTN: {
+        static HBRUSH inputBrush = GetSysColorBrush(COLOR_WINDOW);
         static HBRUSH lineInputRightBrush = CreateSolidBrush(ui_theme::kRed);
         static HBRUSH lineInputLeftBrush = CreateSolidBrush(ui_theme::kGreen);
         static HBRUSH lineInversionRightBrush = CreateSolidBrush(ui_theme::kMagenta);
@@ -1769,7 +1911,10 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         if (page != nullptr && page->helpBubble_.handleCtlColorStatic(hdc, control, helpColorResult)) {
             return helpColorResult;
         }
+        SetTextColor(hdc, ui_theme::kText);
         if (page != nullptr) {
+            COMBOBOXINFO tapCountInfo{};
+            const bool hasTapCountInfo = getComboBoxInfoSafe(page->controls_.comboTapCount, tapCountInfo);
             if (control == page->controls_.lineInputRight) {
                 SetBkColor(hdc, ui_theme::kRed);
                 return reinterpret_cast<INT_PTR>(lineInputRightBrush);
@@ -1846,9 +1991,43 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
                 SetBkColor(hdc, ui_theme::kOrange);
                 return reinterpret_cast<INT_PTR>(lineGroupDelayRightBrush);
             }
+            if (hasTapCountInfo && control == tapCountInfo.hwndItem) {
+                SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+                SetTextColor(hdc, page->tapCountPending_ ? ui_theme::kMagenta : ui_theme::kText);
+                return reinterpret_cast<INT_PTR>(inputBrush);
+            }
+            if (control == page->controls_.labelTapCount) {
+                SetTextColor(hdc, page->tapCountPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            } else if (control == page->controls_.labelLowCorrection ||
+                       control == page->controls_.unitLowCorrection) {
+                SetTextColor(hdc, page->lowCorrectionPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            } else if (control == page->controls_.labelHighCorrection ||
+                       control == page->controls_.unitHighCorrection) {
+                SetTextColor(hdc, page->highCorrectionPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            } else if (control == page->controls_.labelMaxBoost ||
+                       control == page->controls_.unitMaxBoost) {
+                SetTextColor(hdc, page->maxBoostPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            } else if (control == page->controls_.labelMaxCut ||
+                       control == page->controls_.unitMaxCut) {
+                SetTextColor(hdc, page->maxCutPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            } else if (control == page->controls_.labelSmoothness ||
+                       control == page->controls_.valueSmoothness) {
+                SetTextColor(hdc, page->smoothnessPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            } else if (control == page->controls_.labelMixedPhaseMax ||
+                       control == page->controls_.unitMixedPhaseMax) {
+                SetTextColor(hdc, page->mixedPhaseMaxPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            } else if (control == page->controls_.labelExcessPhaseWindow ||
+                       control == page->controls_.unitExcessPhaseWindow) {
+                SetTextColor(hdc, page->excessPhaseWindowPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            } else if (control == page->controls_.labelMixedPhaseStrength ||
+                       control == page->controls_.unitMixedPhaseStrength) {
+                SetTextColor(hdc, page->mixedPhaseStrengthPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            } else if (control == page->controls_.labelMixedPhaseCap ||
+                       control == page->controls_.unitMixedPhaseCap) {
+                SetTextColor(hdc, page->mixedPhaseCapPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            }
         }
         SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, ui_theme::kText);
         return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
     }
     case WM_NCDESTROY:
@@ -1860,7 +2039,36 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     case WM_CTLCOLOREDIT: {
         static HBRUSH inputBrush = GetSysColorBrush(COLOR_WINDOW);
         HDC hdc = reinterpret_cast<HDC>(wParam);
+        const HWND control = reinterpret_cast<HWND>(lParam);
         SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+        if (page != nullptr) {
+            const bool pending = control == page->controls_.editLowCorrection      ? page->lowCorrectionPending_
+                                 : control == page->controls_.editHighCorrection   ? page->highCorrectionPending_
+                                 : control == page->controls_.editMaxBoost         ? page->maxBoostPending_
+                                 : control == page->controls_.editMaxCut           ? page->maxCutPending_
+                                 : control == page->controls_.editMixedPhaseMax    ? page->mixedPhaseMaxPending_
+                                 : control == page->controls_.editExcessPhaseWindow ? page->excessPhaseWindowPending_
+                                 : control == page->controls_.editMixedPhaseStrength ? page->mixedPhaseStrengthPending_
+                                 : control == page->controls_.editMixedPhaseCap      ? page->mixedPhaseCapPending_
+                                                                                     : false;
+            SetTextColor(hdc, pending ? ui_theme::kMagenta : ui_theme::kText);
+        } else {
+            SetTextColor(hdc, ui_theme::kText);
+        }
+        return reinterpret_cast<INT_PTR>(inputBrush);
+    }
+    case WM_CTLCOLORLISTBOX: {
+        static HBRUSH inputBrush = GetSysColorBrush(COLOR_WINDOW);
+        HDC hdc = reinterpret_cast<HDC>(wParam);
+        const HWND control = reinterpret_cast<HWND>(lParam);
+        SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+        if (page != nullptr) {
+            COMBOBOXINFO tapCountInfo{};
+            if (getComboBoxInfoSafe(page->controls_.comboTapCount, tapCountInfo) && control == tapCountInfo.hwndList) {
+                SetTextColor(hdc, page->tapCountPending_ ? ui_theme::kMagenta : ui_theme::kText);
+                return reinterpret_cast<INT_PTR>(inputBrush);
+            }
+        }
         SetTextColor(hdc, ui_theme::kText);
         return reinterpret_cast<INT_PTR>(inputBrush);
     }

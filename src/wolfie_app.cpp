@@ -516,6 +516,7 @@ void WolfieApp::createMainWindow() {
     createMenus();
     createLayout();
     populateControlsFromState();
+    targetCurvePage_.captureLoadingState(workspace_);
     refreshWindowTitle();
     refreshMeasurementStatus();
 }
@@ -2356,6 +2357,7 @@ void WolfieApp::newWorkspace() {
         SetWindowTextW(exportCommentEdit_, L"");
     }
     populateControlsFromState();
+    targetCurvePage_.captureLoadingState(workspace_);
     refreshWindowTitle();
     measurementPage_.invalidateGraph();
     syncStateFromControls();
@@ -2381,6 +2383,7 @@ void WolfieApp::openWorkspace(const std::filesystem::path& path) {
     }
     touchRecentWorkspace(path);
     populateControlsFromState();
+    targetCurvePage_.captureLoadingState(workspace_);
     refreshWindowTitle();
     refreshMeasurementStatus();
     measurementPage_.invalidateGraph();

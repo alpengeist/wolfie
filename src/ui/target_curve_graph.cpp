@@ -243,12 +243,13 @@ void drawSeries(HDC hdc,
                 const std::vector<double>& axis,
                 const std::vector<double>& values,
                 COLORREF color,
-                int penWidth) {
+                int penWidth,
+                int penStyle = PS_SOLID) {
     if (axis.empty() || values.empty()) {
         return;
     }
 
-    HPEN pen = CreatePen(PS_SOLID, penWidth, color);
+    HPEN pen = CreatePen(penStyle, penStyle == PS_SOLID ? penWidth : 1, color);
     HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, pen));
     const int savedDc = SaveDC(hdc);
     IntersectClipRect(hdc, graph.left, graph.top, graph.right, graph.bottom);
@@ -416,6 +417,7 @@ GraphLayout buildLayout(HDC hdc,
         scan(plotData.basicCurveDb);
         scan(plotData.targetCurveDb);
     }
+    scan(graph.ghostPlot().targetCurveDb);
 
     if (minDb == std::numeric_limits<double>::max() || maxDb == std::numeric_limits<double>::lowest()) {
         minDb = -6.0;
@@ -511,6 +513,7 @@ void TargetCurveGraph::create(HWND parent, HINSTANCE instance, int controlId) {
 void TargetCurveGraph::setModel(const SmoothedResponse& response,
                                 const MeasurementSettings& measurement,
                                 const TargetCurveSettings& settings,
+                                const TargetCurveSettings* ghostSettings,
                                 int selectedBandIndex) {
     const bool responseChanged = response_.frequencyAxisHz != response.frequencyAxisHz ||
                                  response_.leftChannelDb != response.leftChannelDb ||
@@ -520,6 +523,7 @@ void TargetCurveGraph::setModel(const SmoothedResponse& response,
     response_ = response;
     measurement_ = measurement;
     settings_ = settings;
+    ghostSettings_ = ghostSettings != nullptr ? std::optional<TargetCurveSettings>(*ghostSettings) : std::nullopt;
     selectedBandIndex_ = selectedBandIndex;
     rebuildPlot(true);
     if (responseChanged || boundsChanged) {
@@ -737,6 +741,8 @@ void TargetCurveGraph::rebuildPlot(bool resetDisplayOffset) {
                                                   selectedBandIndex_ >= 0
                                                       ? std::optional<size_t>(static_cast<size_t>(selectedBandIndex_))
                                                       : std::nullopt);
+    ghostPlot_ = ghostSettings_ ? measurement::buildTargetCurvePlotData(response_, measurement_, *ghostSettings_, std::nullopt)
+                                : measurement::TargetCurvePlotData{};
     measurement::normalizeTargetCurveSettings(settings_, plot_.minFrequencyHz, plot_.maxFrequencyHz);
     const double plotOffsetDb = plotDisplayOffsetDb(plot_, settings_);
     if (resetDisplayOffset) {
@@ -1186,6 +1192,18 @@ void TargetCurveGraph::onPaint() const {
     HBITMAP oldFrameBitmap = reinterpret_cast<HBITMAP>(SelectObject(frameDc, frameBitmap));
     BitBlt(frameDc, 0, 0, rect.right - rect.left, rect.bottom - rect.top, cacheSource, 0, 0, SRCCOPY);
     SetBkMode(frameDc, TRANSPARENT);
+
+    drawSeries(frameDc,
+               layout.graph,
+               plot_.minFrequencyHz,
+               plot_.maxFrequencyHz,
+               layout.axisMinDb,
+               layout.axisMaxDb,
+               ghostPlot_.frequencyAxisHz,
+               ghostPlot_.targetCurveDb,
+               RGB(150, 150, 150),
+               1,
+               PS_DOT);
 
     drawSeries(frameDc,
                layout.graph,

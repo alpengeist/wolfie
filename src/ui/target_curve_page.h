@@ -24,6 +24,7 @@ public:
     void create(HWND parent, HINSTANCE instance);
     void layout();
     void setVisible(bool visible) const;
+    void captureLoadingState(const WorkspaceState& workspace);
     void populate(const WorkspaceState& workspace);
     void syncToWorkspace(WorkspaceState& workspace) const;
     bool handleCommand(WORD commandId,
@@ -41,6 +42,7 @@ private:
     struct Controls {
         HWND profileLabel = nullptr;
         HWND comboProfiles = nullptr;
+        HWND buttonUndoProfile = nullptr;
         HWND buttonNewProfile = nullptr;
         HWND graphLabel = nullptr;
         HWND graphHint = nullptr;
@@ -85,6 +87,7 @@ private:
     static constexpr int kComboProfiles = 3314;
     static constexpr int kCommentEdit = 3315;
     static constexpr int kButtonNewProfile = 3316;
+    static constexpr int kButtonUndoProfile = 3317;
     static constexpr WORD kBandToggleNotification = 0x7F14;
     static constexpr int kFrequencySliderMax = 1000;
     static constexpr int kGainSliderMax = 240;
@@ -118,13 +121,17 @@ private:
     void refreshList(const WorkspaceState& workspace);
     void refreshProfileControls(const WorkspaceState& workspace);
     void refreshDetailControls(const WorkspaceState& workspace);
+    void refreshUndoButton(const WorkspaceState& workspace);
     void refreshGraph(const WorkspaceState& workspace);
     void selectBand(int index, WorkspaceState& workspace);
     void addBand(WorkspaceState& workspace);
     void createProfile(WorkspaceState& workspace);
     void deleteSelectedBand(WorkspaceState& workspace);
     void resetTarget(WorkspaceState& workspace);
+    void undoToLoadingState(WorkspaceState& workspace);
     void toggleBandEnabled(int index, WorkspaceState& workspace);
+    [[nodiscard]] bool hasLoadingChanges(const WorkspaceState& workspace) const;
+    [[nodiscard]] bool hasLoadingCurveChanges(const WorkspaceState& workspace) const;
 
     HINSTANCE instance_ = nullptr;
     HWND window_ = nullptr;
@@ -135,6 +142,10 @@ private:
     WNDPROC bandListProc_ = nullptr;
     std::vector<TargetEqBand> displayedBands_;
     int pendingBandToggleIndex_ = -1;
+    bool hasLoadingState_ = false;
+    std::string loadingProfileName_;
+    std::string loadingComment_;
+    TargetCurveSettings loadingCurve_;
 };
 
 }  // namespace wolfie::ui
