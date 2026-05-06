@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "measurement/dsp_utils.h"
+#include "measurement/impulse_windowing.h"
 #include "measurement/phase_preparation.h"
 #include "measurement/target_curve_designer.h"
 
@@ -929,22 +930,6 @@ size_t bestCircularWindowStart(const std::vector<double>& impulse, size_t window
         }
     }
     return bestStart;
-}
-
-std::vector<double> extractCircularWindow(const std::vector<double>& impulse,
-                                          size_t windowStart,
-                                          size_t windowLength) {
-    std::vector<double> window;
-    if (impulse.empty() || windowLength == 0) {
-        return window;
-    }
-
-    const size_t extractedLength = std::min(windowLength, impulse.size());
-    window.reserve(extractedLength);
-    for (size_t index = 0; index < extractedLength; ++index) {
-        window.push_back(impulse[(windowStart + index) % impulse.size()]);
-    }
-    return window;
 }
 
 std::vector<double> buildMixedPhaseImpulse(const std::vector<double>& positiveMagnitude,

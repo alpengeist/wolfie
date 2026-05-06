@@ -5,6 +5,8 @@
 #include <limits>
 #include <numbers>
 
+#include "measurement/impulse_windowing.h"
+
 namespace wolfie::measurement {
 
 namespace {
@@ -26,23 +28,6 @@ double maxAbsValue(const std::vector<double>& values) {
         peak = std::max(peak, std::abs(value));
     }
     return peak;
-}
-
-size_t maxAbsIndex(const std::vector<double>& values) {
-    if (values.empty()) {
-        return 0;
-    }
-
-    double peak = 0.0;
-    size_t peakIndex = 0;
-    for (size_t index = 0; index < values.size(); ++index) {
-        const double magnitude = std::abs(values[index]);
-        if (magnitude > peak) {
-            peak = magnitude;
-            peakIndex = index;
-        }
-    }
-    return peakIndex;
 }
 
 std::vector<double> normalizeImpulse(const std::vector<double>& values) {
@@ -88,51 +73,6 @@ double rmsValue(const std::vector<double>& values) {
         energy += value * value;
     }
     return std::sqrt(energy / static_cast<double>(values.size()));
-}
-
-double alignmentCenterFrequencyHz(const MeasurementResult& result) {
-    const double startHz = std::max(kMinimumFocusFrequencyHz, result.analysis.startFrequencyHz);
-    const double endHz = std::max(startHz + 1.0, result.analysis.endFrequencyHz);
-    return std::sqrt(startHz * endHz);
-}
-
-size_t mainLobeInnerRadiusSamples(const MeasurementResult& result) {
-    const double framesPerCycle =
-        static_cast<double>(std::max(result.analysis.sampleRate, 1)) / alignmentCenterFrequencyHz(result);
-    return std::clamp<size_t>(static_cast<size_t>(std::lround(framesPerCycle)), size_t{3}, size_t{48});
-}
-
-size_t mainLobeOuterRadiusSamples(const MeasurementResult& result) {
-    return std::clamp<size_t>(mainLobeInnerRadiusSamples(result) * 2, size_t{6}, size_t{96});
-}
-
-std::vector<double> focusImpulseAroundPeak(const std::vector<double>& values,
-                                           size_t peakIndex,
-                                           size_t innerRadius,
-                                           size_t outerRadius) {
-    std::vector<double> focused(values.size(), 0.0);
-    if (values.empty()) {
-        return focused;
-    }
-
-    const size_t safePeakIndex = std::min(peakIndex, values.size() - 1);
-    const size_t safeInnerRadius = std::min(innerRadius, outerRadius);
-    const size_t safeOuterRadius = std::max(outerRadius, safeInnerRadius);
-    for (size_t index = 0; index < values.size(); ++index) {
-        const size_t distance = index > safePeakIndex ? index - safePeakIndex : safePeakIndex - index;
-        if (distance > safeOuterRadius) {
-            continue;
-        }
-
-        double weight = 1.0;
-        if (distance > safeInnerRadius && safeOuterRadius > safeInnerRadius) {
-            const double t = static_cast<double>(distance - safeInnerRadius) /
-                             static_cast<double>(safeOuterRadius - safeInnerRadius);
-            weight = 0.5 * (1.0 + std::cos(t * std::numbers::pi));
-        }
-        focused[index] = values[index] * weight;
-    }
-    return focused;
 }
 
 double interpolateLinear(const std::vector<double>& xValues,
@@ -249,14 +189,16 @@ SweetSpotAlignmentView buildSweetSpotAlignmentView(const MeasurementResult& resu
         view.available = false;
         return view;
     }
-    const size_t innerRadiusSamples = mainLobeInnerRadiusSamples(result);
-    const size_t outerRadiusSamples = mainLobeOuterRadiusSamples(result);
+    const size_t innerRadiusSamples =
+        focusInnerRadiusSamples(result.analysis.sampleRate,
+                                impulseFocusFrequencyHz(result, kMinimumFocusFrequencyHz));
+    const size_t outerRadiusSamples = focusOuterRadiusSamples(innerRadiusSamples);
     const size_t leftPeakIndex = maxAbsIndex(impulse->leftValues);
     const size_t rightPeakIndex = maxAbsIndex(impulse->rightValues);
     const std::vector<double> focusedLeftImpulse =
-        focusImpulseAroundPeak(impulse->leftValues, leftPeakIndex, innerRadiusSamples, outerRadiusSamples);
+        focusSamplesAroundPeak(impulse->leftValues, leftPeakIndex, innerRadiusSamples, outerRadiusSamples);
     const std::vector<double> focusedRightImpulse =
-        focusImpulseAroundPeak(impulse->rightValues, rightPeakIndex, innerRadiusSamples, outerRadiusSamples);
+        focusSamplesAroundPeak(impulse->rightValues, rightPeakIndex, innerRadiusSamples, outerRadiusSamples);
     std::vector<double> leftImpulse = normalizeImpulse(focusedLeftImpulse);
     std::vector<double> rightImpulse = normalizeImpulse(focusedRightImpulse);
 

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "measurement/dsp_utils.h"
+#include "measurement/impulse_windowing.h"
 #include "measurement/stereo_diagnostics.h"
 
 namespace wolfie::measurement {
@@ -26,18 +27,6 @@ struct ComplexSpectrumPair {
         return !frequencyAxisHz.empty() &&
                left.size() == frequencyAxisHz.size() &&
                right.size() == frequencyAxisHz.size();
-    }
-};
-
-struct TimeDomainPair {
-    std::vector<double> timeSeconds;
-    std::vector<double> left;
-    std::vector<double> right;
-
-    [[nodiscard]] bool valid() const {
-        return !timeSeconds.empty() &&
-               left.size() == timeSeconds.size() &&
-               right.size() == timeSeconds.size();
     }
 };
 
@@ -107,88 +96,6 @@ ComplexSpectrumPair loadSpectrumPair(const MeasurementResult& result, std::strin
                                         phase->rightValues[index] * kDegreesToRadians));
     }
     return pair;
-}
-
-TimeDomainPair loadImpulsePair(const MeasurementResult& result, std::string_view window) {
-    const MeasurementValueSet* impulse =
-        findValidValueSet(result, "measurement." + std::string(window) + "_impulse_response");
-    if (impulse == nullptr) {
-        return {};
-    }
-
-    TimeDomainPair pair;
-    pair.timeSeconds = impulse->xValues;
-    pair.left = impulse->leftValues;
-    pair.right = impulse->rightValues;
-    return pair;
-}
-
-size_t maxAbsIndex(const std::vector<double>& values) {
-    size_t bestIndex = 0;
-    double bestMagnitude = 0.0;
-    for (size_t index = 0; index < values.size(); ++index) {
-        const double magnitude = std::abs(values[index]);
-        if (magnitude > bestMagnitude) {
-            bestMagnitude = magnitude;
-            bestIndex = index;
-        }
-    }
-    return bestIndex;
-}
-
-double impulseFocusFrequencyHz(const MeasurementResult& measurement) {
-    const double startHz = std::max(kMinimumFocusFrequencyHz, measurement.analysis.startFrequencyHz);
-    const double endHz = std::max(startHz + 1.0, measurement.analysis.endFrequencyHz);
-    return std::sqrt(startHz * endHz);
-}
-
-size_t focusInnerRadiusSamples(int sampleRate, double focusFrequencyHz) {
-    const double framesPerCycle = static_cast<double>(std::max(sampleRate, 1)) / std::max(focusFrequencyHz, 1.0);
-    return std::clamp<size_t>(static_cast<size_t>(std::lround(framesPerCycle)), size_t{3}, size_t{48});
-}
-
-std::vector<double> focusSamplesAroundPeak(const std::vector<double>& values,
-                                           size_t innerRadius,
-                                           size_t outerRadius) {
-    std::vector<double> focused(values.size(), 0.0);
-    if (values.empty()) {
-        return focused;
-    }
-
-    const size_t peakIndex = maxAbsIndex(values);
-    const size_t safeInnerRadius = std::min(innerRadius, outerRadius);
-    const size_t safeOuterRadius = std::max(outerRadius, safeInnerRadius);
-    for (size_t index = 0; index < values.size(); ++index) {
-        const size_t distance = index > peakIndex ? index - peakIndex : peakIndex - index;
-        if (distance > safeOuterRadius) {
-            continue;
-        }
-
-        double weight = 1.0;
-        if (distance > safeInnerRadius && safeOuterRadius > safeInnerRadius) {
-            const double t = static_cast<double>(distance - safeInnerRadius) /
-                             static_cast<double>(safeOuterRadius - safeInnerRadius);
-            weight = 0.5 * (1.0 + std::cos(t * std::numbers::pi_v<double>));
-        }
-        focused[index] = values[index] * weight;
-    }
-    return focused;
-}
-
-TimeDomainPair focusImpulsePair(const TimeDomainPair& impulse,
-                                int sampleRate,
-                                double focusFrequencyHz) {
-    if (!impulse.valid()) {
-        return {};
-    }
-
-    const size_t innerRadius = focusInnerRadiusSamples(sampleRate, focusFrequencyHz);
-    const size_t outerRadius = std::clamp<size_t>(innerRadius * 2, size_t{6}, size_t{96});
-    TimeDomainPair focused;
-    focused.timeSeconds = impulse.timeSeconds;
-    focused.left = focusSamplesAroundPeak(impulse.left, innerRadius, outerRadius);
-    focused.right = focusSamplesAroundPeak(impulse.right, innerRadius, outerRadius);
-    return focused;
 }
 
 std::vector<std::complex<double>> buildSpectrum(const std::vector<double>& samples, size_t fftSize) {
@@ -377,11 +284,13 @@ StereoDiagnosticsResult buildFilteredDiagnostics(const MeasurementResult& measur
     }
 
     const int sampleRate = std::max(filterResult.sampleRate, std::max(measurement.analysis.sampleRate, 1));
-    const TimeDomainPair measuredWindowImpulse = loadImpulsePair(measurement, window);
+    const TimeDomainPair measuredWindowImpulse = loadWindowImpulsePair(measurement, window);
     const TimeDomainPair correctedWindowImpulse =
         applyFilterToImpulse(measuredWindowImpulse, filterResult, sampleRate);
     const TimeDomainPair focusedCorrectedImpulse =
-        focusImpulsePair(correctedWindowImpulse, sampleRate, impulseFocusFrequencyHz(measurement));
+        focusImpulsePair(correctedWindowImpulse,
+                         sampleRate,
+                         impulseFocusFrequencyHz(measurement, kMinimumFocusFrequencyHz));
 
     StereoDiagnosticsInput input;
     input.sampleRate = sampleRate;

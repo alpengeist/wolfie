@@ -46,6 +46,8 @@ add_executable(wolfie WIN32
     src/measurement/filter_analysis.h
     src/measurement/filter_wav_export.cpp
     src/measurement/filter_wav_export.h
+    src/measurement/impulse_windowing.cpp
+    src/measurement/impulse_windowing.h
     src/measurement/dsp_utils.cpp
     src/measurement/dsp_utils.h
     src/measurement/phase_preparation.cpp
@@ -128,6 +130,8 @@ if(WOLFIE_BUILD_TESTS)
         src/measurement/filter_analysis.h
         src/measurement/filter_wav_export.cpp
         src/measurement/filter_wav_export.h
+        src/measurement/impulse_windowing.cpp
+        src/measurement/impulse_windowing.h
         src/measurement/dsp_utils.cpp
         src/measurement/dsp_utils.h
         src/measurement/phase_preparation.cpp
