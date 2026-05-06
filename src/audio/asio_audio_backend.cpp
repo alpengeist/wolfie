@@ -13,7 +13,6 @@
 #include <RtAudio.h>
 
 #include "audio/wasapi_audio_backend.h"
-#include "audio/winmm_audio_backend.h"
 #include "core/text_utils.h"
 #include "measurement/response_analyzer.h"
 
@@ -410,8 +409,7 @@ class DefaultAudioBackend final : public IAudioBackend {
 public:
     DefaultAudioBackend()
         : asioBackend_(createAsioAudioBackend()),
-          wasapiBackend_(createWasapiAudioBackend()),
-          winMmBackend_(createWinMmAudioBackend()) {}
+          wasapiBackend_(createWasapiAudioBackend()) {}
 
     std::unique_ptr<IAudioMeasurementSession> startSession(const AudioSettings& settings,
                                                            const MeasurementSettings& measurementSettings,
@@ -420,16 +418,12 @@ public:
         if (settings.backend == "asio") {
             return asioBackend_->startSession(settings, measurementSettings, runMode, errorMessage);
         }
-        if (settings.backend == "winmm") {
-            return winMmBackend_->startSession(settings, measurementSettings, runMode, errorMessage);
-        }
         return wasapiBackend_->startSession(settings, measurementSettings, runMode, errorMessage);
     }
 
 private:
     std::unique_ptr<IAudioBackend> asioBackend_;
     std::unique_ptr<IAudioBackend> wasapiBackend_;
-    std::unique_ptr<IAudioBackend> winMmBackend_;
 };
 
 }  // namespace

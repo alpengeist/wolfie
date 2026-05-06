@@ -95,13 +95,15 @@ Files:
 - `audio_backend.h`
 - `asio_sdk.h/.cpp`
 - `asio_audio_backend.h/.cpp`
-- `winmm_audio_backend.h/.cpp`
+- `wasapi_audio_backend.h/.cpp`
+- `wasapi_service.h/.cpp`
 - `asio_service.h/.cpp`
 
 Responsibilities:
 
 - Define audio-session abstractions.
-- Implement playback and capture through WinMM or ASIO.
+- Implement playback and capture through WASAPI or ASIO.
+- Enumerate Windows audio endpoints for the settings UI.
 - Handle driver enumeration and ASIO control-panel access.
 
 Reasoning:
