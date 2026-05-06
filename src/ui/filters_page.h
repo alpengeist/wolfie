@@ -216,8 +216,6 @@ private:
     static int tapCountFromComboIndex(int index);
     static int comboIndexFromFilterViewMode(const std::string& filterViewMode);
     static std::string filterViewModeFromComboIndex(int index);
-    static bool areSettingsEqual(const FilterDesignSettings& left, const FilterDesignSettings& right);
-
     void createControls();
     [[nodiscard]] double selectedSmoothness() const;
     void setSelectedSmoothness(double smoothness) const;
@@ -231,7 +229,6 @@ private:
     void refreshPhaseModeControls() const;
     void refreshFilterViewPresentation() const;
     void applyGroupDelayZoomRange();
-    [[nodiscard]] FilterDesignSettings currentSettings() const;
     void loadViewSettings(const UiSettings& ui);
     void syncViewSettingsToControls() const;
     void syncViewSettingsFromControls();
@@ -287,9 +284,6 @@ private:
     int groupDelayZoomPreset_ = 5;
     bool sharedFrequencyHoverActive_ = false;
     double sharedFrequencyHoverHz_ = 1000.0;
-    FilterDesignSettings appliedSettings_{};
-    bool filterDesignValid_ = false;
-    bool recalculatePending_ = true;
     bool recalculateInProgress_ = false;
     int sampleRate_ = 48000;
     int scrollOffset_ = 0;

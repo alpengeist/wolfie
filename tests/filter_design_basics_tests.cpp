@@ -79,6 +79,30 @@ wolfie::SmoothedResponse buildCutLimitedPeakResponse(double centerFrequencyHz,
     return response;
 }
 
+double gaussianOnLogFrequency(double frequencyHz, double centerFrequencyHz, double logWidth) {
+    const double safeCenterHz = std::max(centerFrequencyHz, 1.0);
+    const double safeWidth = std::max(logWidth, 1.0e-6);
+    const double logDistance =
+        (std::log10(std::max(frequencyHz, 1.0)) - std::log10(safeCenterHz)) / safeWidth;
+    return std::exp(-(logDistance * logDistance));
+}
+
+wolfie::SmoothedResponse buildBroadPeakRegressionResponse() {
+    wolfie::SmoothedResponse response;
+    response.frequencyAxisHz = wolfie::tests::buildLogAxis(20.0, 20000.0, 512);
+    response.leftChannelDb.reserve(response.frequencyAxisHz.size());
+    response.rightChannelDb.reserve(response.frequencyAxisHz.size());
+    for (const double frequencyHz : response.frequencyAxisHz) {
+        const double responseDb =
+            (-3.5 * gaussianOnLogFrequency(frequencyHz, 26.0, 0.16)) +
+            (7.25 * gaussianOnLogFrequency(frequencyHz, 115.0, 0.22)) +
+            (-4.0 * gaussianOnLogFrequency(frequencyHz, 320.0, 0.13));
+        response.leftChannelDb.push_back(responseDb);
+        response.rightChannelDb.push_back(responseDb);
+    }
+    return response;
+}
+
 double maxFiniteValueInBand(const std::vector<double>& frequencyAxisHz,
                             const std::vector<double>& values,
                             double minFrequencyHz,
@@ -493,6 +517,85 @@ bool expectCutsUseConfiguredBudgetMoreLiterally() {
     return true;
 }
 
+bool expectBroadPeakCutsLeaveSmoothHeadroom() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.maxBoostDb = 0.0;
+    filterSettings.maxCutDb = 12.0;
+    filterSettings.lowCorrectionHz = 30.0;
+    filterSettings.highCorrectionHz = 18000.0;
+    filterSettings.smoothness = 1.25;
+
+    const wolfie::SmoothedResponse response = buildBroadPeakRegressionResponse();
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response, measurement, targetCurve, filterSettings);
+    if (!result.valid) {
+        std::cerr << "broad-peak headroom regression case did not produce a valid filter result\n";
+        return false;
+    }
+
+    double worstUnderswingDb = 0.0;
+    double sourceAboveTargetMeanDb = 0.0;
+    double correctedAboveTargetMeanDb = 0.0;
+    size_t used = 0;
+    for (size_t index = 0; index < result.frequencyAxisHz.size(); ++index) {
+        const double frequencyHz = result.frequencyAxisHz[index];
+        if (frequencyHz < 55.0 || frequencyHz > 210.0) {
+            continue;
+        }
+
+        const double targetDb = result.targetCurveDb[index];
+        const double sourceDb =
+            interpolateLogFrequency(response.frequencyAxisHz, response.leftChannelDb, frequencyHz);
+        const double correctedDb = result.left.correctedResponseDb[index];
+        worstUnderswingDb = std::min(worstUnderswingDb, correctedDb - targetDb);
+        sourceAboveTargetMeanDb += std::max(sourceDb - targetDb, 0.0);
+        correctedAboveTargetMeanDb += std::max(correctedDb - targetDb, 0.0);
+        ++used;
+    }
+
+    if (used == 0) {
+        std::cerr << "broad-peak headroom regression case had no usable band samples\n";
+        return false;
+    }
+
+    sourceAboveTargetMeanDb /= static_cast<double>(used);
+    correctedAboveTargetMeanDb /= static_cast<double>(used);
+
+    if (correctedAboveTargetMeanDb > sourceAboveTargetMeanDb - 1.5) {
+        std::cerr << "broad peak was not reduced enough (source=" << sourceAboveTargetMeanDb
+                  << ", corrected=" << correctedAboveTargetMeanDb << ")\n";
+        return false;
+    }
+
+    if (worstUnderswingDb < -0.8) {
+        std::cerr << "broad peak correction still swung below the target too hard (underswing="
+                  << worstUnderswingDb << ")\n";
+        return false;
+    }
+
+    const double centerTargetDb =
+        interpolateLogFrequency(result.frequencyAxisHz, result.targetCurveDb, 115.0);
+    const double centerCorrectedDb =
+        interpolateLogFrequency(result.frequencyAxisHz, result.left.correctedResponseDb, 115.0);
+    const double centerOffsetDb = centerCorrectedDb - centerTargetDb;
+    if (centerOffsetDb < -0.5 || centerOffsetDb > 1.5) {
+        std::cerr << "broad peak correction did not settle into a small smooth headroom window (offset="
+                  << centerOffsetDb << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int main() {
@@ -502,6 +605,7 @@ int main() {
         {"expectDefaultSettingsUseNoBoostCeiling", expectDefaultSettingsUseNoBoostCeiling},
         {"expectBoostCeilingHasInertiaForNarrowDips", expectBoostCeilingHasInertiaForNarrowDips},
         {"expectCutsUseConfiguredBudgetMoreLiterally", expectCutsUseConfiguredBudgetMoreLiterally},
+        {"expectBroadPeakCutsLeaveSmoothHeadroom", expectBroadPeakCutsLeaveSmoothHeadroom},
         {"expectExactTargetCurveEvaluationCapturesBellPeak", expectExactTargetCurveEvaluationCapturesBellPeak},
         {"expectTargetCurveAnchorsToMeasuredLevel", expectTargetCurveAnchorsToMeasuredLevel},
         {"expectTargetCurveLevelOffsetSurvivesAnchoring", expectTargetCurveLevelOffsetSurvivesAnchoring},

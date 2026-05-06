@@ -20,7 +20,7 @@ namespace {
 constexpr double kRadiansToDegrees = 180.0 / std::numbers::pi_v<double>;
 constexpr double kDegreesToRadians = std::numbers::pi_v<double> / 180.0;
 constexpr double kMaxSmoothness = 4.0;
-constexpr double kCutLimitSoftness = 0.8;
+constexpr double kCutLimitSoftness = 0.78;
 constexpr double kBoostLimitSoftness = 0.92;
 enum class NormalizedPhaseMode {
     Minimum,
@@ -197,8 +197,11 @@ double applySoftLimitedCut(double valueDb, double minValueDb) {
         return 0.0;
     }
 
-    const double softenedLimitDb = std::max(cutLimitDb * kCutLimitSoftness, 1.0e-9);
-    return -cutLimitDb * std::tanh((-valueDb) / softenedLimitDb);
+    const double normalizedCut = clampValue((-valueDb) / cutLimitDb, 0.0, 1.0);
+    const double extraDrive =
+        ((1.0 / std::max(kCutLimitSoftness, 1.0e-9)) - 1.0) * smoothRamp(normalizedCut);
+    const double drive = ((-valueDb) / cutLimitDb) * (1.0 + extraDrive);
+    return -cutLimitDb * std::tanh(drive);
 }
 
 double applySoftLimitedBoost(double valueDb, double maxValueDb) {
@@ -256,6 +259,19 @@ double localBoostSharpnessAt(const std::vector<double>& values, size_t index) {
     return secondDifference + (0.5 * edgeSlope);
 }
 
+double localCutSharpnessAt(const std::vector<double>& values, size_t index) {
+    if (index == 0 || index + 1 >= values.size()) {
+        return 0.0;
+    }
+
+    const double previous = std::max(-values[index - 1], 0.0);
+    const double current = std::max(-values[index], 0.0);
+    const double next = std::max(-values[index + 1], 0.0);
+    const double secondDifference = std::abs(previous - (2.0 * current) + next);
+    const double edgeSlope = 0.5 * (std::abs(current - previous) + std::abs(current - next));
+    return secondDifference + (0.5 * edgeSlope);
+}
+
 double positiveSupportWidthOctavesAt(const std::vector<double>& frequencyAxisHz,
                                      const std::vector<double>& values,
                                      size_t index) {
@@ -278,6 +294,28 @@ double positiveSupportWidthOctavesAt(const std::vector<double>& frequencyAxisHz,
     return std::log2(highFrequencyHz / lowFrequencyHz);
 }
 
+double negativeSupportWidthOctavesAt(const std::vector<double>& frequencyAxisHz,
+                                     const std::vector<double>& values,
+                                     size_t index) {
+    if (index >= values.size() || index >= frequencyAxisHz.size() || values[index] >= 0.0) {
+        return 0.0;
+    }
+
+    size_t left = index;
+    while (left > 0 && values[left - 1] < 0.0) {
+        --left;
+    }
+
+    size_t right = index;
+    while (right + 1 < values.size() && right + 1 < frequencyAxisHz.size() && values[right + 1] < 0.0) {
+        ++right;
+    }
+
+    const double lowFrequencyHz = std::max(frequencyAxisHz[left], 1.0);
+    const double highFrequencyHz = std::max(frequencyAxisHz[right], lowFrequencyHz);
+    return std::log2(highFrequencyHz / lowFrequencyHz);
+}
+
 double boostBudgetFactor(double localSharpnessDb,
                          double supportWidthOctaves,
                          double configuredMaxBoostDb) {
@@ -291,6 +329,27 @@ double boostBudgetFactor(double localSharpnessDb,
     const double widthT = clampValue((supportWidthOctaves - 0.2) / 0.8, 0.0, 1.0);
     const double widthFactor = 0.45 + (0.55 * smoothRamp(widthT));
     return clampValue(widthFactor * sharpnessFactor, 0.35, 1.0);
+}
+
+double cutHeadroomAllowance(double cutMagnitudeDb,
+                            double localSharpnessDb,
+                            double supportWidthOctaves,
+                            double configuredMaxCutDb) {
+    if (cutMagnitudeDb <= 1.0e-9 || configuredMaxCutDb <= 1.0e-9) {
+        return 0.0;
+    }
+
+    const double normalizedDepth =
+        clampValue(cutMagnitudeDb / std::max(configuredMaxCutDb, 1.0), 0.0, 1.0);
+    const double normalizedSharpness =
+        clampValue(localSharpnessDb / std::max(configuredMaxCutDb, 1.0), 0.0, 1.0);
+    const double narrowness =
+        1.0 - smoothRamp(clampValue((supportWidthOctaves - 0.35) / 1.0, 0.0, 1.0));
+    const double allowance = 0.15 +
+                             (0.2 * (1.0 - smoothRamp(normalizedDepth))) +
+                             (0.16 * narrowness) +
+                             (0.1 * smoothRamp(normalizedSharpness));
+    return clampValue(allowance, 0.0, 0.6);
 }
 
 double correctionTrackingWeight(double weight,
@@ -431,22 +490,35 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
     for (size_t index = 0; index < count; ++index) {
         const double frequencyHz = frequencyAxisHz[index];
         const double weight = correctionWeightAt(frequencyHz, settings);
-        const double localSharpnessDb = localBoostSharpnessAt(rawCorrectionDb, index);
-        const double supportWidthOctaves =
+        const double localBoostSharpnessDb = localBoostSharpnessAt(rawCorrectionDb, index);
+        const double boostSupportWidthOctaves =
             positiveSupportWidthOctavesAt(frequencyAxisHz, rawCorrectionDb, index);
+        const double localCutSharpnessDb = localCutSharpnessAt(rawCorrectionDb, index);
+        const double cutSupportWidthOctaves =
+            negativeSupportWidthOctavesAt(frequencyAxisHz, rawCorrectionDb, index);
         const double minValueDb = -settings.maxCutDb * weight;
         const double boostFactor =
             rawCorrectionDb[index] > 0.0
-                ? boostBudgetFactor(localSharpnessDb, supportWidthOctaves, settings.maxBoostDb)
+                ? boostBudgetFactor(localBoostSharpnessDb, boostSupportWidthOctaves, settings.maxBoostDb)
                 : 1.0;
         const double maxValueDb = settings.maxBoostDb * weight * boostFactor;
+        double softenedCorrectionTargetDb = rawCorrectionDb[index];
+        if (softenedCorrectionTargetDb < 0.0) {
+            softenedCorrectionTargetDb =
+                std::min(softenedCorrectionTargetDb +
+                             cutHeadroomAllowance(-softenedCorrectionTargetDb,
+                                                  localCutSharpnessDb,
+                                                  cutSupportWidthOctaves,
+                                                  std::max(-minValueDb, 0.0)),
+                         0.0);
+        }
         const double desiredCorrectionDbAtFrequency =
-            applyCorrectionLimit(rawCorrectionDb[index], minValueDb, maxValueDb);
+            applyCorrectionLimit(softenedCorrectionTargetDb, minValueDb, maxValueDb);
         desiredCorrectionDb.push_back(desiredCorrectionDbAtFrequency);
         trackingWeights.push_back(correctionTrackingWeight(weight,
                                                            desiredCorrectionDbAtFrequency,
                                                            maxValueDb,
-                                                           localSharpnessDb));
+                                                           localBoostSharpnessDb));
         lowerBoundsDb.push_back(minValueDb);
         upperBoundsDb.push_back(maxValueDb);
 

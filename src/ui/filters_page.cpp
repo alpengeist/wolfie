@@ -1081,8 +1081,6 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     syncViewSettingsToControls();
     refreshPhaseModeControls();
     refreshFilterViewPresentation();
-    appliedSettings_ = settings;
-    filterDesignValid_ = workspace.ui.filterViewMode != "difference" && workspace.filterResult.valid;
     refreshRecalculateButton();
 
     correctionGraph_.setData(buildCorrectionGraphData(workspace));
@@ -1149,7 +1147,7 @@ void FiltersPage::setRecalculateInProgress(bool running) {
         }
     }
     if (controls_.buttonRecalculate != nullptr) {
-        EnableWindow(controls_.buttonRecalculate, (!running && recalculatePending_) ? TRUE : FALSE);
+        EnableWindow(controls_.buttonRecalculate, (!running && !differenceViewSelected()) ? TRUE : FALSE);
         RedrawWindow(controls_.buttonRecalculate, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
     }
 }
@@ -1451,65 +1449,9 @@ void FiltersPage::saveViewSettings(UiSettings& ui) const {
     ui.filterGroupDelayZoomPreset = selectedGroupDelayZoomPreset();
 }
 
-FilterDesignSettings FiltersPage::currentSettings() const {
-    FilterDesignSettings settings = appliedSettings_;
-    settings.tapCount = tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
-    const std::string filterViewMode =
-        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
-    if (filterViewMode != "difference") {
-        settings.phaseMode = filterViewMode;
-    }
-    settings.smoothness = selectedSmoothness();
-
-    double value = 0.0;
-    if (tryParseDouble(getWindowTextValue(controls_.editLowCorrection), value)) {
-        settings.lowCorrectionHz = value;
-    }
-    if (tryParseDouble(getWindowTextValue(controls_.editHighCorrection), value)) {
-        settings.highCorrectionHz = value;
-    }
-    if (tryParseDouble(getWindowTextValue(controls_.editMaxBoost), value)) {
-        settings.maxBoostDb = value;
-    }
-    if (tryParseDouble(getWindowTextValue(controls_.editMaxCut), value)) {
-        settings.maxCutDb = value;
-    }
-    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseMax), value)) {
-        settings.mixedPhaseMaxFrequencyHz = value;
-    }
-    if (tryParseDouble(getWindowTextValue(controls_.editExcessPhaseWindow), value)) {
-        settings.excessPhaseWindowMs = value;
-    }
-    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseStrength), value)) {
-        settings.mixedPhaseStrength = value;
-    }
-    if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseCap), value)) {
-        settings.mixedPhaseMaxCorrectionDegrees = value;
-    }
-
-    measurement::normalizeFilterDesignSettings(settings, sampleRate_);
-    return settings;
-}
-
-bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const FilterDesignSettings& right) {
-    return left.tapCount == right.tapCount &&
-           left.phaseMode == right.phaseMode &&
-           std::abs(left.smoothness - right.smoothness) < 0.001 &&
-           std::abs(left.lowCorrectionHz - right.lowCorrectionHz) < 0.001 &&
-           std::abs(left.highCorrectionHz - right.highCorrectionHz) < 0.001 &&
-           std::abs(left.maxBoostDb - right.maxBoostDb) < 0.001 &&
-           std::abs(left.maxCutDb - right.maxCutDb) < 0.001 &&
-           std::abs(left.mixedPhaseMaxFrequencyHz - right.mixedPhaseMaxFrequencyHz) < 0.001 &&
-           std::abs(left.excessPhaseWindowMs - right.excessPhaseWindowMs) < 0.001 &&
-           std::abs(left.mixedPhaseStrength - right.mixedPhaseStrength) < 0.001 &&
-           std::abs(left.mixedPhaseMaxCorrectionDegrees - right.mixedPhaseMaxCorrectionDegrees) < 0.001;
-}
-
 void FiltersPage::refreshRecalculateButton() {
-    recalculatePending_ =
-        !differenceViewSelected() && (!filterDesignValid_ || !areSettingsEqual(currentSettings(), appliedSettings_));
     if (controls_.buttonRecalculate != nullptr) {
-        EnableWindow(controls_.buttonRecalculate, (!recalculateInProgress_ && recalculatePending_) ? TRUE : FALSE);
+        EnableWindow(controls_.buttonRecalculate, (!recalculateInProgress_ && !differenceViewSelected()) ? TRUE : FALSE);
         InvalidateRect(controls_.buttonRecalculate, nullptr, TRUE);
     }
 }
@@ -1522,7 +1464,7 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
     const bool hot = (draw.itemState & ODS_HOTLIGHT) != 0;
     const bool disabled = (draw.itemState & ODS_DISABLED) != 0;
 
-    const COLORREF baseFill = recalculateInProgress_ ? ui_theme::kAccent : (recalculatePending_ ? ui_theme::kGreen : ui_theme::kGray);
+    const COLORREF baseFill = recalculateInProgress_ ? ui_theme::kAccent : ui_theme::kGreen;
     const COLORREF hoverFill = blendColor(baseFill, RGB(255, 255, 255), 0.12);
     const COLORREF pressedFill = blendColor(baseFill, RGB(0, 0, 0), 0.18);
     const COLORREF border = blendColor(baseFill, RGB(0, 0, 0), 0.28);
@@ -1562,7 +1504,7 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
                                ? L"Mode Delta View"
                                : (recalculateInProgress_
                                       ? L"Calculating..."
-                                      : (recalculatePending_ ? L"Recalculate" : L"Up To Date"));
+                                      : L"Recalculate");
     DrawTextW(hdc, label, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     if (focused && !disabled) {
@@ -1602,7 +1544,6 @@ bool FiltersPage::handleCommand(WORD commandId,
         workspace.filters.tapCount =
             tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
         measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
-        filterDesignValid_ = false;
         refreshRecalculateButton();
         settingsChanged = true;
         return true;
@@ -1633,7 +1574,6 @@ bool FiltersPage::handleCommand(WORD commandId,
         }
         refreshPhaseModeControls();
         refreshFilterViewPresentation();
-        filterDesignValid_ = !differenceViewSelected() && workspace.filterResult.valid;
         refreshRecalculateButton();
         selectionChanged = true;
         return true;
