@@ -218,36 +218,27 @@ bool expectPhasePreparationPrefersRoomSource() {
                                                                    0.0,
                                                                    true,
                                                                    true,
-                                                                   true,
-                                                                   2.5,
-                                                                   0.0,
                                                                    -1.5,
                                                                    0.0,
                                                                    -2.0,
                                                                    0.0);
-    const wolfie::MeasurementResult directOnlyMeasurement =
-        wolfie::tests::buildPhaseMeasurementWithSourceAvailability(measurement.sampleRate,
-                                                                   0.0,
-                                                                   true,
-                                                                   false,
-                                                                   false,
-                                                                   2.5,
-                                                                   0.0,
-                                                                   0.0,
-                                                                   0.0,
-                                                                   0.0,
-                                                                   0.0);
     const wolfie::MeasurementResult roomOnlyMeasurement =
         wolfie::tests::buildPhaseMeasurementWithSourceAvailability(measurement.sampleRate,
                                                                    0.0,
-                                                                   false,
                                                                    true,
                                                                    false,
-                                                                   0.0,
-                                                                   0.0,
                                                                    -1.5,
                                                                    0.0,
                                                                    0.0,
+                                                                   0.0);
+    const wolfie::MeasurementResult rawOnlyMeasurement =
+        wolfie::tests::buildPhaseMeasurementWithSourceAvailability(measurement.sampleRate,
+                                                                   0.0,
+                                                                   false,
+                                                                   true,
+                                                                   0.0,
+                                                                   0.0,
+                                                                   -2.0,
                                                                    0.0);
 
     const wolfie::FilterDesignResult preferredResult =
@@ -256,36 +247,33 @@ bool expectPhasePreparationPrefersRoomSource() {
                                            targetCurve,
                                            filterSettings,
                                            &roomPreferredMeasurement);
-    const wolfie::FilterDesignResult directResult =
-        wolfie::measurement::designFilters(response,
-                                           measurement,
-                                           targetCurve,
-                                           filterSettings,
-                                           &directOnlyMeasurement);
     const wolfie::FilterDesignResult roomResult =
         wolfie::measurement::designFilters(response,
                                            measurement,
                                            targetCurve,
                                            filterSettings,
                                            &roomOnlyMeasurement);
-    if (!preferredResult.valid || !directResult.valid || !roomResult.valid) {
+    const wolfie::FilterDesignResult rawResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           filterSettings,
+                                           &rawOnlyMeasurement);
+    if (!preferredResult.valid || !roomResult.valid || !rawResult.valid) {
         std::cerr << "phase-source selection case did not produce valid filter results\n";
         return false;
     }
 
-    const double preferredVsDirect = wolfie::tests::bandMeanAbsDelta(preferredResult.frequencyAxisHz,
-                                                                     preferredResult.left.inputExcessPhaseContinuousDegrees,
-                                                                     directResult.left.inputExcessPhaseContinuousDegrees,
-                                                                     20.0,
-                                                                     300.0);
     const double preferredVsRoom = wolfie::tests::bandMeanAbsDelta(preferredResult.frequencyAxisHz,
                                                                    preferredResult.left.inputExcessPhaseContinuousDegrees,
                                                                    roomResult.left.inputExcessPhaseContinuousDegrees,
                                                                    20.0,
                                                                    300.0);
-    if (preferredVsRoom > 1.0 || preferredVsDirect < 15.0) {
-        std::cerr << "phase preparation did not prefer the room source as expected (direct delta="
-                  << preferredVsDirect << ", room delta=" << preferredVsRoom << ")\n";
+    if (preferredVsRoom > 1.0 ||
+        !rawResult.phasePreparationSourceWindow.empty() ||
+        !rawResult.phasePreparationSourceKey.empty()) {
+        std::cerr << "phase preparation did not prefer the room source as expected (room delta="
+                  << preferredVsRoom << ", raw source window=" << rawResult.phasePreparationSourceWindow << ")\n";
         return false;
     }
 
@@ -308,10 +296,7 @@ bool expectPhasePreparationIgnoresRawOnlySource() {
         wolfie::tests::buildPhaseMeasurementWithSourceAvailability(measurement.sampleRate,
                                                                    0.0,
                                                                    false,
-                                                                   false,
                                                                    true,
-                                                                   0.0,
-                                                                   0.0,
                                                                    0.0,
                                                                    0.0,
                                                                    2.0,
@@ -457,9 +442,6 @@ bool expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog() {
                                                                    0.0035,
                                                                    true,
                                                                    true,
-                                                                   true,
-                                                                   2.0,
-                                                                   -1.0,
                                                                    -1.5,
                                                                    0.0,
                                                                    -2.0,

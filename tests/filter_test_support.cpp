@@ -150,8 +150,6 @@ wolfie::MeasurementResult buildPhaseMeasurement(int sampleRate,
     result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
     result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
     result.valueSets.back().key = "measurement.room_impulse_response";
-    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
-    result.valueSets.back().key = "measurement.direct_impulse_response";
     result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.raw_magnitude_spectrum"));
     result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
                                                         "measurement.raw_phase_spectrum",
@@ -164,22 +162,13 @@ wolfie::MeasurementResult buildPhaseMeasurement(int sampleRate,
                                                         delaySeconds,
                                                         leftExcessScale,
                                                         rightExcessScale));
-    result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.direct_magnitude_spectrum"));
-    result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
-                                                        "measurement.direct_phase_spectrum",
-                                                        delaySeconds,
-                                                        leftExcessScale,
-                                                        rightExcessScale));
     return result;
 }
 
 wolfie::MeasurementResult buildPhaseMeasurementWithSourceAvailability(int sampleRate,
                                                                       double delaySeconds,
-                                                                      bool includeDirect,
                                                                       bool includeRoom,
                                                                       bool includeRaw,
-                                                                      double directLeftExcessScale,
-                                                                      double directRightExcessScale,
                                                                       double roomLeftExcessScale,
                                                                       double roomRightExcessScale,
                                                                       double rawLeftExcessScale,
@@ -190,10 +179,6 @@ wolfie::MeasurementResult buildPhaseMeasurementWithSourceAvailability(int sample
     if (includeRoom) {
         result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
         result.valueSets.back().key = "measurement.room_impulse_response";
-    }
-    if (includeDirect) {
-        result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
-        result.valueSets.back().key = "measurement.direct_impulse_response";
     }
     if (includeRaw) {
         result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.raw_magnitude_spectrum"));
@@ -210,14 +195,6 @@ wolfie::MeasurementResult buildPhaseMeasurementWithSourceAvailability(int sample
                                                             delaySeconds,
                                                             roomLeftExcessScale,
                                                             roomRightExcessScale));
-    }
-    if (includeDirect) {
-        result.valueSets.push_back(buildFlatMagnitudeSpectrum(phaseAxisHz, "measurement.direct_magnitude_spectrum"));
-        result.valueSets.push_back(buildWrappedPhaseSpectrum(phaseAxisHz,
-                                                            "measurement.direct_phase_spectrum",
-                                                            delaySeconds,
-                                                            directLeftExcessScale,
-                                                            directRightExcessScale));
     }
     return result;
 }
@@ -273,8 +250,6 @@ wolfie::MeasurementResult buildImpulsePhaseMeasurement(int sampleRate,
     result.valueSets.back().key = "measurement.raw_impulse_response";
     result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
     result.valueSets.back().key = "measurement.room_impulse_response";
-    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
-    result.valueSets.back().key = "measurement.direct_impulse_response";
     result.valueSets.push_back(std::move(magnitude));
     result.valueSets.push_back(std::move(phase));
     return result;

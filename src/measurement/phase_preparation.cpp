@@ -490,15 +490,9 @@ double bulkDelaySecondsFromImpulse(const MeasurementResult* result) {
         return 0.0;
     }
 
-    constexpr std::string_view impulseKeys[] = {
-        "measurement.room_impulse_response",
-        "measurement.raw_impulse_response"
-    };
-    for (const std::string_view key : impulseKeys) {
-        const MeasurementValueSet* impulse = result->findValueSet(key);
-        if (impulse != nullptr && impulse->valid() && !impulse->xValues.empty()) {
-            return std::max(-impulse->xValues.front(), 0.0);
-        }
+    const MeasurementValueSet* impulse = result->findValueSet("measurement.room_impulse_response");
+    if (impulse != nullptr && impulse->valid() && !impulse->xValues.empty()) {
+        return std::max(-impulse->xValues.front(), 0.0);
     }
     return 0.0;
 }

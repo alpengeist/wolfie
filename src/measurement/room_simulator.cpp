@@ -257,24 +257,6 @@ void applyTailFade(std::vector<double>& impulse) {
     }
 }
 
-std::vector<double> buildDirectImpulseWindow(const std::vector<double>& impulse,
-                                             size_t preRollSamples,
-                                             int sampleRate,
-                                             const RoomSimulationSettings& settings) {
-    if (impulse.empty()) {
-        return {};
-    }
-
-    const double directWindowMs = clampValue(settings.earlyReflectionStartMs * 0.8, 5.0, 12.0);
-    const size_t directLength = clampValue<size_t>(
-        preRollSamples + static_cast<size_t>(std::lround((directWindowMs / 1000.0) * static_cast<double>(sampleRate))),
-        std::min<size_t>(256, impulse.size()),
-        impulse.size());
-    std::vector<double> direct(impulse.begin(), impulse.begin() + static_cast<std::ptrdiff_t>(directLength));
-    applyTailFade(direct);
-    return direct;
-}
-
 std::vector<double> buildChannelImpulse(int sampleRate,
                                         size_t impulseLength,
                                         size_t preRollSamples,
@@ -490,9 +472,6 @@ MeasurementResult buildSimulatedRoomMeasurement(const MeasurementSettings& measu
     std::vector<double> roomRightImpulse = rightImpulse;
     applyTailFade(roomLeftImpulse);
     applyTailFade(roomRightImpulse);
-    const std::vector<double> directLeftImpulse = buildDirectImpulseWindow(leftImpulse, preRollSamples, sampleRate, normalized);
-    const std::vector<double> directRightImpulse = buildDirectImpulseWindow(rightImpulse, preRollSamples, sampleRate, normalized);
-
     const size_t fftSize = nextPowerOfTwo(std::max({roomLeftImpulse.size(),
                                                     roomRightImpulse.size(),
                                                     size_t{4096}}));
@@ -511,11 +490,6 @@ MeasurementResult buildSimulatedRoomMeasurement(const MeasurementSettings& measu
                   buildImpulseValueSet("measurement.raw_impulse_response", timeAxisSeconds, leftImpulse, rightImpulse));
     appendIfValid(result,
                   buildImpulseValueSet("measurement.room_impulse_response", timeAxisSeconds, roomLeftImpulse, roomRightImpulse));
-    appendIfValid(result,
-                  buildImpulseValueSet("measurement.direct_impulse_response",
-                                       makeTimeAxisSeconds(directLeftImpulse.size(), preRollSamples, sampleRate),
-                                       directLeftImpulse,
-                                       directRightImpulse));
 
     appendIfValid(result,
                   buildFullSpectrumValueSet("measurement.raw_magnitude_spectrum",

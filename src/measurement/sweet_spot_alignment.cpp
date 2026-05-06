@@ -166,13 +166,9 @@ double interpolateLinear(const std::vector<double>& xValues,
 }
 
 const MeasurementValueSet* findValidImpulse(const MeasurementResult& result) {
-    const MeasurementValueSet* directImpulse = result.findValueSet("measurement.direct_impulse_response");
-    if (directImpulse != nullptr && directImpulse->valid()) {
-        return directImpulse;
-    }
-    const MeasurementValueSet* rawImpulse = result.findValueSet("measurement.raw_impulse_response");
-    if (rawImpulse != nullptr && rawImpulse->valid()) {
-        return rawImpulse;
+    const MeasurementValueSet* roomImpulse = result.findValueSet("measurement.room_impulse_response");
+    if (roomImpulse != nullptr && roomImpulse->valid()) {
+        return roomImpulse;
     }
     return nullptr;
 }

@@ -49,6 +49,7 @@ For larger refactors:
 - Do not remove or overwrite user build outputs just to get a clean build.
 - If an executable is locked, use another build directory.
 - If you add new source files, update `CMakeLists.txt`.
+- Run builds sequentially to avoid race conditions. Too often they would block each other.
 
 ## Patch Size Guidance
 

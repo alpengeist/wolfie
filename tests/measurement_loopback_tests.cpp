@@ -233,13 +233,12 @@ wolfie::MeasurementResult buildSyntheticReferenceResult(int sampleRate,
 
     makeSpectrum("measurement.raw_magnitude_spectrum", "measurement.raw_phase_spectrum");
     makeSpectrum("measurement.room_magnitude_spectrum", "measurement.room_phase_spectrum");
-    makeSpectrum("measurement.direct_magnitude_spectrum", "measurement.direct_phase_spectrum");
     return result;
 }
 
 wolfie::MeasurementResult buildSyntheticReferenceResultWithWindowOffsets(int sampleRate,
                                                                          double roomMagnitudeOffsetDb,
-                                                                         double directMagnitudeOffsetDb,
+                                                                         double rawMagnitudeOffsetDb,
                                                                          double phaseOffsetDegrees) {
     wolfie::MeasurementResult result;
     result.analysis.sampleRate = sampleRate;
@@ -267,9 +266,8 @@ wolfie::MeasurementResult buildSyntheticReferenceResultWithWindowOffsets(int sam
         result.valueSets.push_back(std::move(phase));
     };
 
-    makeSpectrum("measurement.raw_magnitude_spectrum", "measurement.raw_phase_spectrum", roomMagnitudeOffsetDb);
+    makeSpectrum("measurement.raw_magnitude_spectrum", "measurement.raw_phase_spectrum", rawMagnitudeOffsetDb);
     makeSpectrum("measurement.room_magnitude_spectrum", "measurement.room_phase_spectrum", roomMagnitudeOffsetDb);
-    makeSpectrum("measurement.direct_magnitude_spectrum", "measurement.direct_phase_spectrum", directMagnitudeOffsetDb);
     return result;
 }
 
@@ -462,7 +460,7 @@ bool expectSweepDeconvolutionProducesImpulseLikePeak() {
            channelLooksImpulseLike(rightMetrics, "right");
 }
 
-bool expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts() {
+bool expectMeasurementPublishesRoomAnalysisProducts() {
     wolfie::MeasurementSettings settings;
     settings.sampleRate = 48000;
     settings.durationSeconds = 1.0;
@@ -481,29 +479,17 @@ bool expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts() {
                                                                wolfie::AudioSettings{},
                                                                settings);
 
-    const wolfie::MeasurementValueSet* directImpulse = result.findValueSet("measurement.direct_impulse_response");
     const wolfie::MeasurementValueSet* roomImpulse = result.findValueSet("measurement.room_impulse_response");
-    const wolfie::MeasurementValueSet* directMagnitude = result.findValueSet("measurement.direct_magnitude_response");
     const wolfie::MeasurementValueSet* roomMagnitude = result.findValueSet("measurement.room_magnitude_response");
-    const wolfie::MeasurementValueSet* directPhase = result.findValueSet("measurement.direct_phase_response");
     const wolfie::MeasurementValueSet* roomPhase = result.findValueSet("measurement.room_phase_response");
-    if (directImpulse == nullptr || !directImpulse->valid() ||
-        roomImpulse == nullptr || !roomImpulse->valid() ||
-        directMagnitude == nullptr || !directMagnitude->valid() ||
+    if (roomImpulse == nullptr || !roomImpulse->valid() ||
         roomMagnitude == nullptr || !roomMagnitude->valid() ||
-        directPhase == nullptr || !directPhase->valid() ||
         roomPhase == nullptr || !roomPhase->valid()) {
-        std::cerr << "measurement result is missing direct/room analysis products\n";
+        std::cerr << "measurement result is missing room analysis products\n";
         return false;
     }
-
-    if (directImpulse->xValues.size() >= roomImpulse->xValues.size()) {
-        std::cerr << "direct impulse window was not shorter than the room window\n";
-        return false;
-    }
-    if (directMagnitude->xValues != roomMagnitude->xValues ||
-        directPhase->xValues != roomPhase->xValues) {
-        std::cerr << "direct and room transfer products do not share the display axis\n";
+    if (roomMagnitude->xValues != roomPhase->xValues) {
+        std::cerr << "room transfer products do not share the display axis\n";
         return false;
     }
 
@@ -562,28 +548,27 @@ bool expectReferenceLoopbackStaysFlatIntoLowBass() {
     return true;
 }
 
-bool expectReferenceMagnitudeResponsePrefersDirectWindow() {
+bool expectMagnitudeResponsePrefersCanonicalProduct() {
     wolfie::MeasurementResult result;
-    result.analysis.measurementKind = "reference";
+
+    wolfie::MeasurementValueSet canonical;
+    canonical.key = "measurement.magnitude_response";
+    canonical.xValues = {20.0, 1000.0};
+    canonical.leftValues = {-7.4, -7.0};
+    canonical.rightValues = {-7.4, -7.0};
 
     wolfie::MeasurementValueSet room;
-    room.key = "measurement.magnitude_response";
+    room.key = "measurement.room_magnitude_response";
     room.xValues = {20.0, 1000.0};
-    room.leftValues = {-7.4, -7.0};
-    room.rightValues = {-7.4, -7.0};
+    room.leftValues = {-7.0, -7.0};
+    room.rightValues = {-7.0, -7.0};
 
-    wolfie::MeasurementValueSet direct;
-    direct.key = "measurement.direct_magnitude_response";
-    direct.xValues = {20.0, 1000.0};
-    direct.leftValues = {-7.0, -7.0};
-    direct.rightValues = {-7.0, -7.0};
-
+    result.valueSets.push_back(canonical);
     result.valueSets.push_back(room);
-    result.valueSets.push_back(direct);
 
     const wolfie::MeasurementValueSet* selected = result.magnitudeResponse();
-    if (selected != result.findValueSet("measurement.direct_magnitude_response")) {
-        std::cerr << "reference magnitude response did not prefer the direct window\n";
+    if (selected != result.findValueSet("measurement.magnitude_response")) {
+        std::cerr << "magnitude response did not prefer the canonical product\n";
         return false;
     }
 
@@ -654,11 +639,8 @@ bool expectMeasurementPublishesReferenceCompensatedTransferProducts() {
     const wolfie::MeasurementValueSet* rawRoom = result.findValueSet("measurement.room_magnitude_response");
     const wolfie::MeasurementValueSet* compensatedRoom =
         result.findValueSet("measurement.reference_compensated_room_magnitude_response");
-    const wolfie::MeasurementValueSet* compensatedDirect =
-        result.findValueSet("measurement.reference_compensated_direct_magnitude_response");
     if (rawRoom == nullptr || !rawRoom->valid() ||
-        compensatedRoom == nullptr || !compensatedRoom->valid() ||
-        compensatedDirect == nullptr || !compensatedDirect->valid()) {
+        compensatedRoom == nullptr || !compensatedRoom->valid()) {
         std::cerr << "reference-compensated transfer products were not published\n";
         return false;
     }
@@ -674,7 +656,7 @@ bool expectMeasurementPublishesReferenceCompensatedTransferProducts() {
     return true;
 }
 
-bool expectReferenceCompensationUsesDirectReferenceSpectrum() {
+bool expectReferenceCompensationUsesRawReferenceSpectrum() {
     wolfie::MeasurementSettings settings;
     settings.sampleRate = 48000;
     settings.durationSeconds = 1.0;
@@ -708,7 +690,7 @@ bool expectReferenceCompensationUsesDirectReferenceSpectrum() {
     const double roomDeltaDb =
         meanBandDelta(rawRoom->leftValues, compensatedRoom->leftValues, rawRoom->xValues, 40.0, 5000.0);
     if (std::abs(roomDeltaDb + 2.0) > 0.4) {
-        std::cerr << "reference compensation did not use the direct reference spectrum (delta="
+        std::cerr << "reference compensation did not use the raw reference spectrum (delta="
                   << roomDeltaDb << " dB)\n";
         return false;
     }
@@ -739,7 +721,7 @@ bool expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment() {
                                                                settings);
     if (result.analysis.left.detectedLatencySamples != leftDelaySamples ||
         result.analysis.right.detectedLatencySamples != rightDelaySamples) {
-        std::cerr << "measurement result did not retain the per-channel direct-arrival mismatch\n";
+        std::cerr << "measurement result did not retain the per-channel arrival mismatch\n";
         return false;
     }
 
@@ -871,25 +853,25 @@ bool expectSweetSpotAlignmentViewHandlesAbsoluteImpulseTimeAxis() {
     result.analysis.left.impulsePeakToNoiseDb = 36.0;
     result.analysis.right.impulsePeakToNoiseDb = 34.0;
 
-    wolfie::MeasurementValueSet directImpulse;
-    directImpulse.key = "measurement.direct_impulse_response";
-    directImpulse.xQuantity = "time";
-    directImpulse.xUnit = "seconds";
+    wolfie::MeasurementValueSet roomImpulse;
+    roomImpulse.key = "measurement.room_impulse_response";
+    roomImpulse.xQuantity = "time";
+    roomImpulse.xUnit = "seconds";
     const double sampleStepSeconds = 1.0 / static_cast<double>(result.analysis.sampleRate);
     const double startTimeSeconds = 0.0119;
     constexpr size_t sampleCount = 96;
-    directImpulse.xValues.reserve(sampleCount);
-    directImpulse.leftValues.reserve(sampleCount);
-    directImpulse.rightValues.reserve(sampleCount);
+    roomImpulse.xValues.reserve(sampleCount);
+    roomImpulse.leftValues.reserve(sampleCount);
+    roomImpulse.rightValues.reserve(sampleCount);
     for (size_t index = 0; index < sampleCount; ++index) {
         const double timeSeconds = startTimeSeconds + (static_cast<double>(index) * sampleStepSeconds);
         const double leftDeltaMs = (timeSeconds - result.analysis.left.onsetTimeSeconds) * 1000.0;
         const double rightDeltaMs = (timeSeconds - result.analysis.right.onsetTimeSeconds) * 1000.0;
-        directImpulse.xValues.push_back(timeSeconds);
-        directImpulse.leftValues.push_back(std::exp(-(leftDeltaMs * leftDeltaMs) / 0.0012));
-        directImpulse.rightValues.push_back(std::exp(-(rightDeltaMs * rightDeltaMs) / 0.0012));
+        roomImpulse.xValues.push_back(timeSeconds);
+        roomImpulse.leftValues.push_back(std::exp(-(leftDeltaMs * leftDeltaMs) / 0.0012));
+        roomImpulse.rightValues.push_back(std::exp(-(rightDeltaMs * rightDeltaMs) / 0.0012));
     }
-    result.valueSets.push_back(std::move(directImpulse));
+    result.valueSets.push_back(std::move(roomImpulse));
 
     const wolfie::measurement::SweetSpotAlignmentView view =
         wolfie::measurement::buildSweetSpotAlignmentView(result);
@@ -940,25 +922,25 @@ bool expectSweetSpotAlignmentViewUsesCenteredDeadband() {
     result.analysis.left.impulsePeakToNoiseDb = 36.0;
     result.analysis.right.impulsePeakToNoiseDb = 35.0;
 
-    wolfie::MeasurementValueSet directImpulse;
-    directImpulse.key = "measurement.direct_impulse_response";
-    directImpulse.xQuantity = "time";
-    directImpulse.xUnit = "seconds";
+    wolfie::MeasurementValueSet roomImpulse;
+    roomImpulse.key = "measurement.room_impulse_response";
+    roomImpulse.xQuantity = "time";
+    roomImpulse.xUnit = "seconds";
     const double sampleStepSeconds = 1.0 / static_cast<double>(result.analysis.sampleRate);
     const double startTimeSeconds = 0.0119;
     constexpr size_t sampleCount = 96;
-    directImpulse.xValues.reserve(sampleCount);
-    directImpulse.leftValues.reserve(sampleCount);
-    directImpulse.rightValues.reserve(sampleCount);
+    roomImpulse.xValues.reserve(sampleCount);
+    roomImpulse.leftValues.reserve(sampleCount);
+    roomImpulse.rightValues.reserve(sampleCount);
     for (size_t index = 0; index < sampleCount; ++index) {
         const double timeSeconds = startTimeSeconds + (static_cast<double>(index) * sampleStepSeconds);
         const double leftDeltaMs = (timeSeconds - result.analysis.left.onsetTimeSeconds) * 1000.0;
         const double rightDeltaMs = (timeSeconds - result.analysis.right.onsetTimeSeconds) * 1000.0;
-        directImpulse.xValues.push_back(timeSeconds);
-        directImpulse.leftValues.push_back(std::exp(-(leftDeltaMs * leftDeltaMs) / 0.0012));
-        directImpulse.rightValues.push_back(std::exp(-(rightDeltaMs * rightDeltaMs) / 0.0012));
+        roomImpulse.xValues.push_back(timeSeconds);
+        roomImpulse.leftValues.push_back(std::exp(-(leftDeltaMs * leftDeltaMs) / 0.0012));
+        roomImpulse.rightValues.push_back(std::exp(-(rightDeltaMs * rightDeltaMs) / 0.0012));
     }
-    result.valueSets.push_back(std::move(directImpulse));
+    result.valueSets.push_back(std::move(roomImpulse));
 
     const wolfie::measurement::SweetSpotAlignmentView view =
         wolfie::measurement::buildSweetSpotAlignmentView(result);
@@ -996,25 +978,25 @@ bool expectSweetSpotAlignmentViewDetectsPolarityMismatch() {
     result.analysis.left.impulsePeakToNoiseDb = 36.0;
     result.analysis.right.impulsePeakToNoiseDb = 35.0;
 
-    wolfie::MeasurementValueSet directImpulse;
-    directImpulse.key = "measurement.direct_impulse_response";
-    directImpulse.xQuantity = "time";
-    directImpulse.xUnit = "seconds";
+    wolfie::MeasurementValueSet roomImpulse;
+    roomImpulse.key = "measurement.room_impulse_response";
+    roomImpulse.xQuantity = "time";
+    roomImpulse.xUnit = "seconds";
     const double sampleStepSeconds = 1.0 / static_cast<double>(result.analysis.sampleRate);
     const double startTimeSeconds = 0.0119;
     constexpr size_t sampleCount = 96;
-    directImpulse.xValues.reserve(sampleCount);
-    directImpulse.leftValues.reserve(sampleCount);
-    directImpulse.rightValues.reserve(sampleCount);
+    roomImpulse.xValues.reserve(sampleCount);
+    roomImpulse.leftValues.reserve(sampleCount);
+    roomImpulse.rightValues.reserve(sampleCount);
     for (size_t index = 0; index < sampleCount; ++index) {
         const double timeSeconds = startTimeSeconds + (static_cast<double>(index) * sampleStepSeconds);
         const double deltaMs = (timeSeconds - result.analysis.left.onsetTimeSeconds) * 1000.0;
         const double pulse = std::exp(-(deltaMs * deltaMs) / 0.0012);
-        directImpulse.xValues.push_back(timeSeconds);
-        directImpulse.leftValues.push_back(pulse);
-        directImpulse.rightValues.push_back(-pulse);
+        roomImpulse.xValues.push_back(timeSeconds);
+        roomImpulse.leftValues.push_back(pulse);
+        roomImpulse.rightValues.push_back(-pulse);
     }
-    result.valueSets.push_back(std::move(directImpulse));
+    result.valueSets.push_back(std::move(roomImpulse));
 
     const wolfie::measurement::SweetSpotAlignmentView view =
         wolfie::measurement::buildSweetSpotAlignmentView(result);
@@ -1042,16 +1024,16 @@ bool expectSweetSpotAlignmentViewSuppressesOuterSideLobes() {
     result.analysis.left.impulsePeakToNoiseDb = 36.0;
     result.analysis.right.impulsePeakToNoiseDb = 35.0;
 
-    wolfie::MeasurementValueSet directImpulse;
-    directImpulse.key = "measurement.direct_impulse_response";
-    directImpulse.xQuantity = "time";
-    directImpulse.xUnit = "seconds";
+    wolfie::MeasurementValueSet roomImpulse;
+    roomImpulse.key = "measurement.room_impulse_response";
+    roomImpulse.xQuantity = "time";
+    roomImpulse.xUnit = "seconds";
     const double sampleStepSeconds = 1.0 / static_cast<double>(result.analysis.sampleRate);
     const double startTimeSeconds = 0.0116;
     constexpr size_t sampleCount = 120;
-    directImpulse.xValues.reserve(sampleCount);
-    directImpulse.leftValues.reserve(sampleCount);
-    directImpulse.rightValues.reserve(sampleCount);
+    roomImpulse.xValues.reserve(sampleCount);
+    roomImpulse.leftValues.reserve(sampleCount);
+    roomImpulse.rightValues.reserve(sampleCount);
     for (size_t index = 0; index < sampleCount; ++index) {
         const double timeSeconds = startTimeSeconds + (static_cast<double>(index) * sampleStepSeconds);
         const double deltaMs = (timeSeconds - result.analysis.left.onsetTimeSeconds) * 1000.0;
@@ -1060,11 +1042,11 @@ bool expectSweetSpotAlignmentViewSuppressesOuterSideLobes() {
             (0.7 * std::exp(-((deltaMs - 0.46) * (deltaMs - 0.46)) / 0.0009)) +
             (0.7 * std::exp(-((deltaMs + 0.46) * (deltaMs + 0.46)) / 0.0009));
         const double value = mainLobe + sideLobe;
-        directImpulse.xValues.push_back(timeSeconds);
-        directImpulse.leftValues.push_back(value);
-        directImpulse.rightValues.push_back(value);
+        roomImpulse.xValues.push_back(timeSeconds);
+        roomImpulse.leftValues.push_back(value);
+        roomImpulse.rightValues.push_back(value);
     }
-    result.valueSets.push_back(std::move(directImpulse));
+    result.valueSets.push_back(std::move(roomImpulse));
 
     const wolfie::measurement::SweetSpotAlignmentView view =
         wolfie::measurement::buildSweetSpotAlignmentView(result);
@@ -1113,9 +1095,9 @@ bool expectAlignmentMatchedCorrelationProducesSharpPeak() {
                                                                nullptr,
                                                                wolfie::MeasurementRunMode::Alignment);
 
-    const wolfie::MeasurementValueSet* directImpulse = result.findValueSet("measurement.direct_impulse_response");
-    if (directImpulse == nullptr || !directImpulse->valid()) {
-        std::cerr << "alignment direct impulse response is missing\n";
+    const wolfie::MeasurementValueSet* roomImpulse = result.findValueSet("measurement.room_impulse_response");
+    if (roomImpulse == nullptr || !roomImpulse->valid()) {
+        std::cerr << "alignment room impulse response is missing\n";
         return false;
     }
     if (result.analysis.left.detectedLatencySamples != leftDelaySamples ||
@@ -1124,8 +1106,8 @@ bool expectAlignmentMatchedCorrelationProducesSharpPeak() {
         return false;
     }
 
-    const size_t leftWidthSamples = impulseHalfMagnitudeWidthSamples(directImpulse->leftValues);
-    const size_t rightWidthSamples = impulseHalfMagnitudeWidthSamples(directImpulse->rightValues);
+    const size_t leftWidthSamples = impulseHalfMagnitudeWidthSamples(roomImpulse->leftValues);
+    const size_t rightWidthSamples = impulseHalfMagnitudeWidthSamples(roomImpulse->rightValues);
     if (leftWidthSamples == 0 || rightWidthSamples == 0) {
         std::cerr << "alignment impulse peak could not be measured\n";
         return false;
@@ -1363,13 +1345,13 @@ int main() {
     return wolfie::tests::runTestCases({
         {"expectMeasurementResultValueSets", expectMeasurementResultValueSets},
         {"expectSweepDeconvolutionProducesImpulseLikePeak", expectSweepDeconvolutionProducesImpulseLikePeak},
-        {"expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts", expectMeasurementPublishesSeparateDirectAndRoomAnalysisProducts},
+        {"expectMeasurementPublishesRoomAnalysisProducts", expectMeasurementPublishesRoomAnalysisProducts},
         {"expectReferenceLoopbackStaysFlatIntoLowBass", expectReferenceLoopbackStaysFlatIntoLowBass},
-        {"expectReferenceMagnitudeResponsePrefersDirectWindow", expectReferenceMagnitudeResponsePrefersDirectWindow},
+        {"expectMagnitudeResponsePrefersCanonicalProduct", expectMagnitudeResponsePrefersCanonicalProduct},
         {"expectMicrophoneCalibrationImportInvertsDeviationSign",
          expectMicrophoneCalibrationImportInvertsDeviationSign},
         {"expectMeasurementPublishesReferenceCompensatedTransferProducts", expectMeasurementPublishesReferenceCompensatedTransferProducts},
-        {"expectReferenceCompensationUsesDirectReferenceSpectrum", expectReferenceCompensationUsesDirectReferenceSpectrum},
+        {"expectReferenceCompensationUsesRawReferenceSpectrum", expectReferenceCompensationUsesRawReferenceSpectrum},
         {"expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment", expectMeasurementRetainsStereoArrivalMismatchForLaterAlignment},
         {"expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker", expectSweetSpotAlignmentViewSuggestsMovingTowardLaterSpeaker},
         {"expectAlignmentPlaybackBurstStartsAndEndsQuietly", expectAlignmentPlaybackBurstStartsAndEndsQuietly},

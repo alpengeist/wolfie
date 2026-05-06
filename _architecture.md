@@ -64,9 +64,9 @@ Files:
 Responsibilities:
 
 - `sweep_generator` creates playback sweep data and exported sweep WAV content.
-- `response_analyzer` turns captured audio into `MeasurementResult` value sets and analysis metadata, including direct/room transfer products and optional reference-compensated variants.
+- `response_analyzer` turns captured audio into `MeasurementResult` value sets and analysis metadata, including room transfer products, optional reference-compensated room variants, and room/raw impulse responses.
 - `room_simulator` generates synthetic room-response `MeasurementResult` data for UI and filter-testing workflows without audio I/O.
-- `sweet_spot_alignment` derives mic-centering guidance and direct-arrival pulse-overlay view data from measured timing metadata and impulse responses.
+- `sweet_spot_alignment` derives mic-centering guidance and pulse-overlay view data from measured timing metadata and the room impulse response, with its own local peak focus.
 - `measurement_controller` orchestrates room and reference measurement runs through an audio backend.
 - `target_curve_designer` computes target-curve view data without UI dependencies.
 - `filter_designer` computes correction curves, FIR filters, mixed-phase phase shaping, simulated responses, phase-derived diagnostics, and filter-design view data without UI dependencies.
@@ -155,7 +155,7 @@ Responsibilities:
 - `response_graph` renders reusable response displays for measurement workflows.
 - `plot_graph` renders reusable non-interactive plots for filter-design workflows.
 - `measurement_page`, `analysis_page`, `target_curve_page`, and `filters_page` own their controls, layout, legend state, and graph synchronization.
-- `alignment_page` owns the dedicated mic-alignment workflow, including the alignment action, timing summary, and direct-arrival pulse overlay.
+- `alignment_page` owns the dedicated mic-alignment workflow, including the alignment action, timing summary, and pulse overlay.
 - `analysis_page` presents left/right comparison diagnostics such as delay mismatch, impulse correlation, phase delta, and magnitude delta using prepared measurement data.
 - `room_simulation_dialog` owns the non-modal synthetic-room editor and delegates generation/persistence outward.
 - `target_curve_graph` and `waterfall_graph` implement specialized graph behavior for their workflows.
@@ -226,9 +226,9 @@ Responsibilities:
 
 - `test_harness` provides the small shared runner used by the custom native test executables.
 - `filter_test_support` owns reusable synthetic fixtures and numeric helpers shared by filter-related tests.
-- `measurement_loopback_tests` covers sweep playback planning, synthetic capture analysis, direct/room result publication, reference compensation, latency retention, and waterfall generation.
+- `measurement_loopback_tests` covers sweep playback planning, synthetic capture analysis, room-transfer publication, direct-impulse publication, reference compensation, latency retention, and waterfall generation.
 - `filter_design_basics_tests` covers baseline filter-design behavior such as target evaluation, correction-shape behavior, and general result sanity.
-- `phase_preparation_tests` covers bulk-delay removal, source selection, fallback rules, and phase-preparation metadata/process logging.
+- `phase_preparation_tests` covers bulk-delay removal, room-based phase preparation, phase-window behavior, and phase-preparation metadata/process logging.
 - `excess_phase_mode_tests` covers the isolated `excess-lf` phase-correction mode.
 - `mixed_phase_tests` covers the heavier mixed-phase design path, including correction limits, stereo alignment, and published phase diagnostics.
 - `filter_analysis_tests` covers before/after stereo diagnostics derived from a designed filter result.
@@ -320,7 +320,7 @@ Reasoning:
 
 1. `WolfieApp` populates `AnalysisPage` from the current `MeasurementResult`.
 2. `AnalysisPage` requests left/right comparison data from `measurement::stereo_diagnostics`.
-3. `stereo_diagnostics` derives summary metrics and plot curves from direct or room spectra, optionally using reference-compensated data when available.
+3. `stereo_diagnostics` derives summary metrics and plot curves from room transfer data plus a locally focused room-impulse view when those inputs are available.
 
 ### Filter Design
 
@@ -405,7 +405,7 @@ The measurement layer publishes two transfer-function product families for trans
 - `_spectrum` pairs such as `measurement.room_magnitude_spectrum` and `measurement.room_phase_spectrum`
 - `_response` pairs such as `measurement.room_magnitude_response` and `measurement.room_phase_response`
 
-In addition, the analyzer may publish time-domain impulse products such as `measurement.direct_impulse_response` for alignment and other direct-arrival tools.
+In addition, the analyzer publishes time-domain impulse products such as `measurement.raw_impulse_response` and `measurement.room_impulse_response`.
 
 These represent the same transfer function at different resolutions and for different purposes.
 
@@ -426,6 +426,7 @@ Current filter-design and phase-preparation decisions:
 - excess-phase preparation must use matched magnitude and phase products from the same source window
 - phase-preparation source selection prefers matched `_response` pairs first, then matched `_spectrum` pairs as fallback
 - phase preparation uses `reference_compensated_room` when available and otherwise `room`
+- the user-facing `Phase Window` control is mandatory and clamps to a positive window length; there is no "off" state that bypasses phase-preparation windowing
 - bulk delay is removed before minimum-phase reconstruction and excess-phase derivation
 - group-delay publication is derived from the prepared phase data, then resampled for display
 - minimum-phase magnitude correction still operates from `SmoothedResponse`
@@ -433,7 +434,8 @@ Current filter-design and phase-preparation decisions:
 Reasoning:
 
 - matched magnitude and phase inputs matter more than reusing unrelated display products
-- the room transfer remains the load-bearing acoustic input, while phase preparation derives its own effective direct-path view by windowing the reconstructed prepared-transfer impulse
+- the room transfer remains the load-bearing acoustic input, while phase preparation derives its own locally windowed phase-preparation view by windowing the reconstructed prepared-transfer impulse
+- the `Phase Window` is the one explicit control over how much late phase structure is admitted into mixed-phase preparation
 - pure delay appears as a large linear phase ramp and should be separated from excess phase
 - group delay is the more trustworthy chart for timing trend; excess phase is a phase-shape diagnostic
 - `_spectrum` remains the higher-fidelity representation, but `_response` is currently the preferred preparation input because it keeps interactive recalculation costs acceptable

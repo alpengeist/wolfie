@@ -29,6 +29,8 @@ constexpr double kIaccMaxLagSeconds = 0.001;
 constexpr double kIacc10EndSeconds = 0.010;
 constexpr double kIacc20EndSeconds = 0.020;
 constexpr double kIacc80EndSeconds = 0.080;
+constexpr double kMinimumFocusFrequencyHz = 1000.0;
+constexpr double kDefaultFocusFrequencyHz = 4000.0;
 
 template <typename T>
 T clampValue(T value, T low, T high) {
@@ -114,6 +116,79 @@ TimeDomainPair loadImpulsePair(const MeasurementResult& result, std::string_view
     pair.left = impulse->leftValues;
     pair.right = impulse->rightValues;
     return pair;
+}
+
+size_t maxAbsIndex(const std::vector<double>& values) {
+    size_t bestIndex = 0;
+    double bestMagnitude = 0.0;
+    for (size_t index = 0; index < values.size(); ++index) {
+        const double magnitude = std::abs(values[index]);
+        if (magnitude > bestMagnitude) {
+            bestMagnitude = magnitude;
+            bestIndex = index;
+        }
+    }
+    return bestIndex;
+}
+
+double impulseFocusFrequencyHz(const MeasurementResult* result, int sampleRate) {
+    if (result != nullptr) {
+        const double startHz = std::max(kMinimumFocusFrequencyHz, result->analysis.startFrequencyHz);
+        const double endHz = std::max(startHz + 1.0, result->analysis.endFrequencyHz);
+        return std::sqrt(startHz * endHz);
+    }
+
+    const double nyquistHz = static_cast<double>(std::max(sampleRate, 1)) * 0.5;
+    return clampValue(kDefaultFocusFrequencyHz, kMinimumFocusFrequencyHz, std::max(kMinimumFocusFrequencyHz, nyquistHz - 1.0));
+}
+
+size_t focusInnerRadiusSamples(int sampleRate, double focusFrequencyHz) {
+    const double framesPerCycle = static_cast<double>(std::max(sampleRate, 1)) / std::max(focusFrequencyHz, 1.0);
+    return std::clamp<size_t>(static_cast<size_t>(std::lround(framesPerCycle)), size_t{3}, size_t{48});
+}
+
+std::vector<double> focusSamplesAroundPeak(const std::vector<double>& values,
+                                           size_t innerRadius,
+                                           size_t outerRadius) {
+    std::vector<double> focused(values.size(), 0.0);
+    if (values.empty()) {
+        return focused;
+    }
+
+    const size_t peakIndex = maxAbsIndex(values);
+    const size_t safeInnerRadius = std::min(innerRadius, outerRadius);
+    const size_t safeOuterRadius = std::max(outerRadius, safeInnerRadius);
+    for (size_t index = 0; index < values.size(); ++index) {
+        const size_t distance = index > peakIndex ? index - peakIndex : peakIndex - index;
+        if (distance > safeOuterRadius) {
+            continue;
+        }
+
+        double weight = 1.0;
+        if (distance > safeInnerRadius && safeOuterRadius > safeInnerRadius) {
+            const double t = static_cast<double>(distance - safeInnerRadius) /
+                             static_cast<double>(safeOuterRadius - safeInnerRadius);
+            weight = 0.5 * (1.0 + std::cos(t * std::numbers::pi_v<double>));
+        }
+        focused[index] = values[index] * weight;
+    }
+    return focused;
+}
+
+TimeDomainPair focusImpulsePair(const TimeDomainPair& impulse,
+                                int sampleRate,
+                                double focusFrequencyHz) {
+    if (!impulse.valid()) {
+        return {};
+    }
+
+    const size_t innerRadius = focusInnerRadiusSamples(sampleRate, focusFrequencyHz);
+    const size_t outerRadius = std::clamp<size_t>(innerRadius * 2, size_t{6}, size_t{96});
+    TimeDomainPair focused;
+    focused.timeSeconds = impulse.timeSeconds;
+    focused.left = focusSamplesAroundPeak(impulse.left, innerRadius, outerRadius);
+    focused.right = focusSamplesAroundPeak(impulse.right, innerRadius, outerRadius);
+    return focused;
 }
 
 double interpolateScalar(const std::vector<double>& xValues,
@@ -431,7 +506,7 @@ double computeIaccWindow(const TimeDomainPair& impulse,
 StereoDiagnosticsResult buildResultFromData(std::string_view window,
                                             const ComplexSpectrumPair& pair,
                                             double delayMismatchMs,
-                                            const TimeDomainPair& directImpulse,
+                                            const TimeDomainPair& focusedImpulse,
                                             const TimeDomainPair& windowImpulse,
                                             int sampleRate,
                                             const StereoDiagnosticsProgressCallback& progressCallback) {
@@ -443,9 +518,9 @@ StereoDiagnosticsResult buildResultFromData(std::string_view window,
     }
     diagnostics.summary.delayMismatchMs = delayMismatchMs;
     if (progressCallback) {
-        progressCallback("Direct Impulse Corr");
+        progressCallback("Impulse Corr");
     }
-    diagnostics.summary.directImpulseCorrelation = computeImpulseCorrelation(directImpulse);
+    diagnostics.summary.directImpulseCorrelation = computeImpulseCorrelation(focusedImpulse);
     if (!pair.valid()) {
         return diagnostics;
     }
@@ -532,13 +607,14 @@ StereoDiagnosticsResult buildStereoDiagnostics(const MeasurementResult& result,
                                                std::string_view window,
                                                const StereoDiagnosticsProgressCallback& progressCallback) {
     const ComplexSpectrumPair rawPair = loadSpectrumPair(result, window, false);
-    const TimeDomainPair directImpulse = loadImpulsePair(result, "measurement.direct_impulse_response");
     const TimeDomainPair windowImpulse =
         loadImpulsePair(result, "measurement." + std::string(window) + "_impulse_response");
+    const TimeDomainPair focusedImpulse =
+        focusImpulsePair(windowImpulse, result.analysis.sampleRate, impulseFocusFrequencyHz(&result, result.analysis.sampleRate));
     return buildResultFromData(window,
                                rawPair,
                                (result.analysis.left.onsetTimeSeconds - result.analysis.right.onsetTimeSeconds) * 1000.0,
-                               directImpulse,
+                               focusedImpulse,
                                windowImpulse,
                                result.analysis.sampleRate,
                                progressCallback);
@@ -552,10 +628,10 @@ StereoDiagnosticsResult buildStereoDiagnostics(const StereoDiagnosticsInput& inp
     pair.left = input.leftSpectrum;
     pair.right = input.rightSpectrum;
 
-    TimeDomainPair directImpulse;
-    directImpulse.timeSeconds = input.directImpulseTimeSeconds;
-    directImpulse.left = input.directImpulseLeft;
-    directImpulse.right = input.directImpulseRight;
+    TimeDomainPair focusedImpulse;
+    focusedImpulse.timeSeconds = input.directImpulseTimeSeconds;
+    focusedImpulse.left = input.directImpulseLeft;
+    focusedImpulse.right = input.directImpulseRight;
 
     TimeDomainPair windowImpulse;
     windowImpulse.timeSeconds = input.windowImpulseTimeSeconds;
@@ -565,7 +641,7 @@ StereoDiagnosticsResult buildStereoDiagnostics(const StereoDiagnosticsInput& inp
     return buildResultFromData(window,
                                pair,
                                input.delayMismatchMs,
-                               directImpulse,
+                               focusedImpulse,
                                windowImpulse,
                                input.sampleRate,
                                progressCallback);

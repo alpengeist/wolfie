@@ -88,7 +88,7 @@ void AnalysisPage::createControls() {
 
     constexpr const wchar_t* kMetricLabels[10] = {
         L"Direct L-R Delay",
-        L"Direct Impulse Corr",
+        L"Impulse Corr",
         L"Phase RMS 40-120",
         L"Phase RMS 120-300",
         L"Mag RMS 40-300",

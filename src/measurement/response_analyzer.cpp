@@ -712,15 +712,6 @@ std::vector<double> buildWindowedImpulseSegment(const std::vector<double>& impul
     return windowedImpulse;
 }
 
-size_t directWindowLengthFrames(size_t impulseLengthFrames,
-                                size_t preRollFrames,
-                                int sampleRate) {
-    const size_t directPostFrames =
-        std::clamp(static_cast<size_t>(std::max(sampleRate / 125, 1)), size_t{256}, size_t{2048});
-    const size_t targetLength = std::max(preRollFrames + directPostFrames, size_t{1024});
-    return std::min(impulseLengthFrames, targetLength);
-}
-
 const MeasurementValueSet* findValidValueSet(const MeasurementResult* result,
                                              std::string_view primaryKey,
                                              std::string_view fallbackKey) {
@@ -1211,7 +1202,7 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                           : "Deconvolved impulse peak per sweep segment";
     result.analysis.windowType = runMode == MeasurementRunMode::Alignment
                                      ? "Matched-correlation pulse window"
-                                     : "Separate direct and room cosine-tapered analysis windows";
+                                     : "Cosine-tapered room impulse analysis window";
     if (playbackPlan.playedSweep.empty()) {
         return result;
     }
@@ -1266,26 +1257,18 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
 
         leftAnalysis.impulseResponse.resize(impulseLength);
         rightAnalysis.impulseResponse.resize(impulseLength);
+        const std::vector<double> impulseTimeAxisSeconds =
+            makeTimeAxisSeconds(impulseLength, commonPreRollFrames, sampleRate);
         appendValueSetIfValid(result,
                               buildImpulseValueSet("measurement.raw_impulse_response",
-                                                   makeTimeAxisSeconds(impulseLength, commonPreRollFrames, sampleRate),
+                                                   impulseTimeAxisSeconds,
                                                    leftAnalysis.impulseResponse,
                                                    rightAnalysis.impulseResponse));
-
-        const size_t directWindowLength = std::min<size_t>(impulseLength,
-                                                           std::max<size_t>(commonPreRollFrames + (sampleRate / 600),
-                                                                            size_t{96}));
-        std::vector<double> leftDirectImpulse(leftAnalysis.impulseResponse.begin(),
-                                              leftAnalysis.impulseResponse.begin() +
-                                                  static_cast<std::ptrdiff_t>(directWindowLength));
-        std::vector<double> rightDirectImpulse(rightAnalysis.impulseResponse.begin(),
-                                               rightAnalysis.impulseResponse.begin() +
-                                                   static_cast<std::ptrdiff_t>(directWindowLength));
         appendValueSetIfValid(result,
-                              buildImpulseValueSet("measurement.direct_impulse_response",
-                                                   makeTimeAxisSeconds(directWindowLength, commonPreRollFrames, sampleRate),
-                                                   leftDirectImpulse,
-                                                   rightDirectImpulse));
+                              buildImpulseValueSet("measurement.room_impulse_response",
+                                                   impulseTimeAxisSeconds,
+                                                   leftAnalysis.impulseResponse,
+                                                   rightAnalysis.impulseResponse));
 
         fillChannelMetrics(result.analysis.left, leftAnalysis, playbackPlan, sampleRate);
         fillChannelMetrics(result.analysis.right, rightAnalysis, playbackPlan, sampleRate);
@@ -1376,19 +1359,6 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
     leftAnalysis.analysisWindowLengthFrames = leftRoomWindowedImpulse.size();
     rightAnalysis.analysisWindowLengthFrames = rightRoomWindowedImpulse.size();
 
-    const size_t directWindowLength = directWindowLengthFrames(impulseLength, commonPreRollFrames, sampleRate);
-    size_t leftDirectFadeFrames = 0;
-    size_t rightDirectFadeFrames = 0;
-    const std::vector<double> leftDirectWindowedImpulse =
-        buildWindowedImpulseSegment(leftAnalysis.impulseResponse,
-                                    directWindowLength,
-                                    commonPreRollFrames,
-                                    leftDirectFadeFrames);
-    const std::vector<double> rightDirectWindowedImpulse =
-        buildWindowedImpulseSegment(rightAnalysis.impulseResponse,
-                                    directWindowLength,
-                                    commonPreRollFrames,
-                                    rightDirectFadeFrames);
     size_t kernelRoomFadeFrames = 0;
     const std::vector<double> kernelRoomWindowedImpulse =
         buildWindowedImpulseSegment(deconvolutionKernelImpulse,
@@ -1401,12 +1371,6 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                makeTimeAxisSeconds(leftRoomWindowedImpulse.size(), commonPreRollFrames, sampleRate),
                                                leftRoomWindowedImpulse,
                                                rightRoomWindowedImpulse));
-    appendValueSetIfValid(result,
-                          buildImpulseValueSet("measurement.direct_impulse_response",
-                                               makeTimeAxisSeconds(leftDirectWindowedImpulse.size(), commonPreRollFrames, sampleRate),
-                                               leftDirectWindowedImpulse,
-                                               rightDirectWindowedImpulse));
-
     const size_t fftSize = nextPowerOfTwo(std::max({leftRoomWindowedImpulse.size(),
                                                     rightRoomWindowedImpulse.size(),
                                                     kernelRoomWindowedImpulse.size(),
