@@ -4,6 +4,9 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <numbers>
+
+#include "measurement/dsp_utils.h"
 
 namespace wolfie::tests {
 
@@ -216,6 +219,62 @@ wolfie::MeasurementResult buildPhaseMeasurementWithSourceAvailability(int sample
                                                             directLeftExcessScale,
                                                             directRightExcessScale));
     }
+    return result;
+}
+
+wolfie::MeasurementResult buildImpulsePhaseMeasurement(int sampleRate,
+                                                       double delaySeconds,
+                                                       int lateTapOffsetSamples,
+                                                       double lateTapGain) {
+    wolfie::MeasurementResult result;
+    const size_t fftSize = 8192;
+    std::vector<std::complex<double>> spectrum(fftSize, {0.0, 0.0});
+    spectrum[0] = {1.0, 0.0};
+    if (lateTapOffsetSamples > 0 && static_cast<size_t>(lateTapOffsetSamples) < spectrum.size()) {
+        spectrum[static_cast<size_t>(lateTapOffsetSamples)] = {lateTapGain, 0.0};
+    }
+    wolfie::measurement::fft(spectrum, false);
+
+    wolfie::MeasurementValueSet magnitude;
+    magnitude.key = "measurement.direct_magnitude_spectrum";
+    magnitude.xQuantity = "frequency";
+    magnitude.xUnit = "Hz";
+    magnitude.yQuantity = "level";
+    magnitude.yUnit = "dB";
+
+    wolfie::MeasurementValueSet phase;
+    phase.key = "measurement.direct_phase_spectrum";
+    phase.xQuantity = "frequency";
+    phase.xUnit = "Hz";
+    phase.yQuantity = "phase";
+    phase.yUnit = "deg";
+
+    const size_t positiveBinCount = (fftSize / 2) + 1;
+    magnitude.xValues.reserve(positiveBinCount);
+    magnitude.leftValues.reserve(positiveBinCount);
+    magnitude.rightValues.reserve(positiveBinCount);
+    phase.xValues.reserve(positiveBinCount);
+    phase.leftValues.reserve(positiveBinCount);
+    phase.rightValues.reserve(positiveBinCount);
+    for (size_t index = 0; index < positiveBinCount; ++index) {
+        const double frequencyHz = static_cast<double>(sampleRate) * static_cast<double>(index) /
+                                   static_cast<double>(fftSize);
+        const double magnitudeDb = 20.0 * std::log10(std::max(std::abs(spectrum[index]), 1.0e-9));
+        const double phaseDegrees = wrapDegrees(std::arg(spectrum[index]) * 180.0 / std::numbers::pi_v<double>);
+        magnitude.xValues.push_back(frequencyHz);
+        magnitude.leftValues.push_back(magnitudeDb);
+        magnitude.rightValues.push_back(magnitudeDb);
+        phase.xValues.push_back(frequencyHz);
+        phase.leftValues.push_back(phaseDegrees);
+        phase.rightValues.push_back(phaseDegrees);
+    }
+
+    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+    result.valueSets.back().key = "measurement.direct_impulse_response";
+    result.valueSets.push_back(buildImpulseValueSet(-delaySeconds));
+    result.valueSets.back().key = "measurement.raw_impulse_response";
+    result.valueSets.push_back(std::move(magnitude));
+    result.valueSets.push_back(std::move(phase));
     return result;
 }
 

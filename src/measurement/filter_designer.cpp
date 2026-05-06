@@ -19,7 +19,9 @@ namespace {
 
 constexpr double kRadiansToDegrees = 180.0 / std::numbers::pi_v<double>;
 constexpr double kDegreesToRadians = std::numbers::pi_v<double> / 180.0;
-
+constexpr double kMaxSmoothness = 4.0;
+constexpr double kCutLimitSoftness = 0.8;
+constexpr double kBoostLimitSoftness = 0.92;
 enum class NormalizedPhaseMode {
     Minimum,
     ExcessLf,
@@ -142,18 +144,23 @@ std::string describePhasePreparationSource(const PreparedPhaseData& preparedPhas
     return stream.str();
 }
 
-double correctionWeightAt(double frequencyHz, const FilterDesignSettings& settings) {
-    double weight = 1.0;
-
+double lowCorrectionWeightAt(double frequencyHz, const FilterDesignSettings& settings) {
     const double lowCorrectionHz = std::max(settings.lowCorrectionHz, 1.0);
     const double lowStartHz =
         lowCorrectionHz / std::pow(2.0, std::max(settings.lowTaperOctaves, 0.0) * 0.5);
     if (frequencyHz <= lowStartHz) {
-        weight = 0.0;
-    } else if (frequencyHz < lowCorrectionHz) {
-        weight *= smoothRamp((frequencyHz - lowStartHz) / std::max(lowCorrectionHz - lowStartHz, 1.0e-9));
+        return 0.0;
     }
+    if (frequencyHz < lowCorrectionHz) {
+        return smoothRamp((frequencyHz - lowStartHz) / std::max(lowCorrectionHz - lowStartHz, 1.0e-9));
+    }
+    return 1.0;
+}
 
+double correctionWeightAt(double frequencyHz, const FilterDesignSettings& settings) {
+    double weight = lowCorrectionWeightAt(frequencyHz, settings);
+
+    const double lowCorrectionHz = std::max(settings.lowCorrectionHz, 1.0);
     const double highCorrectionHz = std::max(settings.highCorrectionHz, lowCorrectionHz + 1.0);
     const double highEndHz = highCorrectionHz * std::pow(2.0, std::max(settings.highTaperOctaves, 0.0));
     if (frequencyHz >= highEndHz) {
@@ -180,8 +187,131 @@ double applyAsymmetricSoftLimit(double valueDb, double minValueDb, double maxVal
     return -cutLimitDb * std::tanh((-valueDb) / cutLimitDb);
 }
 
+double applySoftLimitedCut(double valueDb, double minValueDb) {
+    if (valueDb >= 0.0 || minValueDb >= -1.0e-9) {
+        return 0.0;
+    }
+
+    const double cutLimitDb = std::max(-minValueDb, 0.0);
+    if (cutLimitDb <= 1.0e-9) {
+        return 0.0;
+    }
+
+    const double softenedLimitDb = std::max(cutLimitDb * kCutLimitSoftness, 1.0e-9);
+    return -cutLimitDb * std::tanh((-valueDb) / softenedLimitDb);
+}
+
+double applySoftLimitedBoost(double valueDb, double maxValueDb) {
+    if (valueDb <= 0.0 || maxValueDb <= 1.0e-9) {
+        return 0.0;
+    }
+
+    const double softenedLimitDb = std::max(maxValueDb * kBoostLimitSoftness, 1.0e-9);
+    return maxValueDb * std::tanh(valueDb / softenedLimitDb);
+}
+
+double applyNoBoostSoftTarget(double valueDb) {
+    if (valueDb <= 0.0) {
+        return valueDb;
+    }
+    return 0.0;
+}
+
+double applyCorrectionLimit(double valueDb, double minValueDb, double maxValueDb) {
+    const double cutLimitedDb = applySoftLimitedCut(std::min(valueDb, 0.0), minValueDb);
+    if (maxValueDb <= 1.0e-9) {
+        if (minValueDb >= -1.0e-9) {
+            return 0.0;
+        }
+        if (valueDb <= 0.0) {
+            return applyNoBoostSoftTarget(cutLimitedDb);
+        }
+        return applyNoBoostSoftTarget(valueDb);
+    }
+
+    if (valueDb <= 0.0) {
+        return cutLimitedDb;
+    }
+
+    return applySoftLimitedBoost(valueDb, maxValueDb);
+}
+
+double boostLimitSaturation(double valueDb, double maxValueDb) {
+    if (valueDb <= 0.0 || maxValueDb <= 1.0e-9) {
+        return 0.0;
+    }
+    return clampValue(valueDb / maxValueDb, 0.0, 1.0);
+}
+
+double localBoostSharpnessAt(const std::vector<double>& values, size_t index) {
+    if (index == 0 || index + 1 >= values.size()) {
+        return 0.0;
+    }
+
+    const double previous = std::max(values[index - 1], 0.0);
+    const double current = std::max(values[index], 0.0);
+    const double next = std::max(values[index + 1], 0.0);
+    const double secondDifference = std::abs(previous - (2.0 * current) + next);
+    const double edgeSlope = 0.5 * (std::abs(current - previous) + std::abs(current - next));
+    return secondDifference + (0.5 * edgeSlope);
+}
+
+double positiveSupportWidthOctavesAt(const std::vector<double>& frequencyAxisHz,
+                                     const std::vector<double>& values,
+                                     size_t index) {
+    if (index >= values.size() || index >= frequencyAxisHz.size() || values[index] <= 0.0) {
+        return 0.0;
+    }
+
+    size_t left = index;
+    while (left > 0 && values[left - 1] > 0.0) {
+        --left;
+    }
+
+    size_t right = index;
+    while (right + 1 < values.size() && right + 1 < frequencyAxisHz.size() && values[right + 1] > 0.0) {
+        ++right;
+    }
+
+    const double lowFrequencyHz = std::max(frequencyAxisHz[left], 1.0);
+    const double highFrequencyHz = std::max(frequencyAxisHz[right], lowFrequencyHz);
+    return std::log2(highFrequencyHz / lowFrequencyHz);
+}
+
+double boostBudgetFactor(double localSharpnessDb,
+                         double supportWidthOctaves,
+                         double configuredMaxBoostDb) {
+    if (configuredMaxBoostDb <= 1.0e-9) {
+        return 0.0;
+    }
+
+    const double normalizedSharpness =
+        clampValue(localSharpnessDb / std::max(configuredMaxBoostDb, 1.0), 0.0, 1.0);
+    const double sharpnessFactor = 1.0 - (0.25 * smoothRamp(normalizedSharpness));
+    const double widthT = clampValue((supportWidthOctaves - 0.2) / 0.8, 0.0, 1.0);
+    const double widthFactor = 0.45 + (0.55 * smoothRamp(widthT));
+    return clampValue(widthFactor * sharpnessFactor, 0.35, 1.0);
+}
+
+double correctionTrackingWeight(double weight,
+                                double desiredCorrectionDb,
+                                double maxValueDb,
+                                double localSharpnessDb) {
+    const double baseWeight = 0.05 + (0.95 * weight);
+    const double saturation = boostLimitSaturation(desiredCorrectionDb, maxValueDb);
+    if (saturation <= 0.0) {
+        return baseWeight;
+    }
+
+    const double normalizedSharpness =
+        clampValue(localSharpnessDb / std::max(maxValueDb, 1.0), 0.0, 1.0);
+    const double inertiaScale =
+        1.0 - (0.35 * smoothRamp(saturation)) - (0.2 * smoothRamp(normalizedSharpness));
+    return std::max(baseWeight * inertiaScale, 0.02);
+}
+
 double smoothnessRegularizationScale(double smoothness) {
-    const double clamped = clampValue(smoothness, 0.1, 4.0);
+    const double clamped = clampValue(smoothness, 0.1, kMaxSmoothness);
     return std::pow(8.0, clamped - 1.0);
 }
 
@@ -281,11 +411,10 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
         return {};
     }
 
-    std::vector<double> fullCorrectionDb;
-    fullCorrectionDb.reserve(count);
+    std::vector<double> rawCorrectionDb;
+    rawCorrectionDb.reserve(count);
     for (size_t index = 0; index < count; ++index) {
-        const double rawCorrectionDb = targetCurveDb[index] - sourceCurveDb[index];
-        fullCorrectionDb.push_back(applyAsymmetricSoftLimit(rawCorrectionDb, -settings.maxCutDb, settings.maxBoostDb));
+        rawCorrectionDb.push_back(targetCurveDb[index] - sourceCurveDb[index]);
     }
 
     std::vector<double> desiredCorrectionDb;
@@ -296,25 +425,51 @@ std::vector<double> buildCorrectionCurve(const std::vector<double>& frequencyAxi
     lowerBoundsDb.reserve(count);
     std::vector<double> upperBoundsDb;
     upperBoundsDb.reserve(count);
+    double boostSaturationWeightedSum = 0.0;
+    double boostSaturationWeightTotal = 0.0;
 
     for (size_t index = 0; index < count; ++index) {
         const double frequencyHz = frequencyAxisHz[index];
         const double weight = correctionWeightAt(frequencyHz, settings);
-        const double rawCorrectionDb = fullCorrectionDb[index];
+        const double localSharpnessDb = localBoostSharpnessAt(rawCorrectionDb, index);
+        const double supportWidthOctaves =
+            positiveSupportWidthOctavesAt(frequencyAxisHz, rawCorrectionDb, index);
         const double minValueDb = -settings.maxCutDb * weight;
-        const double maxValueDb = settings.maxBoostDb * weight;
-        desiredCorrectionDb.push_back(applyAsymmetricSoftLimit(rawCorrectionDb, minValueDb, maxValueDb));
-        trackingWeights.push_back(0.05 + (0.95 * weight));
+        const double boostFactor =
+            rawCorrectionDb[index] > 0.0
+                ? boostBudgetFactor(localSharpnessDb, supportWidthOctaves, settings.maxBoostDb)
+                : 1.0;
+        const double maxValueDb = settings.maxBoostDb * weight * boostFactor;
+        const double desiredCorrectionDbAtFrequency =
+            applyCorrectionLimit(rawCorrectionDb[index], minValueDb, maxValueDb);
+        desiredCorrectionDb.push_back(desiredCorrectionDbAtFrequency);
+        trackingWeights.push_back(correctionTrackingWeight(weight,
+                                                           desiredCorrectionDbAtFrequency,
+                                                           maxValueDb,
+                                                           localSharpnessDb));
         lowerBoundsDb.push_back(minValueDb);
         upperBoundsDb.push_back(maxValueDb);
+
+        const double saturation = boostLimitSaturation(desiredCorrectionDbAtFrequency, maxValueDb);
+        if (saturation > 0.0 && weight > 0.0) {
+            boostSaturationWeightedSum += saturation * weight;
+            boostSaturationWeightTotal += weight;
+        }
+    }
+
+    double boostRegularizationScale = 1.0;
+    if (boostSaturationWeightTotal > 1.0e-9) {
+        const double meanBoostSaturation = boostSaturationWeightedSum / boostSaturationWeightTotal;
+        boostRegularizationScale += 0.75 * clampValue(meanBoostSaturation, 0.0, 1.0);
     }
 
     const double regularization = 12.0 *
                                   std::max(static_cast<double>(count) / 512.0, 1.0) *
-                                  smoothnessRegularizationScale(settings.smoothness);
+                                  smoothnessRegularizationScale(settings.smoothness) *
+                                  boostRegularizationScale;
     std::vector<double> correction = solveRegularizedCurve(desiredCorrectionDb, trackingWeights, regularization);
     for (size_t index = 0; index < correction.size() && index < lowerBoundsDb.size() && index < upperBoundsDb.size(); ++index) {
-        correction[index] = applyAsymmetricSoftLimit(correction[index], lowerBoundsDb[index], upperBoundsDb[index]);
+        correction[index] = applyCorrectionLimit(correction[index], lowerBoundsDb[index], upperBoundsDb[index]);
     }
     return correction;
 }
@@ -536,6 +691,11 @@ double meanAbsoluteBandDelta(const std::vector<double>& frequencyAxisHz,
 double excessPhaseCorrectionWeightAt(double frequencyHz,
                                      const FilterDesignSettings& settings,
                                      int sampleRate) {
+    const double lowWeight = lowCorrectionWeightAt(frequencyHz, settings);
+    if (lowWeight <= 0.0) {
+        return 0.0;
+    }
+
     const double nyquist = static_cast<double>(std::max(sampleRate, 1)) * 0.5;
     const double fullCorrectionHz =
         clampValue(settings.mixedPhaseMaxFrequencyHz, 60.0, std::max(120.0, nyquist * 0.25));
@@ -543,13 +703,13 @@ double excessPhaseCorrectionWeightAt(double frequencyHz,
         clampValue(fullCorrectionHz * 2.0, fullCorrectionHz + 40.0, std::max(fullCorrectionHz + 40.0, nyquist * 0.4));
 
     if (frequencyHz <= fullCorrectionHz) {
-        return 1.0;
+        return lowWeight;
     }
     if (frequencyHz >= taperEndHz) {
         return 0.0;
     }
-    return 1.0 - smoothRamp((frequencyHz - fullCorrectionHz) /
-                            std::max(taperEndHz - fullCorrectionHz, 1.0e-9));
+    return lowWeight * (1.0 - smoothRamp((frequencyHz - fullCorrectionHz) /
+                                         std::max(taperEndHz - fullCorrectionHz, 1.0e-9)));
 }
 
 std::vector<double> buildExcessPhaseCorrectionDegrees(const std::vector<double>& displayFrequencyAxisHz,
@@ -644,6 +804,35 @@ size_t dominantSampleIndex(const std::vector<double>& values) {
     return bestIndex;
 }
 
+void applyTailFade(std::vector<double>& impulse) {
+    const size_t fadeCount = std::min(impulse.size() / 8, size_t{4096});
+    if (fadeCount < 64) {
+        return;
+    }
+
+    const size_t fadeStart = impulse.size() - fadeCount;
+    for (size_t index = fadeStart; index < impulse.size(); ++index) {
+        const double t = static_cast<double>(index - fadeStart) /
+                         static_cast<double>(std::max<size_t>(fadeCount - 1, 1));
+        impulse[index] *= std::cos(t * std::numbers::pi * 0.5);
+    }
+}
+
+void delayImpulse(std::vector<double>& impulse, size_t delaySamples) {
+    if (delaySamples == 0 || impulse.empty()) {
+        return;
+    }
+    if (delaySamples >= impulse.size()) {
+        std::fill(impulse.begin(), impulse.end(), 0.0);
+        return;
+    }
+
+    for (size_t index = impulse.size(); index-- > delaySamples;) {
+        impulse[index] = impulse[index - delaySamples];
+    }
+    std::fill(impulse.begin(), impulse.begin() + static_cast<std::ptrdiff_t>(delaySamples), 0.0);
+}
+
 size_t bestCircularWindowStart(const std::vector<double>& impulse, size_t windowLength) {
     if (impulse.empty() || windowLength == 0) {
         return 0;
@@ -686,35 +875,6 @@ std::vector<double> extractCircularWindow(const std::vector<double>& impulse,
     return window;
 }
 
-void applyTailFade(std::vector<double>& impulse) {
-    const size_t fadeCount = std::min(impulse.size() / 8, size_t{4096});
-    if (fadeCount < 64) {
-        return;
-    }
-
-    const size_t fadeStart = impulse.size() - fadeCount;
-    for (size_t index = fadeStart; index < impulse.size(); ++index) {
-        const double t = static_cast<double>(index - fadeStart) /
-                         static_cast<double>(std::max<size_t>(fadeCount - 1, 1));
-        impulse[index] *= std::cos(t * std::numbers::pi * 0.5);
-    }
-}
-
-void delayImpulse(std::vector<double>& impulse, size_t delaySamples) {
-    if (delaySamples == 0 || impulse.empty()) {
-        return;
-    }
-    if (delaySamples >= impulse.size()) {
-        std::fill(impulse.begin(), impulse.end(), 0.0);
-        return;
-    }
-
-    for (size_t index = impulse.size(); index-- > delaySamples;) {
-        impulse[index] = impulse[index - delaySamples];
-    }
-    std::fill(impulse.begin(), impulse.begin() + static_cast<std::ptrdiff_t>(delaySamples), 0.0);
-}
-
 std::vector<double> buildMixedPhaseImpulse(const std::vector<double>& positiveMagnitude,
                                            const std::vector<double>& positivePhaseCorrectionRadians,
                                            int fftSize,
@@ -724,23 +884,24 @@ std::vector<double> buildMixedPhaseImpulse(const std::vector<double>& positiveMa
         return {};
     }
 
+    double peakPhaseCorrectionRadians = 0.0;
+    for (const double value : positivePhaseCorrectionRadians) {
+        peakPhaseCorrectionRadians = std::max(peakPhaseCorrectionRadians, std::abs(value));
+    }
+    if (peakPhaseCorrectionRadians <= 1.0e-9) {
+        return buildMinimumPhaseImpulse(positiveMagnitude, fftSize, tapCount);
+    }
+
     std::vector<std::complex<double>> combinedSpectrum =
         buildMinimumPhaseSpectrum(positiveMagnitude, fftSize);
     applyPositivePhaseCorrection(combinedSpectrum, positivePhaseCorrectionRadians);
     const std::vector<double> fullImpulse = buildRealImpulseFromSpectrum(combinedSpectrum);
-    const size_t windowStart = bestCircularWindowStart(fullImpulse, outputLength);
-    std::vector<double> impulse =
-        extractCircularWindow(fullImpulse, windowStart, outputLength);
-    const size_t dominantPeak = dominantSampleIndex(impulse);
-    const size_t preRollSamples = std::max<size_t>(1, outputLength / 8);
-    // Keep the dominant peak close to the front of the FIR so mixed mode does not accumulate
-    // a large bulk delay, but preserve the selected mixed-phase window by rotating it rather than
-    // re-cutting a different slice out of the circular impulse.
-    if (dominantPeak > preRollSamples && dominantPeak < impulse.size()) {
-        std::rotate(impulse.begin(),
-                    impulse.begin() + static_cast<std::ptrdiff_t>(dominantPeak - preRollSamples),
-                    impulse.end());
+    if (fullImpulse.empty()) {
+        return {};
     }
+
+    const size_t windowStart = bestCircularWindowStart(fullImpulse, outputLength);
+    std::vector<double> impulse = extractCircularWindow(fullImpulse, windowStart, outputLength);
     applyTailFade(impulse);
     return impulse;
 }
@@ -826,6 +987,8 @@ PreparedPhaseView buildPredictedPhaseView(const PreparedPhaseChannel& inputChann
                                    smoothingSettings,
                                    sampleRate,
                                    fftSize,
+                                   false,
+                                   0.0,
                                    inputChannel.sourceKey + std::string(sourceSuffix));
     return resamplePreparedPhaseChannel(predicted, displayFrequencyAxisHz);
 }
@@ -1089,7 +1252,7 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     settings.tapCount = closestTapCount;
     settings.maxBoostDb = clampValue(settings.maxBoostDb, 0.0, 24.0);
     settings.maxCutDb = clampValue(settings.maxCutDb, 0.0, 36.0);
-    settings.smoothness = clampValue(settings.smoothness, 0.1, 4.0);
+    settings.smoothness = clampValue(settings.smoothness, 0.1, kMaxSmoothness);
     settings.lowCorrectionHz = clampValue(settings.lowCorrectionHz, 10.0, static_cast<double>(std::max(nyquist - 10, 20)));
     settings.lowTaperOctaves = clampValue(settings.lowTaperOctaves, 0.0, 4.0);
     settings.highCorrectionHz =
@@ -1098,6 +1261,7 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     settings.displayPointCount = clampValue(settings.displayPointCount, 256, 4096);
     settings.mixedPhaseMaxFrequencyHz =
         clampValue(settings.mixedPhaseMaxFrequencyHz, 60.0, static_cast<double>(std::max((nyquist / 2), 120)));
+    settings.excessPhaseWindowMs = clampValue(settings.excessPhaseWindowMs, 0.0, 1000.0);
     settings.mixedPhaseStrength = clampValue(settings.mixedPhaseStrength, 0.0, 1.0);
     settings.mixedPhaseMaxCorrectionDegrees =
         clampValue(settings.mixedPhaseMaxCorrectionDegrees, 30.0, 720.0);
@@ -1151,11 +1315,19 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
         preparePhaseData(sourceMeasurement,
                          response.smoothingSettings,
                          exportMeasurement.sampleRate,
-                         fftSize);
+                         fftSize,
+                         settings.excessPhaseWindowMs);
     if (preparedPhase.valid) {
-        appendProcessLog(result.processLog,
-                         "Prepared matched phase data from " + describePhasePreparationSource(preparedPhase) +
-                             "; removed bulk delay " + formatMilliseconds(preparedPhase.bulkDelaySeconds) + ".");
+        std::string message = "Prepared matched phase data from " + describePhasePreparationSource(preparedPhase) +
+                              "; removed bulk delay " + formatMilliseconds(preparedPhase.bulkDelaySeconds) + ".";
+        if (settings.excessPhaseWindowMs > 0.0) {
+            std::ostringstream stream;
+            stream.setf(std::ios::fixed);
+            stream.precision(settings.excessPhaseWindowMs < 10.0 ? 1 : 0);
+            stream << settings.excessPhaseWindowMs;
+            message += " Applied excess-phase window " + stream.str() + " ms.";
+        }
+        appendProcessLog(result.processLog, std::move(message));
     } else if (sourceMeasurement != nullptr) {
         appendProcessLog(result.processLog,
                          "No matched phase-preparation source was available; proceeding with magnitude-only data.");

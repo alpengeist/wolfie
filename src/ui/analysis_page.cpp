@@ -58,7 +58,7 @@ void AnalysisPage::createControls() {
                                           0,
                                           0,
                                           window_,
-                                          reinterpret_cast<HMENU>(kComboWindow),
+                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboWindow)),
                                           instance_,
                                           nullptr);
     controls_.buttonRefresh = CreateWindowW(L"BUTTON",
@@ -69,7 +69,7 @@ void AnalysisPage::createControls() {
                                             0,
                                             0,
                                             window_,
-                                            reinterpret_cast<HMENU>(kButtonRefresh),
+                                            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonRefresh)),
                                             instance_,
                                             nullptr);
     controls_.progressRefresh = CreateWindowExW(0,
@@ -486,3 +486,4 @@ std::wstring AnalysisPage::formatMetricValue(double value,
 }
 
 }  // namespace wolfie::ui
+

@@ -17,6 +17,7 @@ public:
     bool start(const WorkspaceState& workspace, MeasurementRunMode runMode);
     void cancel();
     void tick();
+    bool consumeAlignmentUpdate();
 
     [[nodiscard]] const MeasurementStatus& status() const { return status_; }
     [[nodiscard]] const MeasurementResult& result() const { return result_; }
@@ -32,6 +33,7 @@ private:
     measurement::SweepPlaybackPlan playbackPlan_;
     MeasurementResult result_;
     MeasurementStatus status_;
+    bool alignmentUpdateAvailable_ = false;
     uint64_t startTickMs_ = 0;
     uint64_t durationMs_ = 0;
     std::string measurementTimestampUtc_;

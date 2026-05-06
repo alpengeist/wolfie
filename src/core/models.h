@@ -16,7 +16,8 @@ enum class MeasurementChannel {
 
 enum class MeasurementRunMode {
     Room,
-    Reference
+    Reference,
+    Alignment
 };
 
 struct AudioSettings {
@@ -39,7 +40,7 @@ struct AudioSettings {
 
 struct MeasurementSettings {
     int sampleRate = 44100;
-    double fadeInSeconds = 0.5;
+    double fadeInSeconds = 0.05;
     double fadeOutSeconds = 0.1;
     double durationSeconds = 20.0;
     double startFrequencyHz = 20.0;
@@ -64,6 +65,7 @@ struct UiSettings {
     double measurementGraphVisibleMinFrequencyHz = 20.0;
     double measurementGraphVisibleMaxFrequencyHz = 20000.0;
     std::string measurementPlotMode = "magnitude";
+    std::string measurementWaterfallSource = "measured";
     std::string measurementWaterfallChannel = "left";
     double measurementWaterfallLowCutoffDb = -72.0;
     bool measurementShowRoomLeft = true;
@@ -84,6 +86,8 @@ struct UiSettings {
     bool targetCurveGraphHasCustomVisibleDbRange = false;
     double targetCurveGraphVisibleMinDb = -12.0;
     double targetCurveGraphVisibleMaxDb = 12.0;
+    int lastOpenTabIndex = 0;
+    std::string filterViewMode = "minimum";
     bool filterShowInputRight = true;
     bool filterShowInputLeft = true;
     bool filterShowInversionRight = true;
@@ -103,7 +107,7 @@ struct UiSettings {
     bool filterShowFilterGroupDelayLeft = true;
     bool filterShowFilterGroupDelayRight = true;
     bool filterAlignGroupDelayLatency = false;
-    bool filterSyncHoverFrequency = false;
+    int filterGroupDelayZoomPreset = 5;
     bool exportSampleRatesCustomized = false;
     std::vector<int> exportSampleRatesHz;
 };
@@ -229,6 +233,13 @@ struct MeasurementResult {
     }
 
     [[nodiscard]] const MeasurementValueSet* magnitudeResponse() const {
+        if (analysis.measurementKind == "reference") {
+            if (const MeasurementValueSet* direct = findValueSet("measurement.direct_magnitude_response")) {
+                if (direct->valid()) {
+                    return direct;
+                }
+            }
+        }
         if (const MeasurementValueSet* canonical = findValueSet("measurement.magnitude_response")) {
             if (canonical->valid()) {
                 return canonical;
@@ -285,6 +296,7 @@ struct TargetCurveSettings {
     double midFrequencyHz = 1000.0;
     double midGainDb = 0.0;
     double highGainDb = 0.0;
+    double levelOffsetDb = 0.0;
     bool bypassEqBands = false;
     std::vector<TargetEqBand> eqBands;
 };
@@ -353,7 +365,7 @@ struct FilterAnalysisResult {
 
 struct FilterDesignSettings {
     int tapCount = 65536;
-    double maxBoostDb = 6.0;
+    double maxBoostDb = 0.0;
     double maxCutDb = 12.0;
     double smoothness = 1.0;
     double lowCorrectionHz = 30.0;
@@ -363,6 +375,7 @@ struct FilterDesignSettings {
     int displayPointCount = 2048;
     std::string phaseMode = "minimum";
     double mixedPhaseMaxFrequencyHz = 220.0;
+    double excessPhaseWindowMs = 0.0;
     double mixedPhaseStrength = 1.0;
     double mixedPhaseMaxCorrectionDegrees = 360.0;
 };
@@ -402,6 +415,15 @@ struct FilterDesignResult {
     FilterDesignChannelResult right;
 };
 
+struct StoredFilterDesign {
+    FilterDesignSettings settings;
+    FilterDesignResult result;
+
+    [[nodiscard]] bool available() const {
+        return result.valid;
+    }
+};
+
 struct WorkspaceState {
     std::filesystem::path rootPath;
     AudioSettings audio;
@@ -420,6 +442,8 @@ struct WorkspaceState {
     SmoothedResponse smoothedResponse;
     FilterDesignResult filterResult;
     FilterAnalysisResult filterAnalysis;
+    StoredFilterDesign minimumFilter;
+    StoredFilterDesign mixedFilter;
 };
 
 struct AppState {

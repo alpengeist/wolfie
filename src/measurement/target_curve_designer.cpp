@@ -180,7 +180,7 @@ double evaluateTargetCurveDbAtFrequency(const MeasurementSettings& measurement,
         }
         eqDb += bandContributionDb(band, measurement.sampleRate, clampedFrequencyHz);
     }
-    return basicDb + eqDb;
+    return basicDb + eqDb + settings.levelOffsetDb;
 }
 
 TargetCurvePlotData buildTargetCurvePlotData(const SmoothedResponse& response,
@@ -231,13 +231,17 @@ TargetCurvePlotData buildTargetCurvePlotData(const SmoothedResponse& response,
     const size_t responseCount = std::min({response.frequencyAxisHz.size(),
                                            response.leftChannelDb.size(),
                                            response.rightChannelDb.size()});
+    double anchorOffsetDb = 0.0;
     if (responseCount > 0 && responseCount == plot.frequencyAxisHz.size()) {
-        const double anchorOffsetDb = meanResponseLevelDb(response) - meanSeriesValue(plot.targetCurveDb);
+        anchorOffsetDb = meanResponseLevelDb(response) - meanSeriesValue(plot.targetCurveDb);
+    }
+    const double totalOffsetDb = anchorOffsetDb + settings.levelOffsetDb;
+    if (std::abs(totalOffsetDb) > 1.0e-9) {
         for (double& value : plot.basicCurveDb) {
-            value += anchorOffsetDb;
+            value += totalOffsetDb;
         }
         for (double& value : plot.targetCurveDb) {
-            value += anchorOffsetDb;
+            value += totalOffsetDb;
         }
     }
 

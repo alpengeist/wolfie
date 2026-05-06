@@ -55,6 +55,7 @@ void MeasurementController::resetState() {
     runMode_ = MeasurementRunMode::Room;
     activeMeasurementSettings_ = {};
     playbackPlan_ = {};
+    alignmentUpdateAvailable_ = false;
     measurementTimestampUtc_.clear();
 }
 
@@ -65,7 +66,9 @@ bool MeasurementController::start(const WorkspaceState& workspace, MeasurementRu
     snapshot_ = workspace;
     runMode_ = runMode;
     status_.runMode = runMode_;
-    measurement::syncDerivedMeasurementSettings(snapshot_.measurement);
+    if (runMode_ != MeasurementRunMode::Alignment) {
+        measurement::syncDerivedMeasurementSettings(snapshot_.measurement);
+    }
     if (runMode_ == MeasurementRunMode::Reference) {
         if (!snapshot_.audio.loopbackEnabled) {
             status_.lastErrorMessage = L"Loopback reference routing is not enabled in Measurement Settings.";
@@ -89,12 +92,17 @@ bool MeasurementController::start(const WorkspaceState& workspace, MeasurementRu
     playbackPlan_ = session_->playbackPlan();
     activeMeasurementSettings_ = snapshot_.measurement;
     activeMeasurementSettings_.sampleRate = session_->sampleRate();
-    measurement::syncDerivedMeasurementSettings(activeMeasurementSettings_);
+    if (runMode_ != MeasurementRunMode::Alignment) {
+        measurement::syncDerivedMeasurementSettings(activeMeasurementSettings_);
+    }
 
     const std::filesystem::path measurementDir = snapshot_.rootPath / "measurement";
     std::filesystem::create_directories(measurementDir);
-    status_.generatedSweepPath = measurementDir /
-                                 (runMode_ == MeasurementRunMode::Reference ? "reference-logsweep.wav" : "logsweep.wav");
+    const std::wstring sweepFileName =
+        runMode_ == MeasurementRunMode::Reference ? L"reference-logsweep.wav"
+        : (runMode_ == MeasurementRunMode::Alignment ? L"alignment-pulse.wav"
+                                                     : L"logsweep.wav");
+    status_.generatedSweepPath = measurementDir / sweepFileName;
     measurement::writeStereoWaveFile(status_.generatedSweepPath, playbackPlan_.playbackPcm, session_->sampleRate());
 
     durationMs_ = static_cast<uint64_t>(
@@ -125,9 +133,11 @@ void MeasurementController::tick() {
     status_.peakAmplitudeDb = levels.peakAmplitudeDb;
 
     const uint64_t elapsedMs = tickMillis() - startTickMs_;
-    const size_t elapsedFrames = std::min(
-        playbackPlan_.totalFrames,
-        static_cast<size_t>((elapsedMs * static_cast<uint64_t>(session_->sampleRate())) / 1000ULL));
+    const size_t elapsedFramesRaw =
+        static_cast<size_t>((elapsedMs * static_cast<uint64_t>(session_->sampleRate())) / 1000ULL);
+    const size_t elapsedFrames = runMode_ == MeasurementRunMode::Alignment && playbackPlan_.totalFrames > 0
+                                     ? (elapsedFramesRaw % playbackPlan_.totalFrames)
+                                     : std::min(playbackPlan_.totalFrames, elapsedFramesRaw);
     const size_t leftSweepStart = playbackPlan_.leadInFrames;
     const double sweepFrames = std::max(1.0, static_cast<double>(playbackPlan_.sweepFrames));
 
@@ -169,6 +179,33 @@ void MeasurementController::tick() {
                                                                          playbackPlan_.sweepFrames);
     }
 
+    if (runMode_ == MeasurementRunMode::Alignment) {
+        std::vector<int16_t> alignmentCycleCapture;
+        if (!session_->consumeCompletedAlignmentCycle(alignmentCycleCapture)) {
+            return;
+        }
+
+        const audio::SessionDetails sessionDetails = session_->details();
+        result_ = measurement::buildMeasurementResultFromCapture(alignmentCycleCapture,
+                                                                 playbackPlan_,
+                                                                 session_->sampleRate(),
+                                                                 snapshot_.audio,
+                                                                 activeMeasurementSettings_,
+                                                                 nullptr,
+                                                                 MeasurementRunMode::Alignment);
+        result_.analysis.measurementKind = "alignment";
+        result_.analysis.measurementTimestampUtc = measurementTimestampUtc_;
+        result_.analysis.backendName = sessionDetails.backendName;
+        result_.analysis.backendInputDevice = toUtf8(sessionDetails.inputDeviceName);
+        result_.analysis.backendOutputDevice = toUtf8(sessionDetails.outputDeviceName);
+        result_.analysis.routingSelectionHonored = sessionDetails.routingSelectionHonored;
+        result_.analysis.routingNotes = toUtf8(sessionDetails.routingNotes);
+        result_.analysis.artifacts.push_back({"generated_sweep_wav", status_.generatedSweepPath});
+        alignmentUpdateAvailable_ = true;
+        status_.finished = false;
+        return;
+    }
+
     if (!session_->playbackDone() && elapsedMs < durationMs_) {
         return;
     }
@@ -180,8 +217,11 @@ void MeasurementController::tick() {
 
     const std::filesystem::path measurementDir = snapshot_.rootPath / "measurement";
     std::filesystem::create_directories(measurementDir);
-    const std::filesystem::path rawCapturePath =
-        measurementDir / (runMode_ == MeasurementRunMode::Reference ? "reference-raw-capture.wav" : "raw-capture.wav");
+    const std::wstring rawCaptureName =
+        runMode_ == MeasurementRunMode::Reference ? L"reference-raw-capture.wav"
+        : (runMode_ == MeasurementRunMode::Alignment ? L"alignment-raw-capture.wav"
+                                                     : L"raw-capture.wav");
+    const std::filesystem::path rawCapturePath = measurementDir / rawCaptureName;
     measurement::writeMonoWaveFile(rawCapturePath, session_->capturedSamples(), session_->sampleRate());
 
     result_ = measurement::buildMeasurementResultFromCapture(session_->capturedSamples(),
@@ -190,10 +230,14 @@ void MeasurementController::tick() {
                                                              snapshot_.audio,
                                                              activeMeasurementSettings_,
                                                              runMode_ == MeasurementRunMode::Room &&
+                                                                     snapshot_.audio.loopbackEnabled &&
                                                                      snapshot_.referenceResult.hasAnyValues()
                                                                  ? &snapshot_.referenceResult
-                                                                 : nullptr);
-    result_.analysis.measurementKind = runMode_ == MeasurementRunMode::Reference ? "reference" : "room";
+                                                                 : nullptr,
+                                                             runMode_);
+    result_.analysis.measurementKind =
+        runMode_ == MeasurementRunMode::Reference ? "reference"
+        : (runMode_ == MeasurementRunMode::Alignment ? "alignment" : "room");
     result_.analysis.measurementTimestampUtc = measurementTimestampUtc_;
     result_.analysis.backendName = sessionDetails.backendName;
     result_.analysis.backendInputDevice = toUtf8(sessionDetails.inputDeviceName);
@@ -204,10 +248,14 @@ void MeasurementController::tick() {
     result_.analysis.artifacts.push_back({"raw_capture_wav", rawCapturePath});
     result_.analysis.artifacts.push_back(
         {"result_values_txt",
-         measurementDir / (runMode_ == MeasurementRunMode::Reference ? "reference-result-values.txt" : "result-values.txt")});
+         measurementDir / (runMode_ == MeasurementRunMode::Reference ? "reference-result-values.txt"
+                           : (runMode_ == MeasurementRunMode::Alignment ? "alignment-result-values.txt"
+                                                                         : "result-values.txt"))});
     result_.analysis.artifacts.push_back(
         {"analysis_json",
-         measurementDir / (runMode_ == MeasurementRunMode::Reference ? "reference-analysis.json" : "analysis.json")});
+         measurementDir / (runMode_ == MeasurementRunMode::Reference ? "reference-analysis.json"
+                           : (runMode_ == MeasurementRunMode::Alignment ? "alignment-analysis.json"
+                                                                         : "analysis.json"))});
 
     session_.reset();
     status_.running = false;
@@ -215,6 +263,14 @@ void MeasurementController::tick() {
     status_.progress = 1.0;
     status_.currentChannel = MeasurementChannel::None;
     status_.currentFrequencyHz = activeMeasurementSettings_.endFrequencyHz;
+}
+
+bool MeasurementController::consumeAlignmentUpdate() {
+    if (!alignmentUpdateAvailable_) {
+        return false;
+    }
+    alignmentUpdateAvailable_ = false;
+    return true;
 }
 
 }  // namespace wolfie

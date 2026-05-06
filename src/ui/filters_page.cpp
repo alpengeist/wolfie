@@ -14,8 +14,17 @@ namespace wolfie::ui {
 
 namespace {
 
-constexpr double kSmoothnessSteps[] = {0.1, 1.0, 2.0, 4.0};
+constexpr double kSmoothnessSteps[] = {
+    0.1,
+    1.0,
+    2.0,
+    4.0,
+};
 constexpr int kSmoothnessStepCount = static_cast<int>(sizeof(kSmoothnessSteps) / sizeof(kSmoothnessSteps[0]));
+constexpr int kGroupDelayZoomRangesMs[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
+constexpr int kGroupDelayZoomPresetCount =
+    static_cast<int>(sizeof(kGroupDelayZoomRangesMs) / sizeof(kGroupDelayZoomRangesMs[0]));
+constexpr int kGroupDelayZoomFitPreset = kGroupDelayZoomPresetCount;
 constexpr double kImpulseGraphNegativeWindowMs = 10.0;
 constexpr double kImpulseGraphPositiveWindowMs = 50.0;
 constexpr double kImpulseGraphMinZoomFactor = 0.5;
@@ -42,6 +51,23 @@ int smoothnessSliderPositionFromValue(double smoothness) {
 double smoothnessValueFromSliderPosition(LRESULT position) {
     const int index = clampValue(static_cast<int>(position), 0, kSmoothnessStepCount - 1);
     return kSmoothnessSteps[index];
+}
+
+int smoothnessDisplayValueFromSliderPosition(LRESULT position) {
+    return clampValue(static_cast<int>(position), 0, kSmoothnessStepCount - 1) + 1;
+}
+
+int clampGroupDelayZoomPreset(int preset) {
+    return clampValue(preset, 0, kGroupDelayZoomFitPreset);
+}
+
+std::wstring groupDelayZoomLabelFromPreset(int preset) {
+    const int clampedPreset = clampGroupDelayZoomPreset(preset);
+    if (clampedPreset == kGroupDelayZoomFitPreset) {
+        return L"Fit";
+    }
+
+    return L"+-" + std::to_wstring(kGroupDelayZoomRangesMs[clampedPreset]) + L" ms";
 }
 
 void drawLegendFrame(const DRAWITEMSTRUCT& draw) {
@@ -119,6 +145,131 @@ std::vector<double> resampleLogFrequency(const std::vector<double>& sourceAxisHz
     return resampled;
 }
 
+double interpolateLinearAxisValue(const std::vector<double>& sourceAxis,
+                                  const std::vector<double>& sourceValues,
+                                  double xValue) {
+    if (sourceAxis.empty() || sourceValues.size() != sourceAxis.size()) {
+        return 0.0;
+    }
+
+    if (xValue <= sourceAxis.front()) {
+        return sourceValues.front();
+    }
+    if (xValue >= sourceAxis.back()) {
+        return sourceValues.back();
+    }
+
+    const auto upper = std::lower_bound(sourceAxis.begin(), sourceAxis.end(), xValue);
+    if (upper == sourceAxis.begin()) {
+        return sourceValues.front();
+    }
+    if (upper == sourceAxis.end()) {
+        return sourceValues.back();
+    }
+
+    const size_t upperIndex = static_cast<size_t>(upper - sourceAxis.begin());
+    const size_t lowerIndex = upperIndex - 1;
+    return interpolateLinear(xValue,
+                             sourceAxis[lowerIndex],
+                             sourceValues[lowerIndex],
+                             sourceAxis[upperIndex],
+                             sourceValues[upperIndex]);
+}
+
+double interpolateLinearAxisValueZeroOutside(const std::vector<double>& sourceAxis,
+                                             const std::vector<double>& sourceValues,
+                                             double xValue) {
+    if (sourceAxis.empty() || sourceValues.size() != sourceAxis.size()) {
+        return 0.0;
+    }
+
+    if (xValue < sourceAxis.front() || xValue > sourceAxis.back()) {
+        return 0.0;
+    }
+    if (xValue <= sourceAxis.front()) {
+        return sourceValues.front();
+    }
+    if (xValue >= sourceAxis.back()) {
+        return sourceValues.back();
+    }
+
+    return interpolateLinearAxisValue(sourceAxis, sourceValues, xValue);
+}
+
+std::vector<double> resampleLinearAxis(const std::vector<double>& sourceAxis,
+                                       const std::vector<double>& sourceValues,
+                                       const std::vector<double>& targetAxis) {
+    std::vector<double> resampled;
+    if (sourceAxis.empty() || sourceValues.size() != sourceAxis.size() || targetAxis.empty()) {
+        return resampled;
+    }
+
+    resampled.reserve(targetAxis.size());
+    for (const double xValue : targetAxis) {
+        resampled.push_back(interpolateLinearAxisValue(sourceAxis, sourceValues, xValue));
+    }
+    return resampled;
+}
+
+std::vector<double> resampleLinearAxisZeroOutside(const std::vector<double>& sourceAxis,
+                                                  const std::vector<double>& sourceValues,
+                                                  const std::vector<double>& targetAxis) {
+    std::vector<double> resampled;
+    if (sourceAxis.empty() || sourceValues.size() != sourceAxis.size() || targetAxis.empty()) {
+        return resampled;
+    }
+
+    resampled.reserve(targetAxis.size());
+    for (const double xValue : targetAxis) {
+        resampled.push_back(interpolateLinearAxisValueZeroOutside(sourceAxis, sourceValues, xValue));
+    }
+    return resampled;
+}
+
+std::vector<double> subtractSeries(const std::vector<double>& minuend, const std::vector<double>& subtrahend) {
+    const size_t count = std::min(minuend.size(), subtrahend.size());
+    std::vector<double> delta;
+    delta.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        delta.push_back(minuend[index] - subtrahend[index]);
+    }
+    return delta;
+}
+
+std::vector<double> buildLogDeltaSeries(const FilterDesignResult& minimumResult,
+                                        const std::vector<double>& minimumValues,
+                                        const FilterDesignResult& mixedResult,
+                                        const std::vector<double>& mixedValues,
+                                        const std::vector<double>& targetAxisHz) {
+    const std::vector<double> minimumResampled =
+        resampleLogFrequency(minimumResult.frequencyAxisHz, minimumValues, targetAxisHz);
+    const std::vector<double> mixedResampled =
+        resampleLogFrequency(mixedResult.frequencyAxisHz, mixedValues, targetAxisHz);
+    return subtractSeries(mixedResampled, minimumResampled);
+}
+
+std::vector<double> buildLinearDeltaSeries(const std::vector<double>& minimumAxis,
+                                           const std::vector<double>& minimumValues,
+                                           const std::vector<double>& mixedAxis,
+                                           const std::vector<double>& mixedValues,
+                                           const std::vector<double>& targetAxis) {
+    const std::vector<double> minimumResampled =
+        resampleLinearAxisZeroOutside(minimumAxis, minimumValues, targetAxis);
+    const std::vector<double> mixedResampled =
+        resampleLinearAxisZeroOutside(mixedAxis, mixedValues, targetAxis);
+    return subtractSeries(mixedResampled, minimumResampled);
+}
+
+void accumulateFiniteRange(const std::vector<double>& values, double& minValue, double& maxValue) {
+    for (const double value : values) {
+        if (!std::isfinite(value)) {
+            continue;
+        }
+        minValue = std::min(minValue, value);
+        maxValue = std::max(maxValue, value);
+    }
+}
+
 std::vector<double> buildSharedImpulseTimeAxisMs(const FilterDesignResult& filterResult) {
     const size_t tapCount = std::min(filterResult.left.filterTaps.size(), filterResult.right.filterTaps.size());
     if (tapCount == 0) {
@@ -157,6 +308,50 @@ std::vector<double> buildSharedImpulseTimeAxisMs(const FilterDesignResult& filte
         xValues.push_back((static_cast<double>(index) - centerIndex) * 1000.0 / sampleRate);
     }
     return xValues;
+}
+
+double impulseAxisStepMs(const std::vector<double>& axis) {
+    if (axis.size() < 2) {
+        return 0.0;
+    }
+
+    double step = axis[1] - axis[0];
+    if (!std::isfinite(step) || std::abs(step) < 1.0e-9) {
+        return 0.0;
+    }
+    return step;
+}
+
+std::vector<double> buildImpulseDifferenceTimeAxisMs(const FilterDesignResult& minimumResult,
+                                                     const FilterDesignResult& mixedResult) {
+    const std::vector<double> minimumAxis = buildSharedImpulseTimeAxisMs(minimumResult);
+    const std::vector<double> mixedAxis = buildSharedImpulseTimeAxisMs(mixedResult);
+    if (minimumAxis.empty()) {
+        return mixedAxis;
+    }
+    if (mixedAxis.empty()) {
+        return minimumAxis;
+    }
+
+    double stepMs = impulseAxisStepMs(mixedAxis);
+    if (stepMs <= 0.0) {
+        stepMs = impulseAxisStepMs(minimumAxis);
+    }
+    if (stepMs <= 0.0) {
+        return mixedAxis;
+    }
+
+    const double minMs = std::min(minimumAxis.front(), mixedAxis.front());
+    const double maxMs = std::max(minimumAxis.back(), mixedAxis.back());
+    const size_t pointCount =
+        static_cast<size_t>(std::max(std::llround((maxMs - minMs) / stepMs), 0ll)) + 1;
+
+    std::vector<double> axis;
+    axis.reserve(pointCount);
+    for (size_t index = 0; index < pointCount; ++index) {
+        axis.push_back(minMs + (static_cast<double>(index) * stepMs));
+    }
+    return axis;
 }
 
 std::vector<double> subtractConstant(const std::vector<double>& values, double offset) {
@@ -212,10 +407,10 @@ void FiltersPage::createControls() {
                                             0,
                                             0,
                                             window_,
-                                            reinterpret_cast<HMENU>(kComboTapCount),
+                                            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboTapCount)),
                                             instance_,
                                             nullptr);
-    controls_.labelPhaseMode = CreateWindowW(L"STATIC", L"Phase Mode", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelPhaseMode = CreateWindowW(L"STATIC", L"Filter View", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.comboPhaseMode = CreateWindowW(L"COMBOBOX",
                                              nullptr,
                                              WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL | kHelpBubbleChildClipStyle,
@@ -224,26 +419,26 @@ void FiltersPage::createControls() {
                                              0,
                                              0,
                                              window_,
-                                             reinterpret_cast<HMENU>(kComboPhaseMode),
+                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboPhaseMode)),
                                              instance_,
                                              nullptr);
     controls_.labelLowCorrection = CreateWindowW(L"STATIC", L"Low Bound", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editLowCorrection = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditLowCorrection), instance_, nullptr);
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditLowCorrection)), instance_, nullptr);
     controls_.unitLowCorrection = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelHighCorrection = CreateWindowW(L"STATIC", L"High Bound", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editHighCorrection = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditHighCorrection), instance_, nullptr);
+                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditHighCorrection)), instance_, nullptr);
     controls_.unitHighCorrection = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMaxBoost = CreateWindowW(L"STATIC", L"Max Boost", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMaxBoost = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                             0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMaxBoost), instance_, nullptr);
+                                             0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMaxBoost)), instance_, nullptr);
     controls_.unitMaxBoost = CreateWindowW(L"STATIC", L"dB", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMaxCut = CreateWindowW(L"STATIC", L"Max Cut", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMaxCut = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                           0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMaxCut), instance_, nullptr);
+                                           0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMaxCut)), instance_, nullptr);
     controls_.unitMaxCut = CreateWindowW(L"STATIC", L"dB", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelSmoothness = CreateWindowW(L"STATIC", L"Smoothness", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelSmoothness = CreateWindowW(L"STATIC", L"Inversion Smoothness", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.sliderSmoothness = CreateWindowW(TRACKBAR_CLASSW,
                                                nullptr,
                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ | kHelpBubbleChildClipStyle,
@@ -252,45 +447,39 @@ void FiltersPage::createControls() {
                                                0,
                                                0,
                                                window_,
-                                               reinterpret_cast<HMENU>(kSliderSmoothness),
+                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSliderSmoothness)),
                                                instance_,
                                                nullptr);
     controls_.valueSmoothness = CreateWindowW(L"STATIC", L"1", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMixedPhaseMax = CreateWindowW(L"STATIC", L"Phase Limit", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseMax = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMixedPhaseMax), instance_, nullptr);
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseMax)), instance_, nullptr);
     controls_.unitMixedPhaseMax = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseWindow = CreateWindowW(L"STATIC", L"Excess", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.editExcessPhaseWindow = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
+                                                      0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditExcessPhaseWindow)), instance_, nullptr);
+    controls_.unitExcessPhaseWindow = CreateWindowW(L"STATIC", L"ms", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMixedPhaseStrength = CreateWindowW(L"STATIC", L"Phase Strength", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseStrength = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMixedPhaseStrength), instance_, nullptr);
+                                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseStrength)), instance_, nullptr);
     controls_.unitMixedPhaseStrength = CreateWindowW(L"STATIC", L"0..1", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMixedPhaseCap = CreateWindowW(L"STATIC", L"Phase Cap", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseCap = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kEditMixedPhaseCap), instance_, nullptr);
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseCap)), instance_, nullptr);
     controls_.unitMixedPhaseCap = CreateWindowW(L"STATIC", L"deg", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | kHelpBubbleChildClipStyle,
-                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonRecalculate), instance_, nullptr);
+                                                0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonRecalculate)), instance_, nullptr);
     helpBubble_.registerLabel(controls_.labelTapCount, L"Sets the FIR length. More taps allow finer correction but increase latency and processing cost.");
-    helpBubble_.registerLabel(controls_.labelPhaseMode, L"Chooses the phase correction mode used when calculating the filter design.");
+    helpBubble_.registerLabel(controls_.labelPhaseMode, L"Chooses which stored filter to display: minimum, mixed, or the mode delta between them.");
     helpBubble_.registerLabel(controls_.labelLowCorrection, L"Sets the lowest frequency where correction is allowed to operate.");
     helpBubble_.registerLabel(controls_.labelHighCorrection, L"Sets the highest frequency where correction is allowed to operate.");
     helpBubble_.registerLabel(controls_.labelMaxBoost, L"Limits how much positive gain the calculated correction may apply.");
     helpBubble_.registerLabel(controls_.labelMaxCut, L"Limits how much attenuation the calculated correction may apply.");
     helpBubble_.registerLabel(controls_.labelSmoothness, L"Controls how tightly the correction follows response detail instead of smoothing it out.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseMax, L"Sets the highest frequency where mixed-phase correction is allowed.");
+    helpBubble_.registerLabel(controls_.labelExcessPhaseWindow, L"Optionally windows the prepared excess-phase impulse in milliseconds before mixed-phase correction is derived. Set 0 to keep the full prepared response.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseStrength, L"Controls how strongly mixed-phase correction is applied within the allowed range.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseCap, L"Caps the maximum phase rotation the mixed-phase solver may request.");
-    controls_.checkboxSyncHoverFrequency = CreateWindowW(L"BUTTON",
-                                                         L"Sync hover cursor",
-                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                                                         0,
-                                                         0,
-                                                         0,
-                                                         0,
-                                                         window_,
-                                                         reinterpret_cast<HMENU>(kCheckboxSyncHoverFrequency),
-                                                         instance_,
-                                                         nullptr);
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.inversionLegendFrame = CreateWindowW(L"STATIC",
@@ -312,7 +501,7 @@ void FiltersPage::createControls() {
                                                      0,
                                                      0,
                                                      window_,
-                                                     reinterpret_cast<HMENU>(kCheckboxShowInputRight),
+                                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInputRight)),
                                                      instance_,
                                                      nullptr);
     controls_.lineInputRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -325,7 +514,7 @@ void FiltersPage::createControls() {
                                                     0,
                                                     0,
                                                     window_,
-                                                    reinterpret_cast<HMENU>(kCheckboxShowInputLeft),
+                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInputLeft)),
                                                     instance_,
                                                     nullptr);
     controls_.lineInputLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -338,7 +527,7 @@ void FiltersPage::createControls() {
                                                          0,
                                                          0,
                                                          window_,
-                                                         reinterpret_cast<HMENU>(kCheckboxShowInversionRight),
+                                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInversionRight)),
                                                          instance_,
                                                          nullptr);
     controls_.lineInversionRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -351,13 +540,24 @@ void FiltersPage::createControls() {
                                                         0,
                                                         0,
                                                         window_,
-                                                        reinterpret_cast<HMENU>(kCheckboxShowInversionLeft),
+                                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInversionLeft)),
                                                         instance_,
                                                         nullptr);
     controls_.lineInversionLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelInversionLeft = CreateWindowW(L"STATIC", L"L inv", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.correctedTitle = CreateWindowW(L"STATIC", L"Predicted Corrected Response", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.buttonCorrectedEffect = CreateWindowW(L"BUTTON",
+                                                    L"Effect",
+                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_PUSHLIKE,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                    window_,
+                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonCorrectedEffect)),
+                                                    instance_,
+                                                    nullptr);
     controls_.correctedLegendFrame = CreateWindowW(L"STATIC",
                                                    L"",
                                                    WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
@@ -379,7 +579,7 @@ void FiltersPage::createControls() {
                                                              0,
                                                              0,
                                                              window_,
-                                                             reinterpret_cast<HMENU>(kCheckboxShowCorrectedInputLeft),
+                                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowCorrectedInputLeft)),
                                                              instance_,
                                                              nullptr);
     controls_.lineCorrectedInputLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -392,7 +592,7 @@ void FiltersPage::createControls() {
                                                               0,
                                                               0,
                                                               window_,
-                                                              reinterpret_cast<HMENU>(kCheckboxShowCorrectedInputRight),
+                                                              reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowCorrectedInputRight)),
                                                               instance_,
                                                               nullptr);
     controls_.lineCorrectedInputRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -405,7 +605,7 @@ void FiltersPage::createControls() {
                                                         0,
                                                         0,
                                                          window_,
-                                                         reinterpret_cast<HMENU>(kCheckboxShowCorrectedLeft),
+                                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowCorrectedLeft)),
                                                          instance_,
                                                          nullptr);
     controls_.lineCorrectedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -418,13 +618,24 @@ void FiltersPage::createControls() {
                                                          0,
                                                          0,
                                                           window_,
-                                                          reinterpret_cast<HMENU>(kCheckboxShowCorrectedRight),
+                                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowCorrectedRight)),
                                                           instance_,
                                                           nullptr);
     controls_.lineCorrectedRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelCorrectedRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.excessPhaseTitle = CreateWindowW(L"STATIC", L"Excess Phase", WS_CHILD | WS_VISIBLE,
                                                0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.buttonExcessPhaseEffect = CreateWindowW(L"BUTTON",
+                                                      L"Effect",
+                                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_PUSHLIKE,
+                                                      0,
+                                                      0,
+                                                      0,
+                                                      0,
+                                                      window_,
+                                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonExcessPhaseEffect)),
+                                                      instance_,
+                                                      nullptr);
     controls_.excessPhaseLegendFrame = CreateWindowW(L"STATIC",
                                                      L"",
                                                      WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
@@ -444,11 +655,11 @@ void FiltersPage::createControls() {
                                                                 0,
                                                                 0,
                                                                 window_,
-                                                                reinterpret_cast<HMENU>(kCheckboxShowExcessPhaseInputRight),
+                                                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowExcessPhaseInputRight)),
                                                                 instance_,
                                                                 nullptr);
     controls_.lineExcessPhaseInputRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhaseInputRight = CreateWindowW(L"STATIC", L"R before", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseInputRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowExcessPhaseInputLeft = CreateWindowW(L"BUTTON",
                                                                L"",
                                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -457,11 +668,11 @@ void FiltersPage::createControls() {
                                                                0,
                                                                0,
                                                                window_,
-                                                               reinterpret_cast<HMENU>(kCheckboxShowExcessPhaseInputLeft),
+                                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowExcessPhaseInputLeft)),
                                                                instance_,
                                                                nullptr);
     controls_.lineExcessPhaseInputLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhaseInputLeft = CreateWindowW(L"STATIC", L"L before", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseInputLeft = CreateWindowW(L"STATIC", L"L", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowExcessPhasePredictedRight = CreateWindowW(L"BUTTON",
                                                                     L"",
                                                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -470,11 +681,11 @@ void FiltersPage::createControls() {
                                                                     0,
                                                                     0,
                                                                     window_,
-                                                                    reinterpret_cast<HMENU>(kCheckboxShowExcessPhasePredictedRight),
+                                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowExcessPhasePredictedRight)),
                                                                     instance_,
                                                                     nullptr);
     controls_.lineExcessPhasePredictedRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhasePredictedRight = CreateWindowW(L"STATIC", L"R after", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhasePredictedRight = CreateWindowW(L"STATIC", L"R pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowExcessPhasePredictedLeft = CreateWindowW(L"BUTTON",
                                                                    L"",
                                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -483,13 +694,42 @@ void FiltersPage::createControls() {
                                                                    0,
                                                                    0,
                                                                    window_,
-                                                                   reinterpret_cast<HMENU>(kCheckboxShowExcessPhasePredictedLeft),
+                                                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowExcessPhasePredictedLeft)),
                                                                    instance_,
                                                                    nullptr);
     controls_.lineExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L after", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.buttonGroupDelayEffect = CreateWindowW(L"BUTTON",
+                                                     L"Effect",
+                                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_PUSHLIKE,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     window_,
+                                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonGroupDelayEffect)),
+                                                     instance_,
+                                                     nullptr);
+    controls_.labelGroupDelayZoom = CreateWindowW(L"STATIC", L"Y Range", WS_CHILD | WS_VISIBLE,
+                                                  0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.sliderGroupDelayZoom = CreateWindowW(TRACKBAR_CLASSW,
+                                                   nullptr,
+                                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   window_,
+                                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSliderGroupDelayZoom)),
+                                                   instance_,
+                                                   nullptr);
+    controls_.valueGroupDelayZoom = CreateWindowW(L"STATIC", L"Fit", WS_CHILD | WS_VISIBLE,
+                                                  0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    SetWindowSubclass(controls_.sliderGroupDelayZoom, GroupDelayZoomSliderProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    helpBubble_.registerLabel(controls_.labelGroupDelayZoom,
+                              L"Sets a fixed vertical range for the group-delay chart, or lets the chart fit automatically.");
     controls_.checkboxAlignGroupDelayLatency = CreateWindowW(L"BUTTON",
                                                              L"Align latency",
                                                              WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -498,7 +738,7 @@ void FiltersPage::createControls() {
                                                              0,
                                                              0,
                                                              window_,
-                                                             reinterpret_cast<HMENU>(kCheckboxAlignGroupDelayLatency),
+                                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxAlignGroupDelayLatency)),
                                                              instance_,
                                                              nullptr);
     controls_.groupDelayLegendFrame = CreateWindowW(L"STATIC",
@@ -520,11 +760,11 @@ void FiltersPage::createControls() {
                                                               0,
                                                               0,
                                                               window_,
-                                                              reinterpret_cast<HMENU>(kCheckboxShowInputGroupDelayLeft),
+                                                              reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInputGroupDelayLeft)),
                                                               instance_,
                                                               nullptr);
     controls_.lineInputGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelInputGroupDelayLeft = CreateWindowW(L"STATIC", L"L input", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInputGroupDelayLeft = CreateWindowW(L"STATIC", L"L", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowInputGroupDelayRight = CreateWindowW(L"BUTTON",
                                                                L"",
                                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -533,11 +773,11 @@ void FiltersPage::createControls() {
                                                                0,
                                                                0,
                                                                window_,
-                                                               reinterpret_cast<HMENU>(kCheckboxShowInputGroupDelayRight),
+                                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowInputGroupDelayRight)),
                                                                instance_,
                                                                nullptr);
     controls_.lineInputGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelInputGroupDelayRight = CreateWindowW(L"STATIC", L"R input", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelInputGroupDelayRight = CreateWindowW(L"STATIC", L"R", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.checkboxShowFilterGroupDelayLeft = CreateWindowW(L"BUTTON",
                                                                L"",
                                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
@@ -546,7 +786,7 @@ void FiltersPage::createControls() {
                                                                0,
                                                                0,
                                                                window_,
-                                                               reinterpret_cast<HMENU>(kCheckboxShowFilterGroupDelayLeft),
+                                                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowFilterGroupDelayLeft)),
                                                                instance_,
                                                                nullptr);
     controls_.lineGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -559,7 +799,7 @@ void FiltersPage::createControls() {
                                                                 0,
                                                                 0,
                                                                 window_,
-                                                                reinterpret_cast<HMENU>(kCheckboxShowFilterGroupDelayRight),
+                                                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowFilterGroupDelayRight)),
                                                                 instance_,
                                                                 nullptr);
     controls_.lineGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -572,7 +812,7 @@ void FiltersPage::createControls() {
                                                                    0,
                                                                    0,
                                                                    window_,
-                                                                   reinterpret_cast<HMENU>(kCheckboxShowPredictedGroupDelayRight),
+                                                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowPredictedGroupDelayRight)),
                                                                    instance_,
                                                                    nullptr);
     controls_.linePredictedGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -585,7 +825,7 @@ void FiltersPage::createControls() {
                                                                   0,
                                                                   0,
                                                                   window_,
-                                                                  reinterpret_cast<HMENU>(kCheckboxShowPredictedGroupDelayLeft),
+                                                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowPredictedGroupDelayLeft)),
                                                                   instance_,
                                                                   nullptr);
     controls_.linePredictedGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -593,19 +833,19 @@ void FiltersPage::createControls() {
     controls_.impulseTitle = CreateWindowW(L"STATIC", L"Filter Impulse", WS_CHILD | WS_VISIBLE,
                                            0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonImpulseZoomOutX = CreateWindowW(L"BUTTON", L"X-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                    0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomOutX), instance_, nullptr);
+                                                    0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseZoomOutX)), instance_, nullptr);
     controls_.buttonImpulseZoomInX = CreateWindowW(L"BUTTON", L"X+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomInX), instance_, nullptr);
+                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseZoomInX)), instance_, nullptr);
     controls_.buttonImpulseResetX = CreateWindowW(L"BUTTON", L"Reset X", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseResetX), instance_, nullptr);
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseResetX)), instance_, nullptr);
     controls_.buttonImpulseZoomOutY = CreateWindowW(L"BUTTON", L"Y-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                    0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomOutY), instance_, nullptr);
+                                                    0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseZoomOutY)), instance_, nullptr);
     controls_.buttonImpulseZoomInY = CreateWindowW(L"BUTTON", L"Y+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseZoomInY), instance_, nullptr);
+                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseZoomInY)), instance_, nullptr);
     controls_.buttonImpulseResetY = CreateWindowW(L"BUTTON", L"Reset Y", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseResetY), instance_, nullptr);
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseResetY)), instance_, nullptr);
     controls_.buttonImpulseFit = CreateWindowW(L"BUTTON", L"Fit", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(kButtonImpulseFit), instance_, nullptr);
+                                               0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonImpulseFit)), instance_, nullptr);
 
     populateTapCountCombo(controls_.comboTapCount);
     populatePhaseModeCombo(controls_.comboPhaseMode);
@@ -615,12 +855,22 @@ void FiltersPage::createControls() {
     SendMessageW(controls_.sliderSmoothness, TBM_SETLINESIZE, 0, 1);
     SendMessageW(controls_.sliderSmoothness, TBM_SETPAGESIZE, 0, 1);
     setSelectedSmoothness(1.0);
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETRANGEMIN, FALSE, 0);
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETRANGEMAX, FALSE, static_cast<LPARAM>(kGroupDelayZoomFitPreset));
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETTICFREQ, 1, 0);
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETLINESIZE, 0, 1);
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETPAGESIZE, 0, 1);
+    setSelectedGroupDelayZoomPreset(groupDelayZoomPreset_);
     syncViewSettingsToControls();
     correctionGraph_.create(window_, instance_, kCorrectionGraph);
     correctedGraph_.create(window_, instance_, kCorrectedGraph);
     excessPhaseGraph_.create(window_, instance_, kExcessPhaseGraph);
     groupDelayGraph_.create(window_, instance_, kGroupDelayGraph);
     impulseGraph_.create(window_, instance_, kImpulseGraph);
+    correctionGraph_.setHoverCrosshairEnabled(true);
+    correctedGraph_.setHoverCrosshairEnabled(true);
+    excessPhaseGraph_.setHoverCrosshairEnabled(true);
+    groupDelayGraph_.setHoverCrosshairEnabled(true);
     refreshPhaseModeControls();
     refreshRecalculateButton();
 }
@@ -658,25 +908,28 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelMaxCut, contentLeft + 614, top, 70, 18, TRUE);
     MoveWindow(controls_.editMaxCut, contentLeft + 614, top + 22, 58, 26, TRUE);
     MoveWindow(controls_.unitMaxCut, contentLeft + 676, top + 26, 24, 18, TRUE);
-    MoveWindow(controls_.labelSmoothness, contentLeft + 716, top, 78, 18, TRUE);
+    MoveWindow(controls_.labelSmoothness, contentLeft + 716, top, 250, 18, TRUE);
     MoveWindow(controls_.sliderSmoothness, contentLeft + 716, top + 20, 120, 32, TRUE);
     MoveWindow(controls_.valueSmoothness, contentLeft + 842, top + 24, 36, 18, TRUE);
     const int mixedTop = top + 62;
     MoveWindow(controls_.labelMixedPhaseMax, contentLeft, mixedTop, 84, 18, TRUE);
     MoveWindow(controls_.editMixedPhaseMax, contentLeft, mixedTop + 22, 68, 26, TRUE);
     MoveWindow(controls_.unitMixedPhaseMax, contentLeft + 72, mixedTop + 26, 22, 18, TRUE);
-    MoveWindow(controls_.labelMixedPhaseStrength, contentLeft + 128, mixedTop, 102, 18, TRUE);
-    MoveWindow(controls_.editMixedPhaseStrength, contentLeft + 128, mixedTop + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitMixedPhaseStrength, contentLeft + 200, mixedTop + 26, 34, 18, TRUE);
-    MoveWindow(controls_.labelMixedPhaseCap, contentLeft + 248, mixedTop, 74, 18, TRUE);
-    MoveWindow(controls_.editMixedPhaseCap, contentLeft + 248, mixedTop + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitMixedPhaseCap, contentLeft + 320, mixedTop + 26, 28, 18, TRUE);
+    MoveWindow(controls_.labelExcessPhaseWindow, contentLeft + 112, mixedTop, 102, 18, TRUE);
+    MoveWindow(controls_.editExcessPhaseWindow, contentLeft + 112, mixedTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitExcessPhaseWindow, contentLeft + 184, mixedTop + 26, 24, 18, TRUE);
+    MoveWindow(controls_.labelMixedPhaseStrength, contentLeft + 232, mixedTop, 102, 18, TRUE);
+    MoveWindow(controls_.editMixedPhaseStrength, contentLeft + 232, mixedTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitMixedPhaseStrength, contentLeft + 304, mixedTop + 26, 34, 18, TRUE);
+    MoveWindow(controls_.labelMixedPhaseCap, contentLeft + 352, mixedTop, 74, 18, TRUE);
+    MoveWindow(controls_.editMixedPhaseCap, contentLeft + 352, mixedTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitMixedPhaseCap, contentLeft + 424, mixedTop + 26, 28, 18, TRUE);
     MoveWindow(controls_.buttonRecalculate, contentLeft, top + 124, contentWidth, 32, TRUE);
 
     int y = top + 174;
     const int legendLeft = contentLeft + contentWidth - legendWidth;
     const int graphRight = legendLeft - legendGap;
-    MoveWindow(controls_.checkboxSyncHoverFrequency, graphRight - 168, y - 2, 168, 20, TRUE);
+    const int effectButtonWidth = 72;
     MoveWindow(controls_.inversionTitle, contentLeft, y, 120, 18, TRUE);
     const int frameTop = y + 24;
     MoveWindow(controls_.inversionLegendFrame, legendLeft, frameTop, legendWidth, graphHeight, TRUE);
@@ -706,6 +959,7 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.correctedTitle, contentLeft, y, contentWidth, 18, TRUE);
+    MoveWindow(controls_.buttonCorrectedEffect, graphRight - effectButtonWidth, y - 2, effectButtonWidth, 22, TRUE);
     MoveWindow(controls_.correctedLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     correctedGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int correctedFirstRowTop = y + 24 + 18;
@@ -726,6 +980,7 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.excessPhaseTitle, contentLeft, y, contentWidth, 18, TRUE);
+    MoveWindow(controls_.buttonExcessPhaseEffect, graphRight - effectButtonWidth, y - 2, effectButtonWidth, 22, TRUE);
     MoveWindow(controls_.excessPhaseLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     excessPhaseGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int excessPhaseFirstRowTop = y + 24 + 18;
@@ -744,10 +999,16 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
-    MoveWindow(controls_.checkboxAlignGroupDelayLatency, graphRight - 124, y - 2, 124, 20, TRUE);
-    MoveWindow(controls_.groupDelayLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
-    groupDelayGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
-    const int groupDelayFirstRowTop = y + 24 + 18;
+    MoveWindow(controls_.checkboxAlignGroupDelayLatency, graphRight - 204, y - 2, 124, 20, TRUE);
+    MoveWindow(controls_.buttonGroupDelayEffect, graphRight - effectButtonWidth, y - 2, effectButtonWidth, 22, TRUE);
+    MoveWindow(controls_.labelGroupDelayZoom, contentLeft, y + 26, 52, 18, TRUE);
+    MoveWindow(controls_.valueGroupDelayZoom, graphRight - 64, y + 26, 64, 18, TRUE);
+    const int groupDelaySliderLeft = contentLeft + 58;
+    const int groupDelaySliderWidth = std::max(100, (graphRight - 72) - groupDelaySliderLeft);
+    MoveWindow(controls_.sliderGroupDelayZoom, groupDelaySliderLeft, y + 22, groupDelaySliderWidth, 28, TRUE);
+    MoveWindow(controls_.groupDelayLegendFrame, legendLeft, y + 52, legendWidth, graphHeight, TRUE);
+    groupDelayGraph_.layout(RECT{contentLeft, y + 52, graphRight, y + 52 + graphHeight});
+    const int groupDelayFirstRowTop = y + 52 + 18;
     MoveWindow(controls_.checkboxShowInputGroupDelayLeft, checkboxLeft, groupDelayFirstRowTop, checkboxWidth, 20, TRUE);
     MoveWindow(controls_.lineInputGroupDelayLeft, lineLeft, groupDelayFirstRowTop + 8, lineWidth, lineHeight, TRUE);
     MoveWindow(controls_.labelInputGroupDelayLeft, labelLeft, groupDelayFirstRowTop + 2, labelWidth, 18, TRUE);
@@ -767,7 +1028,7 @@ void FiltersPage::layout() {
     MoveWindow(controls_.linePredictedGroupDelayRight, lineLeft, groupDelayFirstRowTop + (rowStep * 5) + 8, lineWidth, lineHeight, TRUE);
     MoveWindow(controls_.labelPredictedGroupDelayRight, labelLeft, groupDelayFirstRowTop + (rowStep * 5) + 2, labelWidth, 18, TRUE);
 
-    y += 24 + graphHeight + graphGap;
+    y += 52 + graphHeight + graphGap;
     MoveWindow(controls_.impulseTitle, contentLeft, y, contentWidth, 18, TRUE);
     const int impulseButtonTop = y + 20;
     const int impulseButtonHeight = 24;
@@ -804,26 +1065,31 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     measurement::normalizeFilterDesignSettings(settings, workspace.measurement.sampleRate);
     sampleRate_ = workspace.measurement.sampleRate;
     SendMessageW(controls_.comboTapCount, CB_SETCURSEL, comboIndexFromTapCount(settings.tapCount), 0);
-    SendMessageW(controls_.comboPhaseMode, CB_SETCURSEL, comboIndexFromPhaseMode(settings.phaseMode), 0);
+    filterViewMode_ = workspace.ui.filterViewMode;
+    SendMessageW(controls_.comboPhaseMode, CB_SETCURSEL, comboIndexFromFilterViewMode(filterViewMode_), 0);
     setWindowTextValue(controls_.editLowCorrection, formatWideDouble(settings.lowCorrectionHz, 0));
     setWindowTextValue(controls_.editHighCorrection, formatWideDouble(settings.highCorrectionHz, 0));
     setWindowTextValue(controls_.editMaxBoost, formatWideDouble(settings.maxBoostDb, 1));
     setWindowTextValue(controls_.editMaxCut, formatWideDouble(settings.maxCutDb, 1));
     setSelectedSmoothness(settings.smoothness);
     setWindowTextValue(controls_.editMixedPhaseMax, formatWideDouble(settings.mixedPhaseMaxFrequencyHz, 0));
+    setWindowTextValue(controls_.editExcessPhaseWindow, formatWideDouble(settings.excessPhaseWindowMs, 0));
     setWindowTextValue(controls_.editMixedPhaseStrength, formatWideDouble(settings.mixedPhaseStrength, 2));
     setWindowTextValue(controls_.editMixedPhaseCap, formatWideDouble(settings.mixedPhaseMaxCorrectionDegrees, 0));
-    refreshPhaseModeControls();
+    refreshExcessPhaseWindowLabel();
     loadViewSettings(workspace.ui);
     syncViewSettingsToControls();
+    refreshPhaseModeControls();
+    refreshFilterViewPresentation();
     appliedSettings_ = settings;
-    filterDesignValid_ = workspace.filterResult.valid;
+    filterDesignValid_ = workspace.ui.filterViewMode != "difference" && workspace.filterResult.valid;
     refreshRecalculateButton();
 
     correctionGraph_.setData(buildCorrectionGraphData(workspace));
     correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
     excessPhaseGraph_.setData(buildExcessPhaseGraphData(workspace));
     groupDelayGraph_.setData(buildGroupDelayGraphData(workspace));
+    applyGroupDelayZoomRange();
     impulseGraph_.setData(buildImpulseGraphData(workspace));
     configureImpulseGraphViewport(workspace);
     applySharedFrequencyHoverMarker();
@@ -831,7 +1097,11 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
 
 void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     workspace.filters.tapCount = tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
-    workspace.filters.phaseMode = phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    workspace.ui.filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    if (workspace.ui.filterViewMode != "difference") {
+        workspace.filters.phaseMode = workspace.ui.filterViewMode;
+    }
     double value = 0.0;
     workspace.filters.smoothness = selectedSmoothness();
     if (tryParseDouble(getWindowTextValue(controls_.editLowCorrection), value)) {
@@ -849,6 +1119,9 @@ void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseMax), value)) {
         workspace.filters.mixedPhaseMaxFrequencyHz = value;
     }
+    if (tryParseDouble(getWindowTextValue(controls_.editExcessPhaseWindow), value)) {
+        workspace.filters.excessPhaseWindowMs = value;
+    }
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseStrength), value)) {
         workspace.filters.mixedPhaseStrength = value;
     }
@@ -861,6 +1134,20 @@ void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
 
 void FiltersPage::setRecalculateInProgress(bool running) {
     recalculateInProgress_ = running;
+    if (!running) {
+        const HWND graphWindows[] = {
+            correctionGraph_.window(),
+            correctedGraph_.window(),
+            excessPhaseGraph_.window(),
+            groupDelayGraph_.window(),
+            impulseGraph_.window(),
+        };
+        for (HWND graphWindow : graphWindows) {
+            if (graphWindow != nullptr && IsWindowVisible(graphWindow)) {
+                RedrawWindow(graphWindow, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+            }
+        }
+    }
     if (controls_.buttonRecalculate != nullptr) {
         EnableWindow(controls_.buttonRecalculate, (!running && recalculatePending_) ? TRUE : FALSE);
         RedrawWindow(controls_.buttonRecalculate, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
@@ -877,13 +1164,41 @@ void FiltersPage::setSelectedSmoothness(double smoothness) const {
 }
 
 void FiltersPage::refreshSmoothnessValue() const {
-    const double smoothness = selectedSmoothness();
-    const int digits = std::abs(smoothness - std::round(smoothness)) < 0.001 ? 0 : 1;
-    setWindowTextValue(controls_.valueSmoothness, formatWideDouble(smoothness, digits));
+    setWindowTextValue(controls_.valueSmoothness,
+                       std::to_wstring(smoothnessDisplayValueFromSliderPosition(
+                           SendMessageW(controls_.sliderSmoothness, TBM_GETPOS, 0, 0))));
+}
+
+void FiltersPage::refreshExcessPhaseWindowLabel() const {
+    double value = 0.0;
+    const bool parsed = tryParseDouble(getWindowTextValue(controls_.editExcessPhaseWindow), value);
+    const bool off = !parsed || std::abs(value) < 0.0005;
+    SetWindowTextW(controls_.labelExcessPhaseWindow, off ? L"Excess (Off)" : L"Excess");
+}
+
+int FiltersPage::selectedGroupDelayZoomPreset() const {
+    return clampGroupDelayZoomPreset(static_cast<int>(SendMessageW(controls_.sliderGroupDelayZoom, TBM_GETPOS, 0, 0)));
+}
+
+void FiltersPage::setSelectedGroupDelayZoomPreset(int preset) const {
+    SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETPOS, TRUE, clampGroupDelayZoomPreset(preset));
+    refreshGroupDelayZoomValue();
+}
+
+void FiltersPage::refreshGroupDelayZoomValue() const {
+    setWindowTextValue(controls_.valueGroupDelayZoom, groupDelayZoomLabelFromPreset(selectedGroupDelayZoomPreset()));
 }
 
 bool FiltersPage::mixedModeSelected() const {
-    return phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0))) == "mixed";
+    const std::string filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    return filterViewMode == "mixed";
+}
+
+bool FiltersPage::differenceViewSelected() const {
+    const std::string filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    return filterViewMode == "difference";
 }
 
 void FiltersPage::refreshPhaseModeControls() const {
@@ -891,6 +1206,9 @@ void FiltersPage::refreshPhaseModeControls() const {
     EnableWindow(controls_.labelMixedPhaseMax, mixedEnabled);
     EnableWindow(controls_.editMixedPhaseMax, mixedEnabled);
     EnableWindow(controls_.unitMixedPhaseMax, mixedEnabled);
+    EnableWindow(controls_.labelExcessPhaseWindow, mixedEnabled);
+    EnableWindow(controls_.editExcessPhaseWindow, mixedEnabled);
+    EnableWindow(controls_.unitExcessPhaseWindow, mixedEnabled);
     EnableWindow(controls_.labelMixedPhaseStrength, mixedEnabled);
     EnableWindow(controls_.editMixedPhaseStrength, mixedEnabled);
     EnableWindow(controls_.unitMixedPhaseStrength, mixedEnabled);
@@ -899,7 +1217,84 @@ void FiltersPage::refreshPhaseModeControls() const {
     EnableWindow(controls_.unitMixedPhaseCap, mixedEnabled);
 }
 
+void FiltersPage::refreshFilterViewPresentation() const {
+    const bool differenceView = differenceViewSelected();
+    const bool correctedEffectView = !differenceView && showCorrectedEffect_;
+    const bool excessPhaseEffectView = !differenceView && showExcessPhaseEffect_;
+    const bool groupDelayEffectView = !differenceView && showGroupDelayEffect_;
+
+    ShowWindow(controls_.buttonCorrectedEffect, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.buttonExcessPhaseEffect, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.buttonGroupDelayEffect, differenceView ? SW_HIDE : SW_SHOW);
+
+    ShowWindow(controls_.checkboxShowInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    SetWindowTextW(controls_.labelInputRight, L"R");
+    SetWindowTextW(controls_.labelInputLeft, L"L");
+    SetWindowTextW(controls_.labelInversionRight, L"R inv");
+    SetWindowTextW(controls_.labelInversionLeft, L"L inv");
+
+    ShowWindow(controls_.lineCorrectedTarget, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedTarget, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowCorrectedInputLeft, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineCorrectedInputLeft, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedInputLeft, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowCorrectedInputRight, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineCorrectedInputRight, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedInputRight, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    SetWindowTextW(controls_.labelCorrectedInputLeft, L"L");
+    SetWindowTextW(controls_.labelCorrectedInputRight, L"R");
+    SetWindowTextW(controls_.labelCorrectedLeft, correctedEffectView ? L"L effect" : L"L pred");
+    SetWindowTextW(controls_.labelCorrectedRight, correctedEffectView ? L"R effect" : L"R pred");
+
+    ShowWindow(controls_.checkboxShowExcessPhaseInputRight, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineExcessPhaseInputRight, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelExcessPhaseInputRight, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowExcessPhaseInputLeft, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineExcessPhaseInputLeft, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelExcessPhaseInputLeft, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
+    SetWindowTextW(controls_.labelExcessPhaseInputRight, L"R");
+    SetWindowTextW(controls_.labelExcessPhaseInputLeft, L"L");
+    SetWindowTextW(controls_.labelExcessPhasePredictedRight, excessPhaseEffectView ? L"R effect" : L"R pred");
+    SetWindowTextW(controls_.labelExcessPhasePredictedLeft, excessPhaseEffectView ? L"L effect" : L"L pred");
+
+    ShowWindow(controls_.checkboxShowInputGroupDelayLeft, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineInputGroupDelayLeft, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelInputGroupDelayLeft, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowInputGroupDelayRight, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineInputGroupDelayRight, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelInputGroupDelayRight, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowFilterGroupDelayLeft, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineGroupDelayLeft, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelGroupDelayLeft, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowFilterGroupDelayRight, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineGroupDelayRight, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelGroupDelayRight, groupDelayEffectView ? SW_HIDE : SW_SHOW);
+    SetWindowTextW(controls_.labelInputGroupDelayLeft, L"L");
+    SetWindowTextW(controls_.labelInputGroupDelayRight, L"R");
+    SetWindowTextW(controls_.labelGroupDelayLeft, L"L filter");
+    SetWindowTextW(controls_.labelGroupDelayRight, L"R filter");
+    SetWindowTextW(controls_.labelPredictedGroupDelayLeft, groupDelayEffectView ? L"L effect" : L"L pred");
+    SetWindowTextW(controls_.labelPredictedGroupDelayRight, groupDelayEffectView ? L"R effect" : L"R pred");
+}
+
+void FiltersPage::applyGroupDelayZoomRange() {
+    const int preset = selectedGroupDelayZoomPreset();
+    if (preset == kGroupDelayZoomFitPreset) {
+        groupDelayGraph_.setDefaultYRange(false, -1.0, 1.0);
+        return;
+    }
+
+    const double rangeMs = static_cast<double>(kGroupDelayZoomRangesMs[preset]);
+    groupDelayGraph_.setDefaultYRange(true, -rangeMs, rangeMs);
+}
+
 void FiltersPage::loadViewSettings(const UiSettings& ui) {
+    filterViewMode_ = ui.filterViewMode;
     showInputRight_ = ui.filterShowInputRight;
     showInputLeft_ = ui.filterShowInputLeft;
     showInversionRight_ = ui.filterShowInversionRight;
@@ -919,10 +1314,8 @@ void FiltersPage::loadViewSettings(const UiSettings& ui) {
     showFilterGroupDelayLeft_ = ui.filterShowFilterGroupDelayLeft;
     showFilterGroupDelayRight_ = ui.filterShowFilterGroupDelayRight;
     alignGroupDelayLatency_ = ui.filterAlignGroupDelayLatency;
-    syncHoverFrequencyEnabled_ = ui.filterSyncHoverFrequency;
-    if (!syncHoverFrequencyEnabled_) {
-        sharedFrequencyHoverActive_ = false;
-    }
+    groupDelayZoomPreset_ = clampGroupDelayZoomPreset(ui.filterGroupDelayZoomPreset);
+    sharedFrequencyHoverActive_ = false;
 }
 
 void FiltersPage::syncViewSettingsToControls() const {
@@ -934,6 +1327,7 @@ void FiltersPage::syncViewSettingsToControls() const {
     SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_SETCHECK, showCorrectedInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(controls_.buttonCorrectedEffect, BM_SETCHECK, showCorrectedEffect_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowExcessPhaseInputRight,
                  BM_SETCHECK,
                  showExcessPhaseInputRight_ ? BST_CHECKED : BST_UNCHECKED,
@@ -950,6 +1344,7 @@ void FiltersPage::syncViewSettingsToControls() const {
                  BM_SETCHECK,
                  showExcessPhasePredictedLeft_ ? BST_CHECKED : BST_UNCHECKED,
                  0);
+    SendMessageW(controls_.buttonExcessPhaseEffect, BM_SETCHECK, showExcessPhaseEffect_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInputGroupDelayLeft,
                  BM_SETCHECK,
                  showInputGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED,
@@ -974,14 +1369,12 @@ void FiltersPage::syncViewSettingsToControls() const {
                  BM_SETCHECK,
                  showFilterGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED,
                  0);
+    SendMessageW(controls_.buttonGroupDelayEffect, BM_SETCHECK, showGroupDelayEffect_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxAlignGroupDelayLatency,
                  BM_SETCHECK,
                  alignGroupDelayLatency_ ? BST_CHECKED : BST_UNCHECKED,
                  0);
-    SendMessageW(controls_.checkboxSyncHoverFrequency,
-                 BM_SETCHECK,
-                 syncHoverFrequencyEnabled_ ? BST_CHECKED : BST_UNCHECKED,
-                 0);
+    setSelectedGroupDelayZoomPreset(groupDelayZoomPreset_);
 }
 
 void FiltersPage::syncViewSettingsFromControls() {
@@ -993,6 +1386,7 @@ void FiltersPage::syncViewSettingsFromControls() {
     showCorrectedInputRight_ = SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showCorrectedLeft_ = SendMessageW(controls_.checkboxShowCorrectedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showCorrectedRight_ = SendMessageW(controls_.checkboxShowCorrectedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showCorrectedEffect_ = SendMessageW(controls_.buttonCorrectedEffect, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhaseInputRight_ =
         SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhaseInputLeft_ =
@@ -1001,6 +1395,7 @@ void FiltersPage::syncViewSettingsFromControls() {
         SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhasePredictedLeft_ =
         SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showExcessPhaseEffect_ = SendMessageW(controls_.buttonExcessPhaseEffect, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showInputGroupDelayLeft_ =
         SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showInputGroupDelayRight_ =
@@ -1013,14 +1408,14 @@ void FiltersPage::syncViewSettingsFromControls() {
         SendMessageW(controls_.checkboxShowFilterGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showFilterGroupDelayRight_ =
         SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showGroupDelayEffect_ = SendMessageW(controls_.buttonGroupDelayEffect, BM_GETCHECK, 0, 0) == BST_CHECKED;
     alignGroupDelayLatency_ = SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    syncHoverFrequencyEnabled_ = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    if (!syncHoverFrequencyEnabled_) {
-        sharedFrequencyHoverActive_ = false;
-    }
+    groupDelayZoomPreset_ = selectedGroupDelayZoomPreset();
 }
 
 void FiltersPage::saveViewSettings(UiSettings& ui) const {
+    ui.filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
     ui.filterShowInputRight = SendMessageW(controls_.checkboxShowInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterShowInputLeft = SendMessageW(controls_.checkboxShowInputLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterShowInversionRight = SendMessageW(controls_.checkboxShowInversionRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -1053,13 +1448,17 @@ void FiltersPage::saveViewSettings(UiSettings& ui) const {
         SendMessageW(controls_.checkboxShowFilterGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterAlignGroupDelayLatency =
         SendMessageW(controls_.checkboxAlignGroupDelayLatency, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    ui.filterSyncHoverFrequency = SendMessageW(controls_.checkboxSyncHoverFrequency, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterGroupDelayZoomPreset = selectedGroupDelayZoomPreset();
 }
 
 FilterDesignSettings FiltersPage::currentSettings() const {
     FilterDesignSettings settings = appliedSettings_;
     settings.tapCount = tapCountFromComboIndex(static_cast<int>(SendMessageW(controls_.comboTapCount, CB_GETCURSEL, 0, 0)));
-    settings.phaseMode = phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    const std::string filterViewMode =
+        filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+    if (filterViewMode != "difference") {
+        settings.phaseMode = filterViewMode;
+    }
     settings.smoothness = selectedSmoothness();
 
     double value = 0.0;
@@ -1077,6 +1476,9 @@ FilterDesignSettings FiltersPage::currentSettings() const {
     }
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseMax), value)) {
         settings.mixedPhaseMaxFrequencyHz = value;
+    }
+    if (tryParseDouble(getWindowTextValue(controls_.editExcessPhaseWindow), value)) {
+        settings.excessPhaseWindowMs = value;
     }
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseStrength), value)) {
         settings.mixedPhaseStrength = value;
@@ -1098,12 +1500,14 @@ bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const Filte
            std::abs(left.maxBoostDb - right.maxBoostDb) < 0.001 &&
            std::abs(left.maxCutDb - right.maxCutDb) < 0.001 &&
            std::abs(left.mixedPhaseMaxFrequencyHz - right.mixedPhaseMaxFrequencyHz) < 0.001 &&
+           std::abs(left.excessPhaseWindowMs - right.excessPhaseWindowMs) < 0.001 &&
            std::abs(left.mixedPhaseStrength - right.mixedPhaseStrength) < 0.001 &&
            std::abs(left.mixedPhaseMaxCorrectionDegrees - right.mixedPhaseMaxCorrectionDegrees) < 0.001;
 }
 
 void FiltersPage::refreshRecalculateButton() {
-    recalculatePending_ = !filterDesignValid_ || !areSettingsEqual(currentSettings(), appliedSettings_);
+    recalculatePending_ =
+        !differenceViewSelected() && (!filterDesignValid_ || !areSettingsEqual(currentSettings(), appliedSettings_));
     if (controls_.buttonRecalculate != nullptr) {
         EnableWindow(controls_.buttonRecalculate, (!recalculateInProgress_ && recalculatePending_) ? TRUE : FALSE);
         InvalidateRect(controls_.buttonRecalculate, nullptr, TRUE);
@@ -1154,9 +1558,11 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
     if (pressed) {
         OffsetRect(&textRect, 0, 1);
     }
-    const wchar_t* label = recalculateInProgress_
-                               ? L"Calculating..."
-                               : (recalculatePending_ ? L"Recalculate" : L"Up To Date");
+    const wchar_t* label = differenceViewSelected()
+                               ? L"Mode Delta View"
+                               : (recalculateInProgress_
+                                      ? L"Calculating..."
+                                      : (recalculatePending_ ? L"Recalculate" : L"Up To Date"));
     DrawTextW(hdc, label, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     if (focused && !disabled) {
@@ -1175,13 +1581,10 @@ bool FiltersPage::handleCommand(WORD commandId,
                                 WorkspaceState& workspace,
                                 bool& settingsChanged,
                                 bool& recalculateRequested,
-                                bool& viewSettingsChanged) {
+                                bool& viewSettingsChanged,
+                                bool& selectionChanged) {
     PlotGraph* frequencyGraph = frequencyGraphForCommandId(commandId);
     if (frequencyGraph != nullptr && notificationCode == PlotGraph::kHoverChangedNotification) {
-        if (!syncHoverFrequencyEnabled_) {
-            return true;
-        }
-
         sharedFrequencyHoverActive_ = frequencyGraph->hasHoveredXValue();
         if (sharedFrequencyHoverActive_) {
             sharedFrequencyHoverHz_ = frequencyGraph->hoveredXValue();
@@ -1206,13 +1609,33 @@ bool FiltersPage::handleCommand(WORD commandId,
     }
 
     if (commandId == kComboPhaseMode && notificationCode == CBN_SELCHANGE) {
-        workspace.filters.phaseMode =
-            phaseModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
-        measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
+        const std::string nextViewMode =
+            filterViewModeFromComboIndex(static_cast<int>(SendMessageW(controls_.comboPhaseMode, CB_GETCURSEL, 0, 0)));
+        if (nextViewMode == "difference" &&
+            (!workspace.minimumFilter.available() || !workspace.mixedFilter.available())) {
+            std::wstring missingMessage = L"Mode Delta view requires both stored filters.\r\n\r\nMissing:";
+            if (!workspace.minimumFilter.available()) {
+                missingMessage += L"\r\n- Minimum";
+            }
+            if (!workspace.mixedFilter.available()) {
+                missingMessage += L"\r\n- Mixed";
+            }
+            MessageBoxW(window_, missingMessage.c_str(), L"Filters", MB_OK | MB_ICONINFORMATION);
+            SendMessageW(controls_.comboPhaseMode, CB_SETCURSEL, comboIndexFromFilterViewMode(filterViewMode_), 0);
+            return true;
+        }
+
+        filterViewMode_ = nextViewMode;
+        workspace.ui.filterViewMode = filterViewMode_;
+        if (filterViewMode_ != "difference") {
+            workspace.filters.phaseMode = filterViewMode_;
+            measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
+        }
         refreshPhaseModeControls();
-        filterDesignValid_ = false;
+        refreshFilterViewPresentation();
+        filterDesignValid_ = !differenceViewSelected() && workspace.filterResult.valid;
         refreshRecalculateButton();
-        settingsChanged = true;
+        selectionChanged = true;
         return true;
     }
 
@@ -1221,9 +1644,13 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kEditMaxBoost ||
          commandId == kEditMaxCut ||
          commandId == kEditMixedPhaseMax ||
+         commandId == kEditExcessPhaseWindow ||
          commandId == kEditMixedPhaseStrength ||
          commandId == kEditMixedPhaseCap) &&
         notificationCode == EN_CHANGE) {
+        if (commandId == kEditExcessPhaseWindow) {
+            refreshExcessPhaseWindowLabel();
+        }
         refreshRecalculateButton();
         return true;
     }
@@ -1236,22 +1663,25 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowCorrectedInputRight ||
          commandId == kCheckboxShowCorrectedLeft ||
          commandId == kCheckboxShowCorrectedRight ||
+         commandId == kButtonCorrectedEffect ||
          commandId == kCheckboxShowExcessPhaseInputRight ||
          commandId == kCheckboxShowExcessPhaseInputLeft ||
          commandId == kCheckboxShowExcessPhasePredictedRight ||
          commandId == kCheckboxShowExcessPhasePredictedLeft ||
+         commandId == kButtonExcessPhaseEffect ||
          commandId == kCheckboxShowInputGroupDelayLeft ||
          commandId == kCheckboxShowInputGroupDelayRight ||
          commandId == kCheckboxShowPredictedGroupDelayRight ||
          commandId == kCheckboxShowPredictedGroupDelayLeft ||
          commandId == kCheckboxShowFilterGroupDelayLeft ||
          commandId == kCheckboxShowFilterGroupDelayRight ||
-         commandId == kCheckboxAlignGroupDelayLatency ||
-         commandId == kCheckboxSyncHoverFrequency) &&
+         commandId == kButtonGroupDelayEffect ||
+         commandId == kCheckboxAlignGroupDelayLatency) &&
         notificationCode == BN_CLICKED) {
         syncViewSettingsFromControls();
         saveViewSettings(workspace.ui);
         viewSettingsChanged = true;
+        refreshFilterViewPresentation();
         correctionGraph_.setData(buildCorrectionGraphData(workspace));
         correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
         excessPhaseGraph_.setData(buildExcessPhaseGraphData(workspace));
@@ -1261,6 +1691,9 @@ bool FiltersPage::handleCommand(WORD commandId,
     }
 
     if (commandId == kButtonRecalculate && notificationCode == BN_CLICKED) {
+        if (differenceViewSelected()) {
+            return true;
+        }
         syncToWorkspace(workspace);
         recalculateRequested = true;
         return true;
@@ -1320,12 +1753,22 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         }
         break;
     case WM_HSCROLL:
-        if (page != nullptr && reinterpret_cast<HWND>(lParam) == page->controls_.sliderSmoothness) {
-            page->refreshSmoothnessValue();
-            page->refreshRecalculateButton();
+        if (page != nullptr) {
+            const HWND source = reinterpret_cast<HWND>(lParam);
+            if (source == page->controls_.sliderSmoothness) {
+                page->refreshSmoothnessValue();
+                page->refreshRecalculateButton();
+            } else if (source == page->controls_.sliderGroupDelayZoom) {
+                page->refreshGroupDelayZoomValue();
+            }
+        }
+        {
+            HWND root = GetAncestor(window, GA_ROOT);
+            if (root != nullptr) {
+                return SendMessageW(root, message, wParam, lParam);
+            }
             return 0;
         }
-        break;
     case WM_COMMAND: {
         HWND root = GetAncestor(window, GA_ROOT);
         if (root != nullptr) {
@@ -1488,6 +1931,23 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     return DefWindowProcW(window, message, wParam, lParam);
 }
 
+LRESULT CALLBACK FiltersPage::GroupDelayZoomSliderProc(HWND window,
+                                                       UINT message,
+                                                       WPARAM wParam,
+                                                       LPARAM lParam,
+                                                       UINT_PTR subclassId,
+                                                       DWORD_PTR refData) {
+    auto* page = reinterpret_cast<FiltersPage*>(refData);
+    if (message == WM_MOUSEWHEEL) {
+        if (page != nullptr && page->window_ != nullptr) {
+            SendMessageW(page->window_, message, wParam, lParam);
+        }
+        return 0;
+    }
+
+    return DefSubclassProc(window, message, wParam, lParam);
+}
+
 bool FiltersPage::tryParseDouble(const std::wstring& text, double& value) {
     if (text.empty()) {
         return false;
@@ -1523,8 +1983,9 @@ void FiltersPage::populateTapCountCombo(HWND combo) {
 
 void FiltersPage::populatePhaseModeCombo(HWND combo) {
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
-    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Minimum phase"));
-    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Mixed phase"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Minimum"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Mixed"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Mode Delta"));
 }
 
 int FiltersPage::comboIndexFromTapCount(int tapCount) {
@@ -1555,12 +2016,24 @@ int FiltersPage::tapCountFromComboIndex(int index) {
     }
 }
 
-int FiltersPage::comboIndexFromPhaseMode(const std::string& phaseMode) {
-    return phaseMode == "mixed" ? 1 : 0;
+int FiltersPage::comboIndexFromFilterViewMode(const std::string& filterViewMode) {
+    if (filterViewMode == "mixed") {
+        return 1;
+    }
+    if (filterViewMode == "difference") {
+        return 2;
+    }
+    return 0;
 }
 
-std::string FiltersPage::phaseModeFromComboIndex(int index) {
-    return index == 1 ? "mixed" : "minimum";
+std::string FiltersPage::filterViewModeFromComboIndex(int index) {
+    if (index == 1) {
+        return "mixed";
+    }
+    if (index == 2) {
+        return "difference";
+    }
+    return "minimum";
 }
 
 void FiltersPage::updateScrollBar() {
@@ -1613,6 +2086,18 @@ bool FiltersPage::handleMouseWheel(WPARAM wParam) {
     return true;
 }
 
+bool FiltersPage::handleHScroll(HWND source, WorkspaceState& workspace) {
+    if (source != controls_.sliderGroupDelayZoom) {
+        return false;
+    }
+
+    groupDelayZoomPreset_ = selectedGroupDelayZoomPreset();
+    refreshGroupDelayZoomValue();
+    applyGroupDelayZoomRange();
+    workspace.ui.filterGroupDelayZoomPreset = groupDelayZoomPreset_;
+    return true;
+}
+
 void FiltersPage::handleVScroll(WORD code, WORD thumbPosition) {
     SCROLLINFO info{};
     info.cbSize = sizeof(info);
@@ -1651,10 +2136,10 @@ void FiltersPage::handleVScroll(WORD code, WORD thumbPosition) {
 }
 
 void FiltersPage::applySharedFrequencyHoverMarker() {
-    correctionGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
-    correctedGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
-    excessPhaseGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
-    groupDelayGraph_.setSharedHoverMarker(syncHoverFrequencyEnabled_, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    correctionGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    correctedGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    excessPhaseGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    groupDelayGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
 }
 
 PlotGraph* FiltersPage::frequencyGraphForCommandId(WORD commandId) {
@@ -1694,16 +2179,20 @@ void FiltersPage::resetSharedFrequencyXRange() {
 }
 
 void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace) {
-    if (!workspace.filterResult.valid ||
-        workspace.filterResult.left.filterTaps.empty() ||
-        workspace.filterResult.right.filterTaps.empty()) {
-        impulseGraph_.setDefaultXRange(false, 0.0, 1.0);
-        impulseGraph_.setDefaultYRange(false, -1.0, 1.0);
-        impulseGraph_.resetView();
-        return;
+    std::vector<double> impulseTimeMs;
+    const bool differenceView =
+        workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available();
+    if (differenceView) {
+        impulseTimeMs =
+            buildImpulseDifferenceTimeAxisMs(workspace.minimumFilter.result, workspace.mixedFilter.result);
+    } else if (workspace.filterResult.valid &&
+               !workspace.filterResult.left.filterTaps.empty() &&
+               !workspace.filterResult.right.filterTaps.empty()) {
+        impulseTimeMs = buildSharedImpulseTimeAxisMs(workspace.filterResult);
     }
 
-    const std::vector<double> impulseTimeMs = buildSharedImpulseTimeAxisMs(workspace.filterResult);
     if (impulseTimeMs.empty()) {
         impulseGraph_.setDefaultXRange(false, 0.0, 1.0);
         impulseGraph_.setDefaultYRange(false, -1.0, 1.0);
@@ -1717,16 +2206,58 @@ void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace)
     impulseGraph_.setDefaultXRange(true,
                                    clampValue(-kImpulseGraphNegativeWindowMs, fullMinMs, fullMaxMs),
                                    clampValue(kImpulseGraphPositiveWindowMs, fullMinMs, fullMaxMs));
-    impulseGraph_.setDefaultYRange(false, -1.0, 1.0);
+    impulseGraph_.setDefaultYRange(!differenceView, -1.0, 1.0);
     impulseGraph_.resetView();
 }
 
 PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
-    data.xValues = workspace.filterResult.frequencyAxisHz;
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"dB";
+    if (workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available()) {
+        const FilterDesignResult& minimumResult = workspace.minimumFilter.result;
+        const FilterDesignResult& mixedResult = workspace.mixedFilter.result;
+        data.xValues = !mixedResult.frequencyAxisHz.empty() ? mixedResult.frequencyAxisHz : minimumResult.frequencyAxisHz;
+        if (data.xValues.empty()) {
+            return data;
+        }
+
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showInversionRight_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.right.correctionCurveDb,
+                                                            mixedResult,
+                                                            mixedResult.right.correctionCurveDb,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right delta", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (showInversionLeft_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.left.correctionCurveDb,
+                                                            mixedResult,
+                                                            mixedResult.left.correctionCurveDb,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left delta", ui_theme::kGray, std::move(delta)});
+        }
+        data.fixedYRange = true;
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double halfSpan = std::max(std::max(std::abs(minY), std::abs(maxY)) + 0.5, 3.0);
+            data.minY = -std::ceil(halfSpan / 1.0);
+            data.maxY = std::ceil(halfSpan / 1.0);
+        } else {
+            data.minY = -3.0;
+            data.maxY = 3.0;
+        }
+        return data;
+    }
+
+    data.xValues = workspace.filterResult.frequencyAxisHz;
     if (!workspace.filterResult.valid) {
         data.fixedYRange = true;
         data.minY = -workspace.filters.maxCutDb - 3.0;
@@ -1784,14 +2315,91 @@ PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& worksp
 
 PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
-    data.xValues = workspace.filterResult.frequencyAxisHz;
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"dB";
     data.fixedYRange = true;
+    if (workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available()) {
+        const FilterDesignResult& minimumResult = workspace.minimumFilter.result;
+        const FilterDesignResult& mixedResult = workspace.mixedFilter.result;
+        data.xValues = !mixedResult.frequencyAxisHz.empty() ? mixedResult.frequencyAxisHz : minimumResult.frequencyAxisHz;
+        if (data.xValues.empty()) {
+            data.minY = -3.0;
+            data.maxY = 3.0;
+            return data;
+        }
+
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showCorrectedLeft_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.left.correctedResponseDb,
+                                                            mixedResult,
+                                                            mixedResult.left.correctedResponseDb,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left delta", ui_theme::kGray, std::move(delta)});
+        }
+        if (showCorrectedRight_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.right.correctedResponseDb,
+                                                            mixedResult,
+                                                            mixedResult.right.correctedResponseDb,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right delta", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double halfSpan = std::max(std::max(std::abs(minY), std::abs(maxY)) + 0.5, 3.0);
+            data.minY = -halfSpan;
+            data.maxY = halfSpan;
+        } else {
+            data.minY = -3.0;
+            data.maxY = 3.0;
+        }
+        return data;
+    }
+
+    data.xValues = workspace.filterResult.frequencyAxisHz;
     if (!workspace.filterResult.valid) {
         data.minY = -18.0;
         data.maxY = 12.0;
+        return data;
+    }
+
+    const std::vector<double> leftInputResponseDb =
+        resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
+                             workspace.smoothedResponse.leftChannelDb,
+                             workspace.filterResult.frequencyAxisHz);
+    const std::vector<double> rightInputResponseDb =
+        resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
+                             workspace.smoothedResponse.rightChannelDb,
+                             workspace.filterResult.frequencyAxisHz);
+    if (showCorrectedEffect_) {
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showCorrectedLeft_) {
+            std::vector<double> delta =
+                subtractSeries(workspace.filterResult.left.correctedResponseDb, leftInputResponseDb);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left effect", ui_theme::kGray, std::move(delta)});
+        }
+        if (showCorrectedRight_) {
+            std::vector<double> delta =
+                subtractSeries(workspace.filterResult.right.correctedResponseDb, rightInputResponseDb);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right effect", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double halfSpan = std::max(std::max(std::abs(minY), std::abs(maxY)) + 0.5, 3.0);
+            data.minY = -halfSpan;
+            data.maxY = halfSpan;
+        } else {
+            data.minY = -3.0;
+            data.maxY = 3.0;
+        }
         return data;
     }
 
@@ -1804,14 +2412,6 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
         }
     };
     accumulateRange(workspace.filterResult.targetCurveDb);
-    const std::vector<double> leftInputResponseDb =
-        resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
-                             workspace.smoothedResponse.leftChannelDb,
-                             workspace.filterResult.frequencyAxisHz);
-    const std::vector<double> rightInputResponseDb =
-        resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
-                             workspace.smoothedResponse.rightChannelDb,
-                             workspace.filterResult.frequencyAxisHz);
     if (showCorrectedInputLeft_) {
         accumulateRange(leftInputResponseDb);
     }
@@ -1854,11 +2454,76 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
 
 PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
-    data.xValues = workspace.filterResult.frequencyAxisHz;
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"deg";
+    if (workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available()) {
+        const FilterDesignResult& minimumResult = workspace.minimumFilter.result;
+        const FilterDesignResult& mixedResult = workspace.mixedFilter.result;
+        data.xValues = !mixedResult.frequencyAxisHz.empty() ? mixedResult.frequencyAxisHz : minimumResult.frequencyAxisHz;
+        if (data.xValues.empty()) {
+            return data;
+        }
+
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showExcessPhasePredictedRight_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.right.predictedExcessPhaseContinuousDegrees,
+                                                            mixedResult,
+                                                            mixedResult.right.predictedExcessPhaseContinuousDegrees,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right delta", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (showExcessPhasePredictedLeft_) {
+            std::vector<double> delta = buildLogDeltaSeries(minimumResult,
+                                                            minimumResult.left.predictedExcessPhaseContinuousDegrees,
+                                                            mixedResult,
+                                                            mixedResult.left.predictedExcessPhaseContinuousDegrees,
+                                                            data.xValues);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left delta", ui_theme::kGray, std::move(delta)});
+        }
+
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double padded = std::max(std::max(std::abs(minY), std::abs(maxY)) + 15.0, 180.0);
+            data.minY = -padded;
+            data.maxY = padded;
+        }
+        return data;
+    }
+
+    data.xValues = workspace.filterResult.frequencyAxisHz;
     if (!workspace.filterResult.valid) {
+        return data;
+    }
+
+    if (showExcessPhaseEffect_) {
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showExcessPhasePredictedRight_) {
+            std::vector<double> delta =
+                subtractSeries(workspace.filterResult.right.predictedExcessPhaseContinuousDegrees,
+                               workspace.filterResult.right.inputExcessPhaseContinuousDegrees);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right effect", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (showExcessPhasePredictedLeft_) {
+            std::vector<double> delta =
+                subtractSeries(workspace.filterResult.left.predictedExcessPhaseContinuousDegrees,
+                               workspace.filterResult.left.inputExcessPhaseContinuousDegrees);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left effect", ui_theme::kGray, std::move(delta)});
+        }
+
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double padded = std::max(std::max(std::abs(minY), std::abs(maxY)) + 10.0, 60.0);
+            data.minY = -padded;
+            data.maxY = padded;
+        }
         return data;
     }
 
@@ -1909,11 +2574,94 @@ PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& works
 
 PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
-    data.xValues = workspace.filterResult.frequencyAxisHz;
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"ms";
+    if (workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available()) {
+        const FilterDesignResult& minimumResult = workspace.minimumFilter.result;
+        const FilterDesignResult& mixedResult = workspace.mixedFilter.result;
+        data.xValues = !mixedResult.frequencyAxisHz.empty() ? mixedResult.frequencyAxisHz : minimumResult.frequencyAxisHz;
+        if (data.xValues.empty()) {
+            return data;
+        }
+
+        if (showFilterGroupDelayLeft_) {
+            data.series.push_back({L"Left filter delta",
+                                   ui_theme::kTeal,
+                                   buildLogDeltaSeries(minimumResult,
+                                                       minimumResult.left.groupDelayMs,
+                                                       mixedResult,
+                                                       mixedResult.left.groupDelayMs,
+                                                       data.xValues)});
+        }
+        if (showFilterGroupDelayRight_) {
+            data.series.push_back({L"Right filter delta",
+                                   ui_theme::kOrange,
+                                   buildLogDeltaSeries(minimumResult,
+                                                       minimumResult.right.groupDelayMs,
+                                                       mixedResult,
+                                                       mixedResult.right.groupDelayMs,
+                                                       data.xValues)});
+        }
+        if (showPredictedGroupDelayRight_) {
+            data.series.push_back({L"Right predicted delta",
+                                   ui_theme::kMagenta,
+                                   buildLogDeltaSeries(minimumResult,
+                                                       minimumResult.right.predictedGroupDelayMs,
+                                                       mixedResult,
+                                                       mixedResult.right.predictedGroupDelayMs,
+                                                       data.xValues)});
+        }
+        if (showPredictedGroupDelayLeft_) {
+            data.series.push_back({L"Left predicted delta",
+                                   ui_theme::kGray,
+                                   buildLogDeltaSeries(minimumResult,
+                                                       minimumResult.left.predictedGroupDelayMs,
+                                                       mixedResult,
+                                                       mixedResult.left.predictedGroupDelayMs,
+                                                       data.xValues)});
+        }
+        return data;
+    }
+
+    data.xValues = workspace.filterResult.frequencyAxisHz;
     if (!workspace.filterResult.valid) {
+        return data;
+    }
+
+    const double safeSampleRate = static_cast<double>(std::max(workspace.filterResult.sampleRate, 1));
+    const double leftLatencyMs =
+        std::max(workspace.filterResult.left.impulsePeakIndex, 0) * 1000.0 / safeSampleRate;
+    const double rightLatencyMs =
+        std::max(workspace.filterResult.right.impulsePeakIndex, 0) * 1000.0 / safeSampleRate;
+    if (showGroupDelayEffect_) {
+        std::vector<double> leftPredictedGroupDelay = workspace.filterResult.left.predictedGroupDelayMs;
+        std::vector<double> rightPredictedGroupDelay = workspace.filterResult.right.predictedGroupDelayMs;
+        data.fixedYRange = true;
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        if (showPredictedGroupDelayRight_) {
+            std::vector<double> delta =
+                subtractSeries(rightPredictedGroupDelay, workspace.filterResult.right.inputGroupDelayMs);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Right effect", ui_theme::kMagenta, std::move(delta)});
+        }
+        if (showPredictedGroupDelayLeft_) {
+            std::vector<double> delta =
+                subtractSeries(leftPredictedGroupDelay, workspace.filterResult.left.inputGroupDelayMs);
+            accumulateFiniteRange(delta, minY, maxY);
+            data.series.push_back({L"Left effect", ui_theme::kGray, std::move(delta)});
+        }
+        if (std::isfinite(minY) && std::isfinite(maxY)) {
+            const double padded = std::max(std::max(std::abs(minY), std::abs(maxY)) + 0.5, 5.0);
+            data.minY = -padded;
+            data.maxY = padded;
+        } else {
+            data.minY = -5.0;
+            data.maxY = 5.0;
+        }
         return data;
     }
 
@@ -1923,11 +2671,6 @@ PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& worksp
     if (showInputGroupDelayRight_) {
         data.series.push_back({L"Right input", ui_theme::kRed, workspace.filterResult.right.inputGroupDelayMs});
     }
-    const double safeSampleRate = static_cast<double>(std::max(workspace.filterResult.sampleRate, 1));
-    const double leftLatencyMs =
-        std::max(workspace.filterResult.left.impulsePeakIndex, 0) * 1000.0 / safeSampleRate;
-    const double rightLatencyMs =
-        std::max(workspace.filterResult.right.impulsePeakIndex, 0) * 1000.0 / safeSampleRate;
     const std::vector<double> leftFilterGroupDelay =
         alignGroupDelayLatency_
             ? subtractConstant(workspace.filterResult.left.groupDelayMs, leftLatencyMs)
@@ -1961,6 +2704,34 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
     data.yAxisMode = PlotGraphYAxisMode::SymmetricAroundZero;
     data.xUnit = L"ms";
     data.yUnit = L"linear";
+    if (workspace.ui.filterViewMode == "difference" &&
+        workspace.minimumFilter.available() &&
+        workspace.mixedFilter.available()) {
+        const std::vector<double> minimumAxis = buildSharedImpulseTimeAxisMs(workspace.minimumFilter.result);
+        const std::vector<double> mixedAxis = buildSharedImpulseTimeAxisMs(workspace.mixedFilter.result);
+        data.xValues =
+            buildImpulseDifferenceTimeAxisMs(workspace.minimumFilter.result, workspace.mixedFilter.result);
+        if (data.xValues.empty()) {
+            return data;
+        }
+
+        data.series.push_back({L"Left delta",
+                               ui_theme::kGray,
+                               buildLinearDeltaSeries(minimumAxis,
+                                                      workspace.minimumFilter.result.left.filterTaps,
+                                                      mixedAxis,
+                                                      workspace.mixedFilter.result.left.filterTaps,
+                                                      data.xValues)});
+        data.series.push_back({L"Right delta",
+                               ui_theme::kMagenta,
+                               buildLinearDeltaSeries(minimumAxis,
+                                                      workspace.minimumFilter.result.right.filterTaps,
+                                                      mixedAxis,
+                                                      workspace.mixedFilter.result.right.filterTaps,
+                                                      data.xValues)});
+        return data;
+    }
+
     if (!workspace.filterResult.valid ||
         workspace.filterResult.left.filterTaps.empty() ||
         workspace.filterResult.right.filterTaps.empty()) {
@@ -1993,3 +2764,4 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
 }
 
 }  // namespace wolfie::ui
+

@@ -88,27 +88,66 @@ std::vector<std::complex<double>> fftOfRealSignal(const std::vector<double>& sam
     return spectrum;
 }
 
-}  // namespace
+std::vector<double> convolveAndAlignImpulse(const std::vector<double>& impulse,
+                                            const std::vector<double>& filterTaps,
+                                            int filterPeakIndex) {
+    if (impulse.empty() || filterTaps.empty()) {
+        return {};
+    }
 
-WaterfallPlotData buildWaterfallPlotData(const MeasurementResult& result, MeasurementChannel channel) {
+    const size_t outputLength = impulse.size() + filterTaps.size() - 1;
+    const size_t fftSize = nextPowerOfTwo(outputLength);
+    std::vector<std::complex<double>> impulseSpectrum(fftSize, std::complex<double>(0.0, 0.0));
+    std::vector<std::complex<double>> filterSpectrum(fftSize, std::complex<double>(0.0, 0.0));
+    for (size_t index = 0; index < impulse.size(); ++index) {
+        impulseSpectrum[index] = std::complex<double>(impulse[index], 0.0);
+    }
+    for (size_t index = 0; index < filterTaps.size(); ++index) {
+        filterSpectrum[index] = std::complex<double>(filterTaps[index], 0.0);
+    }
+
+    fft(impulseSpectrum, false);
+    fft(filterSpectrum, false);
+    for (size_t index = 0; index < fftSize; ++index) {
+        impulseSpectrum[index] *= filterSpectrum[index];
+    }
+    fft(impulseSpectrum, true);
+
+    std::vector<double> convolved;
+    convolved.reserve(outputLength);
+    for (size_t index = 0; index < outputLength; ++index) {
+        convolved.push_back(impulseSpectrum[index].real());
+    }
+
+    const size_t alignmentSamples = static_cast<size_t>(std::max(filterPeakIndex, 0));
+    if (alignmentSamples >= convolved.size()) {
+        return {};
+    }
+
+    return std::vector<double>(convolved.begin() + static_cast<std::ptrdiff_t>(alignmentSamples), convolved.end());
+}
+
+WaterfallPlotData buildWaterfallPlotDataFromImpulse(const MeasurementResult& result,
+                                                    const MeasurementValueSet& impulse,
+                                                    const std::vector<double>& values) {
     WaterfallPlotData plot;
-    const MeasurementValueSet* impulse = result.findValueSet("measurement.raw_impulse_response");
-    if (impulse == nullptr || !impulse->valid()) {
+    if (!impulse.valid()) {
         return plot;
     }
 
-    const std::vector<double>& values =
-        channel == MeasurementChannel::Right ? impulse->rightValues : impulse->leftValues;
-    if (values.size() != impulse->xValues.size()) {
+    if (values.empty()) {
+        return plot;
+    }
+    if (impulse.xValues.size() > values.size()) {
         return plot;
     }
 
-    const int sampleRate = inferSampleRate(result, *impulse);
+    const int sampleRate = inferSampleRate(result, impulse);
     if (sampleRate <= 0) {
         return plot;
     }
 
-    const size_t startIndex = zeroTimeIndex(*impulse);
+    const size_t startIndex = zeroTimeIndex(impulse);
     if (startIndex >= values.size()) {
         return plot;
     }
@@ -193,6 +232,44 @@ WaterfallPlotData buildWaterfallPlotData(const MeasurementResult& result, Measur
     }
 
     return plot.valid() ? plot : WaterfallPlotData{};
+}
+
+}  // namespace
+
+WaterfallPlotData buildWaterfallPlotData(const MeasurementResult& result, MeasurementChannel channel) {
+    const MeasurementValueSet* impulse = result.findValueSet("measurement.raw_impulse_response");
+    if (impulse == nullptr || !impulse->valid()) {
+        return {};
+    }
+
+    const std::vector<double>& values =
+        channel == MeasurementChannel::Right ? impulse->rightValues : impulse->leftValues;
+    return buildWaterfallPlotDataFromImpulse(result, *impulse, values);
+}
+
+WaterfallPlotData buildExpectedWaterfallPlotData(const MeasurementResult& result,
+                                                 const FilterDesignResult& filterResult,
+                                                 MeasurementChannel channel) {
+    const MeasurementValueSet* impulse = result.findValueSet("measurement.raw_impulse_response");
+    if (impulse == nullptr || !impulse->valid() || !filterResult.valid) {
+        return {};
+    }
+
+    const FilterDesignChannelResult& filterChannel =
+        channel == MeasurementChannel::Right ? filterResult.right : filterResult.left;
+    if (filterChannel.filterTaps.empty()) {
+        return {};
+    }
+
+    const std::vector<double>& sourceValues =
+        channel == MeasurementChannel::Right ? impulse->rightValues : impulse->leftValues;
+    const std::vector<double> expectedValues =
+        convolveAndAlignImpulse(sourceValues, filterChannel.filterTaps, filterChannel.impulsePeakIndex);
+    if (expectedValues.empty()) {
+        return {};
+    }
+
+    return buildWaterfallPlotDataFromImpulse(result, *impulse, expectedValues);
 }
 
 }  // namespace wolfie::measurement

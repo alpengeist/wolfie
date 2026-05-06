@@ -4,6 +4,20 @@ project(wolfie LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(FetchContent)
+
+set(RTAUDIO_BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+set(RTAUDIO_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(RTAUDIO_API_ASIO ON CACHE BOOL "" FORCE)
+set(RTAUDIO_API_WASAPI OFF CACHE BOOL "" FORCE)
+set(RTAUDIO_API_DS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    rtaudio
+    GIT_REPOSITORY https://github.com/thestk/rtaudio.git
+    GIT_TAG 6.0.1
+)
+FetchContent_MakeAvailable(rtaudio)
+
 add_executable(wolfie WIN32
     src/main.cpp
     src/wolfie.rc
@@ -44,6 +58,8 @@ add_executable(wolfie WIN32
     src/measurement/response_smoother.h
     src/measurement/stereo_diagnostics.cpp
     src/measurement/stereo_diagnostics.h
+    src/measurement/sweet_spot_alignment.cpp
+    src/measurement/sweet_spot_alignment.h
     src/measurement/sweep_generator.cpp
     src/measurement/sweep_generator.h
     src/measurement/target_curve_designer.cpp
@@ -52,6 +68,8 @@ add_executable(wolfie WIN32
     src/measurement/waterfall_builder.h
     src/persistence/app_state_repository.cpp
     src/persistence/app_state_repository.h
+    src/persistence/filter_store_repository.cpp
+    src/persistence/filter_store_repository.h
     src/persistence/microphone_calibration_repository.cpp
     src/persistence/microphone_calibration_repository.h
     src/persistence/room_simulation_repository.cpp
@@ -60,6 +78,8 @@ add_executable(wolfie WIN32
     src/persistence/wave_file_repository.h
     src/persistence/workspace_repository.cpp
     src/persistence/workspace_repository.h
+    src/ui/alignment_page.cpp
+    src/ui/alignment_page.h
     src/ui/measurement_page.cpp
     src/ui/measurement_page.h
     src/ui/analysis_page.cpp
@@ -93,7 +113,7 @@ add_executable(wolfie WIN32
 
 target_include_directories(wolfie PRIVATE src)
 target_compile_definitions(wolfie PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(wolfie PRIVATE comctl32 comdlg32 gdiplus msimg32 ole32 shell32 shlwapi uuid winmm)
+target_link_libraries(wolfie PRIVATE rtaudio comctl32 comdlg32 gdiplus msimg32 ole32 shell32 shlwapi uuid winmm)
 
 option(WOLFIE_BUILD_TESTS "Build Wolfie tests" ON)
 if(WOLFIE_BUILD_TESTS)
@@ -118,8 +138,12 @@ if(WOLFIE_BUILD_TESTS)
         src/measurement/response_smoother.h
         src/measurement/stereo_diagnostics.cpp
         src/measurement/stereo_diagnostics.h
+        src/measurement/sweet_spot_alignment.cpp
+        src/measurement/sweet_spot_alignment.h
         src/measurement/waterfall_builder.cpp
         src/measurement/waterfall_builder.h
+        src/persistence/microphone_calibration_repository.cpp
+        src/persistence/microphone_calibration_repository.h
         src/measurement/sweep_generator.cpp
         src/measurement/sweep_generator.h
         src/measurement/target_curve_designer.cpp
@@ -171,4 +195,5 @@ if(WOLFIE_BUILD_TESTS)
             wolfie_filter_analysis_tests
             wolfie_filter_export_tests
     )
+
 endif()

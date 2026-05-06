@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <iomanip>
 #include <sstream>
+#include <string_view>
 
 #include <commctrl.h>
 #include <richedit.h>
@@ -18,6 +21,7 @@
 #include "measurement/filter_wav_export.h"
 #include "measurement/room_simulator.h"
 #include "measurement/response_smoother.h"
+#include "measurement/sweet_spot_alignment.h"
 #include "measurement/target_curve_designer.h"
 #include "persistence/microphone_calibration_repository.h"
 #include "persistence/wave_file_repository.h"
@@ -60,6 +64,179 @@ std::string sanitizeFileComponent(std::string_view value) {
     return sanitized;
 }
 
+std::wstring getWindowTextValue(HWND control) {
+    if (control == nullptr) {
+        return {};
+    }
+
+    const int length = GetWindowTextLengthW(control);
+    if (length <= 0) {
+        return {};
+    }
+
+    std::wstring text(static_cast<size_t>(length) + 1, L'\0');
+    const int written = GetWindowTextW(control, text.data(), length + 1);
+    text.resize(static_cast<size_t>(std::max(written, 0)));
+    return text;
+}
+
+std::string boolToken(bool value) {
+    return value ? "true" : "false";
+}
+
+std::string normalizeFilterViewMode(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (value == "mixed" || value == "difference") {
+        return value;
+    }
+    return "minimum";
+}
+
+void copyMixedPhaseSettings(FilterDesignSettings& target, const FilterDesignSettings& source) {
+    target.mixedPhaseMaxFrequencyHz = source.mixedPhaseMaxFrequencyHz;
+    target.excessPhaseWindowMs = source.excessPhaseWindowMs;
+    target.mixedPhaseStrength = source.mixedPhaseStrength;
+    target.mixedPhaseMaxCorrectionDegrees = source.mixedPhaseMaxCorrectionDegrees;
+}
+
+std::string buildExportTimestampText(const SYSTEMTIME& time) {
+    std::ostringstream out;
+    out << std::setfill('0')
+        << std::setw(4) << time.wYear
+        << '-'
+        << std::setw(2) << time.wMonth
+        << '-'
+        << std::setw(2) << time.wDay
+        << 'T'
+        << std::setw(2) << time.wHour
+        << ':'
+        << std::setw(2) << time.wMinute;
+    return out.str();
+}
+
+std::string buildExportTimestampFileToken(const SYSTEMTIME& time) {
+    std::ostringstream out;
+    out << std::setfill('0')
+        << std::setw(4) << time.wYear
+        << '-'
+        << std::setw(2) << time.wMonth
+        << '-'
+        << std::setw(2) << time.wDay
+        << 'T'
+        << std::setw(2) << time.wHour
+        << '-'
+        << std::setw(2) << time.wMinute;
+    return out.str();
+}
+
+void appendParameterLine(std::ostringstream& out, std::string_view key, std::string_view value) {
+    out << key << '=';
+    for (const char ch : value) {
+        switch (ch) {
+        case '\\':
+            out << "\\\\";
+            break;
+        case '\r':
+            break;
+        case '\n':
+            out << "\\n";
+            break;
+        default:
+            out << ch;
+            break;
+        }
+    }
+    out << '\n';
+}
+
+void appendParameterLine(std::ostringstream& out, std::string_view key, const std::wstring& value) {
+    appendParameterLine(out, key, toUtf8(value));
+}
+
+void appendParameterLine(std::ostringstream& out, std::string_view key, double value, int decimals) {
+    appendParameterLine(out, key, formatDouble(value, decimals));
+}
+
+void appendParameterLine(std::ostringstream& out, std::string_view key, int value) {
+    appendParameterLine(out, key, std::to_string(value));
+}
+
+void appendTargetCurveParameters(std::ostringstream& out, const TargetCurveSettings& targetCurve) {
+    appendParameterLine(out, "target_curve.lowGainDb", targetCurve.lowGainDb, 2);
+    appendParameterLine(out, "target_curve.midFrequencyHz", targetCurve.midFrequencyHz, 2);
+    appendParameterLine(out, "target_curve.midGainDb", targetCurve.midGainDb, 2);
+    appendParameterLine(out, "target_curve.highGainDb", targetCurve.highGainDb, 2);
+    appendParameterLine(out, "target_curve.levelOffsetDb", targetCurve.levelOffsetDb, 2);
+    appendParameterLine(out, "target_curve.bypassEqBands", boolToken(targetCurve.bypassEqBands));
+    appendParameterLine(out, "target_curve.eqBandCount", static_cast<int>(targetCurve.eqBands.size()));
+    for (std::size_t index = 0; index < targetCurve.eqBands.size(); ++index) {
+        const TargetEqBand& band = targetCurve.eqBands[index];
+        const std::string prefix = "target_curve.eqBand[" + std::to_string(index) + "].";
+        appendParameterLine(out, prefix + "enabled", boolToken(band.enabled));
+        appendParameterLine(out, prefix + "colorIndex", band.colorIndex);
+        appendParameterLine(out, prefix + "frequencyHz", band.frequencyHz, 2);
+        appendParameterLine(out, prefix + "gainDb", band.gainDb, 2);
+        appendParameterLine(out, prefix + "q", band.q, 3);
+    }
+}
+
+void appendSmoothingParameters(std::ostringstream& out, const ResponseSmoothingSettings& smoothing) {
+    appendParameterLine(out, "smoothing.psychoacousticModel", smoothing.psychoacousticModel);
+    appendParameterLine(out, "smoothing.resolutionPercent", smoothing.resolutionPercent);
+    appendParameterLine(out, "smoothing.lowFrequencyWindowCycles", smoothing.lowFrequencyWindowCycles, 2);
+    appendParameterLine(out, "smoothing.highFrequencyWindowCycles", smoothing.highFrequencyWindowCycles, 2);
+    appendParameterLine(out, "smoothing.highFrequencySlopeCutoffHz", smoothing.highFrequencySlopeCutoffHz, 2);
+}
+
+void appendFilterParameters(std::ostringstream& out, const FilterDesignSettings& filters) {
+    appendParameterLine(out, "filters.tapCount", filters.tapCount);
+    appendParameterLine(out, "filters.phaseMode", filters.phaseMode);
+    appendParameterLine(out, "filters.maxBoostDb", filters.maxBoostDb, 2);
+    appendParameterLine(out, "filters.maxCutDb", filters.maxCutDb, 2);
+    appendParameterLine(out, "filters.smoothness", filters.smoothness, 2);
+    appendParameterLine(out, "filters.lowCorrectionHz", filters.lowCorrectionHz, 2);
+    appendParameterLine(out, "filters.lowTaperOctaves", filters.lowTaperOctaves, 2);
+    appendParameterLine(out, "filters.highCorrectionHz", filters.highCorrectionHz, 2);
+    appendParameterLine(out, "filters.highTaperOctaves", filters.highTaperOctaves, 2);
+    appendParameterLine(out, "filters.displayPointCount", filters.displayPointCount);
+    appendParameterLine(out, "filters.mixedPhaseMaxFrequencyHz", filters.mixedPhaseMaxFrequencyHz, 2);
+    appendParameterLine(out, "filters.excessPhaseWindowMs", filters.excessPhaseWindowMs, 2);
+    appendParameterLine(out, "filters.mixedPhaseStrength", filters.mixedPhaseStrength, 2);
+    appendParameterLine(out, "filters.mixedPhaseMaxCorrectionDegrees", filters.mixedPhaseMaxCorrectionDegrees, 2);
+}
+
+std::string buildExportParametersText(const WorkspaceState& workspace,
+                                      const std::vector<int>& sampleRates,
+                                      std::wstring_view exportComment,
+                                      std::string_view exportTimestamp) {
+    std::ostringstream out;
+    appendParameterLine(out, "export.timestamp", exportTimestamp);
+    appendParameterLine(out,
+                        "export.sampleRatesHz",
+                        [&sampleRates]() {
+                            std::ostringstream values;
+                            for (std::size_t index = 0; index < sampleRates.size(); ++index) {
+                                if (index > 0) {
+                                    values << ',';
+                                }
+                                values << sampleRates[index];
+                            }
+                            return values.str();
+                        }());
+    appendParameterLine(out, "export.comment", toUtf8(exportComment));
+    appendParameterLine(out, "target_curve.profile", workspace.activeTargetCurveProfileName);
+    appendParameterLine(out, "target_curve.comment", workspace.activeTargetCurveComment);
+    out << '\n';
+    appendSmoothingParameters(out, workspace.smoothing);
+    out << '\n';
+    appendTargetCurveParameters(out, workspace.targetCurve);
+    out << '\n';
+    appendFilterParameters(out, workspace.filters);
+    return out.str();
+}
+
 constexpr int kMenuFileNew = 1001;
 constexpr int kMenuFileOpen = 1002;
 constexpr int kMenuFileSave = 1003;
@@ -71,8 +248,9 @@ constexpr int kProcessLog = 3015;
 constexpr int kProcessLogSizeCompact = 3016;
 constexpr int kProcessLogSizeMedium = 3017;
 constexpr int kProcessLogSizeExpanded = 3018;
-constexpr int kButtonExportRoon = 3019;
-constexpr int kExportSampleRateCheckboxBase = 3020;
+constexpr int kButtonExportRoon = 3701;
+constexpr int kExportSampleRateCheckboxBase = 3710;
+constexpr int kEditExportComment = 3730;
 constexpr wchar_t kMainClassName[] = L"WolfieMainWindow";
 constexpr int kLogDividerHeight = 2;
 constexpr int kLogLabelHeight = 20;
@@ -86,6 +264,31 @@ constexpr int kLogSizeButtonHeight = 18;
 constexpr int kLogSizeButtonGap = 4;
 constexpr COLORREF kLogNormalColor = RGB(0, 0, 0);
 constexpr COLORREF kLogErrorColor = RGB(190, 0, 0);
+
+MeasurementSettings buildAlignmentMeasurementSettings(const MeasurementSettings& baseSettings) {
+    MeasurementSettings settings = baseSettings;
+    settings.durationSeconds = 0.0018;
+    settings.fadeInSeconds = 0.00022;
+    settings.fadeOutSeconds = 0.00022;
+    settings.startFrequencyHz = 4400.0;
+    settings.endFrequencyHz = 6800.0;
+    settings.targetLengthSamples = settings.sampleRate >= 96000 ? 1024 : 512;
+    settings.leadInSamples = std::max(settings.sampleRate / 80, 768);
+    return settings;
+}
+
+int clampWorkspaceTabIndex(HWND tabControl, int index) {
+    if (tabControl == nullptr) {
+        return 0;
+    }
+
+    const int itemCount = TabCtrl_GetItemCount(tabControl);
+    if (itemCount <= 0) {
+        return 0;
+    }
+
+    return std::clamp(index, 0, itemCount - 1);
+}
 
 std::filesystem::path appStatePath() {
     const std::filesystem::path legacyPath = std::filesystem::current_path() / "wolfie-app-state.json";
@@ -220,6 +423,9 @@ LRESULT CALLBACK WolfieApp::MainWindowProc(HWND window, UINT message, WPARAM wPa
         if (app->handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
             return TRUE;
         }
+        if (app->alignmentPage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
+            return TRUE;
+        }
         if (app->measurementPage_.handleDrawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam))) {
             return TRUE;
         }
@@ -297,6 +503,7 @@ void WolfieApp::createMainWindow() {
     ui::WaterfallGraph::registerWindowClass(instance_);
     ui::TargetCurveGraph::registerWindowClass(instance_);
     ui::PlotGraph::registerWindowClass(instance_);
+    ui::AlignmentPage::registerPageWindowClass(instance_);
     ui::MeasurementPage::registerPageWindowClass(instance_);
     ui::AnalysisPage::registerPageWindowClass(instance_);
     ui::SmoothingPage::registerPageWindowClass(instance_);
@@ -333,23 +540,26 @@ void WolfieApp::createMenus() {
 
 void WolfieApp::createLayout() {
     tabControl_ = CreateWindowExW(0, WC_TABCONTROLW, nullptr, WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
-                                  0, 0, 0, 0, mainWindow_, reinterpret_cast<HMENU>(kTabMain), instance_, nullptr);
+                                  0, 0, 0, 0, mainWindow_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTabMain)), instance_, nullptr);
 
     TCITEMW item{};
     item.mask = TCIF_TEXT;
-    item.pszText = const_cast<LPWSTR>(L"Measurement");
+    item.pszText = const_cast<LPWSTR>(L"Alignment");
     TabCtrl_InsertItem(tabControl_, 0, &item);
-    item.pszText = const_cast<LPWSTR>(L"Analysis");
+    item.pszText = const_cast<LPWSTR>(L"Measurement");
     TabCtrl_InsertItem(tabControl_, 1, &item);
-    item.pszText = const_cast<LPWSTR>(L"Smoothing");
+    item.pszText = const_cast<LPWSTR>(L"Analysis");
     TabCtrl_InsertItem(tabControl_, 2, &item);
-    item.pszText = const_cast<LPWSTR>(L"Target Curve");
+    item.pszText = const_cast<LPWSTR>(L"Smoothing");
     TabCtrl_InsertItem(tabControl_, 3, &item);
-    item.pszText = const_cast<LPWSTR>(L"Filters");
+    item.pszText = const_cast<LPWSTR>(L"Target Curve");
     TabCtrl_InsertItem(tabControl_, 4, &item);
-    item.pszText = const_cast<LPWSTR>(L"Export");
+    item.pszText = const_cast<LPWSTR>(L"Filters");
     TabCtrl_InsertItem(tabControl_, 5, &item);
+    item.pszText = const_cast<LPWSTR>(L"Export");
+    TabCtrl_InsertItem(tabControl_, 6, &item);
 
+    alignmentPage_.create(tabControl_, instance_);
     measurementPage_.create(tabControl_, instance_);
     analysisPage_.create(tabControl_, instance_);
     smoothingPage_.create(tabControl_, instance_);
@@ -371,12 +581,36 @@ void WolfieApp::createLayout() {
                                       0,
                                       0,
                                       pageExport_,
-                                      reinterpret_cast<HMENU>(kExportSampleRateCheckboxBase + static_cast<int>(index)),
+                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kExportSampleRateCheckboxBase + static_cast<int>(index))),
                                       instance_,
                                       nullptr);
         SendMessageW(checkbox, BM_SETCHECK, BST_CHECKED, 0);
         exportSampleRateChecks_.push_back(checkbox);
     }
+    exportCommentLabel_ = CreateWindowW(L"STATIC",
+                                        L"Comment",
+                                        WS_CHILD | WS_VISIBLE,
+                                        0,
+                                        0,
+                                        0,
+                                        0,
+                                        pageExport_,
+                                        nullptr,
+                                        instance_,
+                                        nullptr);
+    exportCommentEdit_ = CreateWindowExW(WS_EX_CLIENTEDGE,
+                                         L"EDIT",
+                                         L"",
+                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | ES_MULTILINE |
+                                             ES_AUTOVSCROLL | ES_WANTRETURN,
+                                         0,
+                                         0,
+                                         0,
+                                         0,
+                                         pageExport_,
+                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditExportComment)),
+                                         instance_,
+                                         nullptr);
     exportButton_ = CreateWindowW(L"BUTTON",
                                   L"Generate Roon ZIP",
                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP,
@@ -385,7 +619,7 @@ void WolfieApp::createLayout() {
                                   0,
                                   0,
                                   pageExport_,
-                                  reinterpret_cast<HMENU>(kButtonExportRoon),
+                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonExportRoon)),
                                   instance_,
                                   nullptr);
     exportProgress_ = CreateWindowW(L"STATIC",
@@ -413,7 +647,7 @@ void WolfieApp::createLayout() {
                                           0,
                                           0,
                                           mainWindow_,
-                                          reinterpret_cast<HMENU>(kProcessLogSizeCompact),
+                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProcessLogSizeCompact)),
                                           instance_,
                                           nullptr);
     logSizeMediumButton_ = CreateWindowW(L"BUTTON",
@@ -424,7 +658,7 @@ void WolfieApp::createLayout() {
                                          0,
                                          0,
                                          mainWindow_,
-                                         reinterpret_cast<HMENU>(kProcessLogSizeMedium),
+                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProcessLogSizeMedium)),
                                          instance_,
                                          nullptr);
     logSizeExpandedButton_ = CreateWindowW(L"BUTTON",
@@ -435,7 +669,7 @@ void WolfieApp::createLayout() {
                                            0,
                                            0,
                                            mainWindow_,
-                                           reinterpret_cast<HMENU>(kProcessLogSizeExpanded),
+                                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProcessLogSizeExpanded)),
                                            instance_,
                                            nullptr);
     LoadLibraryW(L"Msftedit.dll");
@@ -448,7 +682,7 @@ void WolfieApp::createLayout() {
                                0,
                                0,
                                mainWindow_,
-                               reinterpret_cast<HMENU>(kProcessLog),
+                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kProcessLog)),
                                instance_,
                                nullptr);
     SendMessageW(logEdit_, EM_SETLIMITTEXT, 0, 0);
@@ -507,6 +741,7 @@ void WolfieApp::layoutMainWindow() {
     TabCtrl_AdjustRect(tabControl_, FALSE, &tabRect);
     const int pageWidth = std::max(320L, tabRect.right - tabRect.left);
     const int pageHeight = std::max(240L, tabRect.bottom - tabRect.top);
+    MoveWindow(alignmentPage_.window(), tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     MoveWindow(measurementPage_.window(), tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     MoveWindow(pageAnalysis_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
     MoveWindow(pageSmoothing_, tabRect.left, tabRect.top, pageWidth, pageHeight, TRUE);
@@ -631,13 +866,21 @@ void WolfieApp::layoutContent() {
     const int checkboxRowCount =
         exportSampleRateChecks_.empty() ? 0 : ((static_cast<int>(exportSampleRateChecks_.size()) + checkboxColumns - 1) /
                                                checkboxColumns);
-    const int buttonTop = checkboxTop +
-                          (checkboxRowCount * checkboxHeight) +
-                          (std::max(0, checkboxRowCount - 1) * checkboxGapY) +
-                          18;
+    const int commentLabelTop = checkboxTop +
+                                (checkboxRowCount * checkboxHeight) +
+                                (std::max(0, checkboxRowCount - 1) * checkboxGapY) +
+                                18;
+    const int commentEditTop = commentLabelTop + 22;
+    const int commentHeight = 76;
+    const int buttonTop = commentEditTop + commentHeight + 14;
+    const int statusHeight = 56;
+    const int statusTop = buttonTop + 44;
+    MoveWindow(exportCommentLabel_, 24, commentLabelTop, exportWidth, 18, TRUE);
+    MoveWindow(exportCommentEdit_, 24, commentEditTop, exportWidth, commentHeight, TRUE);
     MoveWindow(exportButton_, 24, buttonTop, 180, 28, TRUE);
     MoveWindow(exportProgress_, 24, buttonTop, exportWidth, 28, TRUE);
-    MoveWindow(exportStatus_, 24, buttonTop + 44, exportWidth, 48, TRUE);
+    MoveWindow(exportStatus_, 24, statusTop, exportWidth, statusHeight, TRUE);
+    alignmentPage_.layout();
     measurementPage_.layout();
     analysisPage_.layout();
     smoothingPage_.layout();
@@ -736,6 +979,7 @@ void WolfieApp::populateControlsFromState() {
                                                                   workspace_.targetCurve,
                                                                   std::nullopt);
     measurement::normalizeTargetCurveSettings(workspace_.targetCurve, targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz);
+    refreshAlignmentPageView();
     measurementPage_.populate(workspace_);
     if (!roomSimulationDialog_.isOpen()) {
         roomSimulationDialog_.populate(workspace_);
@@ -744,9 +988,15 @@ void WolfieApp::populateControlsFromState() {
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
     filtersPage_.populate(workspace_);
+    measurementPage_.setWorkspaceView(workspace_);
     populateExportSampleRateControls();
     updateExportControls();
     updateProcessLogSizeButtons();
+    if (tabControl_ != nullptr) {
+        const int selected = clampWorkspaceTabIndex(tabControl_, workspace_.ui.lastOpenTabIndex);
+        TabCtrl_SetCurSel(tabControl_, selected);
+        updateVisibleTab();
+    }
     layoutMainWindow();
 }
 
@@ -757,6 +1007,7 @@ void WolfieApp::syncStateFromControls() {
     targetCurvePage_.syncToWorkspace(workspace_);
     filtersPage_.syncToWorkspace(workspace_);
     syncExportSampleRatesToWorkspace();
+    workspace_.ui.lastOpenTabIndex = clampWorkspaceTabIndex(tabControl_, activeTabIndex_);
 }
 
 WolfieApp::CalibrationReanalysisTaskResult
@@ -856,7 +1107,8 @@ WolfieApp::buildReanalyzedMeasurementWithCurrentMicCalibration(const WorkspaceSt
                                                                                   captureSampleRate,
                                                                                   analysisAudio,
                                                                                   analysisSettings,
-                                                                                  workspace.referenceResult.hasAnyValues()
+                                                                                  workspace.audio.loopbackEnabled &&
+                                                                                          workspace.referenceResult.hasAnyValues()
                                                                                       ? &workspace.referenceResult
                                                                                       : nullptr);
 
@@ -995,7 +1247,7 @@ void WolfieApp::finishCalibrationReanalysis() {
     if (!taskResult.success) {
         measurementPage_.setCalibrationRefreshInProgress(false);
         appendMeasurementLog(taskResult.errorMessage, LogSeverity::Error);
-        measurementPage_.setWorkspaceView(workspace_);
+        refreshMeasurementPageView();
         analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
         targetCurvePage_.populate(workspace_);
@@ -1004,12 +1256,15 @@ void WolfieApp::finishCalibrationReanalysis() {
         return;
     }
 
+    alignmentResult_ = {};
     workspace_.result = std::move(taskResult.result);
     workspace_.smoothedResponse = {};
     invalidateFilterDesign();
+    invalidateStoredFilters();
     invalidateFilterAnalysis();
     ensureSmoothedResponseReady();
-    measurementPage_.setWorkspaceView(workspace_);
+    refreshAlignmentPageView();
+    refreshMeasurementPageView();
     analysisPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
@@ -1094,7 +1349,9 @@ void WolfieApp::finishFilterAnalysisRefresh() {
     workspace_.smoothedResponse = std::move(taskResult.smoothedResponse);
     workspace_.filterResult = std::move(taskResult.filterResult);
     workspace_.filterAnalysis = std::move(taskResult.filterAnalysis);
+    storeCurrentFilterVariant();
 
+    refreshMeasurementPageView();
     analysisPage_.populate(workspace_);
     filtersPage_.populate(workspace_);
     syncStateFromControls();
@@ -1160,6 +1417,14 @@ void WolfieApp::refreshWindowTitle() {
 
 void WolfieApp::refreshMeasurementStatus() {
     measurementPage_.refreshStatus(measurementController_.status(), workspace_.result.hasAnyValues());
+    alignmentPage_.refreshStatus(measurementController_.status(),
+                                 activeMeasurementTarget_ == MeasurementTarget::Alignment,
+                                 !workspace_.rootPath.empty());
+}
+
+void WolfieApp::refreshAlignmentPageView() {
+    const MeasurementResult& sourceResult = alignmentResult_;
+    alignmentPage_.populate(measurement::buildSweetSpotAlignmentView(sourceResult));
 }
 
 bool WolfieApp::handleMeasureItem(MEASUREITEMSTRUCT* measureItem) const {
@@ -1251,37 +1516,125 @@ void WolfieApp::invalidateFilterDesign() {
     workspace_.filterResult = {};
 }
 
+void WolfieApp::invalidateStoredFilters() {
+    workspace_.minimumFilter = {};
+    workspace_.mixedFilter = {};
+}
+
+void WolfieApp::storeCurrentFilterVariant() {
+    if (!workspace_.filterResult.valid) {
+        return;
+    }
+
+    measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
+    if (workspace_.filters.phaseMode == "mixed") {
+        workspace_.mixedFilter.settings = workspace_.filters;
+        workspace_.mixedFilter.result = workspace_.filterResult;
+    } else if (workspace_.filters.phaseMode == "minimum") {
+        workspace_.minimumFilter.settings = workspace_.filters;
+        workspace_.minimumFilter.result = workspace_.filterResult;
+    }
+}
+
+void WolfieApp::applySelectedFilterView() {
+    workspace_.ui.filterViewMode = normalizeFilterViewMode(workspace_.ui.filterViewMode);
+    workspace_.filterResult = {};
+
+    const StoredFilterDesign* selected = nullptr;
+    if (workspace_.ui.filterViewMode == "mixed") {
+        selected = workspace_.mixedFilter.available() ? &workspace_.mixedFilter : nullptr;
+    } else if (workspace_.ui.filterViewMode == "difference") {
+        if (workspace_.mixedFilter.available()) {
+            selected = &workspace_.mixedFilter;
+        } else if (workspace_.minimumFilter.available()) {
+            selected = &workspace_.minimumFilter;
+        }
+    } else {
+        selected = workspace_.minimumFilter.available() ? &workspace_.minimumFilter : nullptr;
+    }
+
+    if (selected != nullptr) {
+        if (workspace_.ui.filterViewMode == "mixed") {
+            copyMixedPhaseSettings(workspace_.filters, selected->settings);
+        }
+        workspace_.filterResult = selected->result;
+    } else {
+        workspace_.filters.phaseMode = workspace_.ui.filterViewMode == "mixed" ? "mixed" : "minimum";
+    }
+
+    if (workspace_.ui.filterViewMode != "difference") {
+        workspace_.filters.phaseMode = workspace_.ui.filterViewMode == "mixed" ? "mixed" : "minimum";
+    }
+    measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
+}
+
+void WolfieApp::ensureFilterResultReady() {
+    if (workspace_.filterResult.valid) {
+        return;
+    }
+
+    ensureSmoothedResponseReady();
+    if (workspace_.smoothedResponse.frequencyAxisHz.empty()) {
+        return;
+    }
+
+    measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
+    workspace_.filterResult = measurement::designFilters(workspace_.smoothedResponse,
+                                                         workspace_.measurement,
+                                                         workspace_.targetCurve,
+                                                         workspace_.filters,
+                                                         &workspace_.result);
+    if (!workspace_.filterResult.valid) {
+        appendLog(L"Filter design failed.", LogSeverity::Error);
+        for (const std::string& entry : workspace_.filterResult.processLog) {
+            appendLog(L"Filter design: " + toWide(entry), LogSeverity::Error);
+        }
+        return;
+    }
+
+    for (const std::string& entry : workspace_.filterResult.processLog) {
+        appendLog(L"Filter design: " + toWide(entry));
+    }
+    storeCurrentFilterVariant();
+}
+
 void WolfieApp::ensureFilterDesignReady() {
     if (workspace_.filterResult.valid && workspace_.filterAnalysis.available) {
         return;
     }
 
+    ensureFilterResultReady();
     if (!workspace_.filterResult.valid) {
-        ensureSmoothedResponseReady();
-        if (workspace_.smoothedResponse.frequencyAxisHz.empty()) {
-            return;
-        }
-
-        measurement::normalizeFilterDesignSettings(workspace_.filters, workspace_.measurement.sampleRate);
-        workspace_.filterResult = measurement::designFilters(workspace_.smoothedResponse,
-                                                             workspace_.measurement,
-                                                             workspace_.targetCurve,
-                                                             workspace_.filters,
-                                                             &workspace_.result);
-        if (!workspace_.filterResult.valid) {
-            appendLog(L"Filter design failed.", LogSeverity::Error);
-            for (const std::string& entry : workspace_.filterResult.processLog) {
-                appendLog(L"Filter design: " + toWide(entry), LogSeverity::Error);
-            }
-            return;
-        }
-
-        for (const std::string& entry : workspace_.filterResult.processLog) {
-            appendLog(L"Filter design: " + toWide(entry));
-        }
+        return;
     }
 
     workspace_.filterAnalysis = measurement::buildFilterAnalysis(workspace_.result, workspace_.filterResult);
+}
+
+bool WolfieApp::shouldBuildExpectedMeasurementWaterfall() const {
+    return workspace_.ui.measurementPlotMode == "waterfall" &&
+           workspace_.ui.measurementWaterfallSource == "expected";
+}
+
+void WolfieApp::refreshMeasurementPageView() {
+    const bool hadSmoothedResponse = !workspace_.smoothedResponse.frequencyAxisHz.empty();
+    const bool hadFilterResult = workspace_.filterResult.valid;
+    if (shouldBuildExpectedMeasurementWaterfall()) {
+        ensureFilterResultReady();
+    }
+
+    measurementPage_.setWorkspaceView(workspace_);
+
+    const bool smoothedResponseBecameAvailable =
+        !hadSmoothedResponse && !workspace_.smoothedResponse.frequencyAxisHz.empty();
+    const bool filterResultBecameAvailable = !hadFilterResult && workspace_.filterResult.valid;
+    if (smoothedResponseBecameAvailable) {
+        smoothingPage_.populate(workspace_);
+        targetCurvePage_.populate(workspace_);
+    }
+    if (smoothedResponseBecameAvailable || filterResultBecameAvailable) {
+        filtersPage_.populate(workspace_);
+    }
 }
 
 void WolfieApp::setExportInProgress(bool running) {
@@ -1292,6 +1645,9 @@ void WolfieApp::setExportInProgress(bool running) {
 
     for (HWND checkbox : exportSampleRateChecks_) {
         EnableWindow(checkbox, running ? FALSE : TRUE);
+    }
+    if (exportCommentEdit_ != nullptr) {
+        EnableWindow(exportCommentEdit_, running ? FALSE : TRUE);
     }
 
     ShowWindow(exportButton_, running ? SW_HIDE : SW_SHOW);
@@ -1335,6 +1691,9 @@ void WolfieApp::updateExportControls() {
 
     for (HWND checkbox : exportSampleRateChecks_) {
         EnableWindow(checkbox, exportRunning_ ? FALSE : TRUE);
+    }
+    if (exportCommentEdit_ != nullptr) {
+        EnableWindow(exportCommentEdit_, exportRunning_ ? FALSE : TRUE);
     }
 
     ShowWindow(exportButton_, exportRunning_ ? SW_HIDE : SW_SHOW);
@@ -1382,24 +1741,46 @@ void WolfieApp::exportRoonFilters() {
         return;
     }
 
+    WorkspaceState exportWorkspace = workspace_;
+    measurement::syncDerivedMeasurementSettings(exportWorkspace.measurement);
+    measurement::normalizeResponseSmoothingSettings(exportWorkspace.smoothing);
+    measurement::normalizeFilterDesignSettings(exportWorkspace.filters, exportWorkspace.measurement.sampleRate);
+    const auto targetPlot = measurement::buildTargetCurvePlotData(exportWorkspace.smoothedResponse,
+                                                                  exportWorkspace.measurement,
+                                                                  exportWorkspace.targetCurve,
+                                                                  std::nullopt);
+    measurement::normalizeTargetCurveSettings(exportWorkspace.targetCurve, targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz);
+
+    SYSTEMTIME localTime{};
+    GetLocalTime(&localTime);
+    const std::string exportTimestamp = buildExportTimestampText(localTime);
+    const std::string archiveBaseName = "_roon_" + buildExportTimestampFileToken(localTime);
+    const std::wstring exportComment = getWindowTextValue(exportCommentEdit_);
+    if (exportCommentEdit_ != nullptr) {
+        SetWindowTextW(exportCommentEdit_, L"");
+    }
+    const std::string parametersText =
+        buildExportParametersText(exportWorkspace, selectedSampleRates, exportComment, exportTimestamp);
+
     const std::string activeProfileName = workspace_.activeTargetCurveProfileName.empty()
                                               ? std::string("Default")
                                               : workspace_.activeTargetCurveProfileName;
     const std::filesystem::path exportDirectory = workspace_.rootPath / "export" / sanitizeFileComponent(activeProfileName);
-    appendLog(L"Roon export started: writing filter set to " + exportDirectory.wstring());
+    const std::filesystem::path zipPath = measurement::roonFilterArchivePath(exportDirectory, archiveBaseName);
+    appendLog(L"Roon export started: writing filter set to " + zipPath.wstring());
     setExportInProgress(true);
     SetWindowTextW(exportStatus_,
-                   (L"Writing the Roon filter set to:\r\n" + exportDirectory.wstring()).c_str());
+                   (L"Writing the Roon filter set to:\r\n" + zipPath.wstring()).c_str());
     showExportProgress(L"Preparing sample-rate export...");
 
     std::vector<std::filesystem::path> generatedFiles;
     std::wstring errorMessage;
     if (!measurement::exportRoonFilterWavSet(exportDirectory,
-                                             workspace_.smoothedResponse,
-                                             workspace_.measurement,
-                                             workspace_.targetCurve,
-                                             workspace_.filters,
-                                             &workspace_.result,
+                                             exportWorkspace.smoothedResponse,
+                                             exportWorkspace.measurement,
+                                             exportWorkspace.targetCurve,
+                                             exportWorkspace.filters,
+                                             &exportWorkspace.result,
                                              selectedSampleRates,
                                              generatedFiles,
                                              errorMessage,
@@ -1413,7 +1794,9 @@ void WolfieApp::exportRoonFilters() {
                                                                     sampleRateLabel +
                                                                     L" (" + std::to_wstring(sampleRateIndex) +
                                                                     L"/" + std::to_wstring(totalSampleRates) + L")");
-                                             })) {
+                                             },
+                                             archiveBaseName,
+                                             parametersText)) {
         setExportInProgress(false);
         SetWindowTextW(exportStatus_, errorMessage.c_str());
         appendLog(L"Roon export failed: " + errorMessage, LogSeverity::Error);
@@ -1422,7 +1805,6 @@ void WolfieApp::exportRoonFilters() {
 
     setExportInProgress(false);
     const std::size_t exportedSampleRateCount = selectedSampleRates.size();
-    const std::filesystem::path zipPath = measurement::roonFilterArchivePath(exportDirectory);
     const std::wstring status =
         L"Generated " + std::to_wstring(exportedSampleRateCount) +
         L" WAV/config pairs and packed them into:\r\n" + zipPath.wstring();
@@ -1474,17 +1856,20 @@ void WolfieApp::generateRoomSimulationMeasurement(const std::string& name,
 
     syncStateFromControls();
     saveRoomSimulationDefinition(name, settings);
+    alignmentResult_ = {};
     workspace_.result = measurement::buildSimulatedRoomMeasurement(workspace_.measurement, settings, name);
     workspace_.smoothedResponse = {};
     invalidateFilterDesign();
+    invalidateStoredFilters();
     invalidateFilterAnalysis();
 
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
-    if (selected == 2 || selected == 3 || selected == 4) {
+    if (selected == 3 || selected == 4 || selected == 5) {
         ensureSmoothedResponseReady();
     }
 
-    measurementPage_.setWorkspaceView(workspace_);
+    refreshAlignmentPageView();
+    refreshMeasurementPageView();
     analysisPage_.populate(workspace_);
     smoothingPage_.populate(workspace_);
     targetCurvePage_.populate(workspace_);
@@ -1496,6 +1881,18 @@ void WolfieApp::generateRoomSimulationMeasurement(const std::string& name,
 
 void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     if (calibrationReanalysisInProgress_ || filterAnalysisRefreshInProgress_) {
+        return;
+    }
+
+    bool alignmentStartStopPressed = false;
+    if (alignmentPage_.handleCommand(commandId, notificationCode, alignmentStartStopPressed)) {
+        if (alignmentStartStopPressed) {
+            if (measurementController_.status().running && activeMeasurementTarget_ == MeasurementTarget::Alignment) {
+                stopMeasurement();
+            } else if (!measurementController_.status().running) {
+                startAlignmentMeasurement();
+            }
+        }
         return;
     }
 
@@ -1520,6 +1917,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
             return;
         }
         if (measurementPlotChanged) {
+            refreshMeasurementPageView();
             workspaceRepository_.save(workspace_);
             return;
         }
@@ -1538,7 +1936,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
                 return;
             }
 
-            measurementPage_.setWorkspaceView(workspace_);
+            refreshMeasurementPageView();
             analysisPage_.populate(workspace_);
             smoothingPage_.populate(workspace_);
             targetCurvePage_.populate(workspace_);
@@ -1549,6 +1947,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         }
         if (sampleRateChanged) {
             invalidateFilterDesign();
+            invalidateStoredFilters();
             invalidateFilterAnalysis();
             syncStateFromControls();
             workspaceRepository_.save(workspace_);
@@ -1581,6 +1980,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         if (smoothingModelChanged) {
             workspace_.smoothedResponse = {};
             invalidateFilterDesign();
+            invalidateStoredFilters();
             invalidateFilterAnalysis();
             ensureSmoothedResponseReady();
             smoothingPage_.populate(workspace_);
@@ -1618,6 +2018,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
                                        targetCurvePersistNowRequested)) {
         if (targetCurveChanged) {
             invalidateFilterDesign();
+            invalidateStoredFilters();
             invalidateFilterAnalysis();
         }
         if (targetCurvePersistencePending) {
@@ -1634,12 +2035,23 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     bool filterSettingsChanged = false;
     bool filtersRecalculateRequested = false;
     bool filterViewSettingsChanged = false;
+    bool filterSelectionChanged = false;
     if (filtersPage_.handleCommand(commandId,
                                    notificationCode,
                                    workspace_,
                                    filterSettingsChanged,
                                    filtersRecalculateRequested,
-                                   filterViewSettingsChanged)) {
+                                   filterViewSettingsChanged,
+                                   filterSelectionChanged)) {
+        if (filterSelectionChanged) {
+            applySelectedFilterView();
+            invalidateFilterAnalysis();
+            refreshMeasurementPageView();
+            analysisPage_.populate(workspace_);
+            filtersPage_.populate(workspace_);
+            syncStateFromControls();
+            workspaceRepository_.saveSettings(workspace_);
+        }
         if (filterSettingsChanged) {
             invalidateFilterDesign();
             invalidateFilterAnalysis();
@@ -1668,7 +2080,7 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
         commandId < kExportSampleRateCheckboxBase + static_cast<WORD>(exportSampleRateChecks_.size())) {
         if (notificationCode == BN_CLICKED) {
             syncExportSampleRatesToWorkspace();
-            workspaceRepository_.save(workspace_);
+            workspaceRepository_.saveUiSettings(workspace_);
             updateExportControls();
         }
         return;
@@ -1737,6 +2149,7 @@ void WolfieApp::onHScroll(HWND source) {
         if (smoothingResolutionChanged) {
             workspace_.smoothedResponse = {};
             invalidateFilterDesign();
+            invalidateStoredFilters();
             invalidateFilterAnalysis();
             ensureSmoothedResponseReady();
             smoothingPage_.populate(workspace_);
@@ -1753,11 +2166,19 @@ void WolfieApp::onHScroll(HWND source) {
     if (targetCurvePage_.handleHScroll(source, workspace_, targetCurveChanged, targetCurvePersistencePending)) {
         if (targetCurveChanged) {
             invalidateFilterDesign();
+            invalidateStoredFilters();
             invalidateFilterAnalysis();
         }
         if (targetCurvePersistencePending) {
             targetCurvePersistencePending_ = true;
         }
+        return;
+    }
+
+    if (filtersPage_.handleHScroll(source, workspace_)) {
+        syncStateFromControls();
+        workspaceRepository_.saveSettings(workspace_);
+        return;
     }
 }
 
@@ -1769,11 +2190,15 @@ void WolfieApp::onNotify(LPARAM lParam) {
     const auto* header = reinterpret_cast<const NMHDR*>(lParam);
     if (header != nullptr && header->hwndFrom == tabControl_ && header->code == TCN_SELCHANGE) {
         const int selected = TabCtrl_GetCurSel(tabControl_);
-        if (activeTabIndex_ == 3 && selected != 3) {
+        if (activeTabIndex_ == 4 && selected != 4) {
             persistTargetCurveStateIfPending();
         }
         updateVisibleTab();
         layoutContent();
+        if (!workspace_.rootPath.empty()) {
+            workspace_.ui.lastOpenTabIndex = clampWorkspaceTabIndex(tabControl_, selected);
+            workspaceRepository_.saveUiSettings(workspace_);
+        }
     }
 }
 
@@ -1840,6 +2265,10 @@ void WolfieApp::onTimer(UINT_PTR timerId) {
     }
 
     measurementController_.tick();
+    if (measurementController_.consumeAlignmentUpdate()) {
+        alignmentResult_ = measurementController_.result();
+        refreshAlignmentPageView();
+    }
     refreshMeasurementStatus();
     if (measurementController_.status().finished && !measurementCompletionHandled_) {
         measurementCompletionHandled_ = true;
@@ -1855,29 +2284,37 @@ void WolfieApp::onResize() {
 
 void WolfieApp::updateVisibleTab() {
     const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
-    if (selected == 2 || selected == 3 || selected == 4 || selected == 5) {
+    if (selected == 3 || selected == 4 || selected == 5 || selected == 6) {
         ensureSmoothedResponseReady();
-        if (selected == 2) {
+        if (selected == 3) {
             smoothingPage_.populate(workspace_);
-        } else if (selected == 3) {
-            targetCurvePage_.populate(workspace_);
         } else if (selected == 4) {
+            targetCurvePage_.populate(workspace_);
+        } else if (selected == 5) {
             filtersPage_.populate(workspace_);
         } else {
             updateExportControls();
         }
     }
-    if (selected == 1) {
+    if (selected == 2) {
         analysisPage_.populate(workspace_);
     }
+    if (selected == 0) {
+        refreshAlignmentPageView();
+    }
+    if (selected == 1) {
+        refreshMeasurementPageView();
+    }
 
-    measurementPage_.setVisible(selected == 0);
-    analysisPage_.setVisible(selected == 1);
-    smoothingPage_.setVisible(selected == 2);
-    targetCurvePage_.setVisible(selected == 3);
-    filtersPage_.setVisible(selected == 4);
-    ShowWindow(pageExport_, selected == 5 ? SW_SHOW : SW_HIDE);
+    alignmentPage_.setVisible(selected == 0);
+    measurementPage_.setVisible(selected == 1);
+    analysisPage_.setVisible(selected == 2);
+    smoothingPage_.setVisible(selected == 3);
+    targetCurvePage_.setVisible(selected == 4);
+    filtersPage_.setVisible(selected == 5);
+    ShowWindow(pageExport_, selected == 6 ? SW_SHOW : SW_HIDE);
     activeTabIndex_ = selected;
+    workspace_.ui.lastOpenTabIndex = clampWorkspaceTabIndex(tabControl_, selected);
 }
 
 void WolfieApp::persistTargetCurveStateIfPending() {
@@ -1902,6 +2339,7 @@ void WolfieApp::newWorkspace() {
 
     saveCurrentWorkspaceIfOpen();
     workspace_ = {};
+    alignmentResult_ = {};
     workspace_.rootPath = *path;
     measurement::syncDerivedMeasurementSettings(workspace_.measurement);
     measurement::normalizeResponseSmoothingSettings(workspace_.smoothing);
@@ -1914,6 +2352,9 @@ void WolfieApp::newWorkspace() {
     workspace_.targetCurveProfiles.push_back({workspace_.activeTargetCurveProfileName,
                                               workspace_.activeTargetCurveComment,
                                               workspace_.targetCurve});
+    if (exportCommentEdit_ != nullptr) {
+        SetWindowTextW(exportCommentEdit_, L"");
+    }
     populateControlsFromState();
     refreshWindowTitle();
     measurementPage_.invalidateGraph();
@@ -1934,7 +2375,10 @@ void WolfieApp::openWorkspace(const std::filesystem::path& path) {
     roomSimulationDialog_.close();
     saveCurrentWorkspaceIfOpen();
     workspace_ = workspaceRepository_.load(path);
-    invalidateFilterDesign();
+    alignmentResult_ = {};
+    if (exportCommentEdit_ != nullptr) {
+        SetWindowTextW(exportCommentEdit_, L"");
+    }
     touchRecentWorkspace(path);
     populateControlsFromState();
     refreshWindowTitle();
@@ -1992,6 +2436,9 @@ void WolfieApp::startMeasurement(MeasurementRunMode runMode) {
     }
 
     syncStateFromControls();
+    activeMeasurementTarget_ = runMode == MeasurementRunMode::Reference
+                                   ? MeasurementTarget::WorkspaceReference
+                                   : MeasurementTarget::WorkspaceRoom;
     appendMeasurementLog(std::wstring(runMode == MeasurementRunMode::Reference ? L"Starting reference measurement at "
                                                                               : L"Starting sweep measurement at ") +
                          std::to_wstring(workspace_.measurement.sampleRate) +
@@ -2017,16 +2464,56 @@ void WolfieApp::startMeasurement(MeasurementRunMode runMode) {
     appendMeasurementLog(L"Playback file written to " + measurementController_.status().generatedSweepPath.wstring());
 
     if (runMode == MeasurementRunMode::Room) {
+        alignmentResult_ = {};
         workspace_.result = {};
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
+        invalidateStoredFilters();
         invalidateFilterAnalysis();
         analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
         targetCurvePage_.populate(workspace_);
         filtersPage_.populate(workspace_);
+        refreshAlignmentPageView();
     }
-    measurementPage_.setWorkspaceView(workspace_);
+    refreshMeasurementPageView();
+    SetTimer(mainWindow_, kMeasurementTimerId, 50, nullptr);
+    refreshMeasurementStatus();
+}
+
+void WolfieApp::startAlignmentMeasurement() {
+    if (workspace_.rootPath.empty()) {
+        appendMeasurementLog(L"Cannot start alignment because no workspace is open.", LogSeverity::Error);
+        refreshMeasurementStatus();
+        return;
+    }
+
+    syncStateFromControls();
+    WorkspaceState alignmentWorkspace = workspace_;
+    alignmentWorkspace.measurement = buildAlignmentMeasurementSettings(workspace_.measurement);
+    activeMeasurementTarget_ = MeasurementTarget::Alignment;
+    appendMeasurementLog(L"Starting alignment loop at " +
+                         std::to_wstring(alignmentWorkspace.measurement.sampleRate) +
+                         L" Hz using a short burst centered in the " +
+                         formatWideDouble(alignmentWorkspace.measurement.startFrequencyHz, 0) +
+                         L" to " +
+                         formatWideDouble(alignmentWorkspace.measurement.endFrequencyHz, 0) +
+                         L" Hz.");
+    if (!measurementController_.start(alignmentWorkspace, MeasurementRunMode::Alignment)) {
+        refreshMeasurementStatus();
+        if (!measurementController_.status().lastErrorMessage.empty()) {
+            appendMeasurementLog(L"Alignment start failed: " + measurementController_.status().lastErrorMessage,
+                                 LogSeverity::Error);
+        }
+        activeMeasurementTarget_ = MeasurementTarget::WorkspaceRoom;
+        return;
+    }
+
+    measurementCompletionHandled_ = false;
+    alignmentResult_ = {};
+    refreshAlignmentPageView();
+    appendMeasurementLog(L"Alignment playback file written to " +
+                         measurementController_.status().generatedSweepPath.wstring());
     SetTimer(mainWindow_, kMeasurementTimerId, 50, nullptr);
     refreshMeasurementStatus();
 }
@@ -2036,70 +2523,92 @@ void WolfieApp::stopMeasurement() {
         return;
     }
 
-    appendMeasurementLog(measurementController_.status().runMode == MeasurementRunMode::Reference
-                             ? L"Reference measurement stopped by user."
-                             : L"Measurement stopped by user.");
+    if (activeMeasurementTarget_ == MeasurementTarget::Alignment) {
+        appendMeasurementLog(L"Alignment loop stopped by user.");
+    } else {
+        appendMeasurementLog(measurementController_.status().runMode == MeasurementRunMode::Reference
+                                 ? L"Reference measurement stopped by user."
+                                 : L"Measurement stopped by user.");
+    }
     measurementCompletionHandled_ = true;
     measurementController_.cancel();
     KillTimer(mainWindow_, kMeasurementTimerId);
-    if (!workspace_.rootPath.empty()) {
+    if (activeMeasurementTarget_ != MeasurementTarget::Alignment && !workspace_.rootPath.empty()) {
         const WorkspaceState persistedWorkspace = workspaceRepository_.load(workspace_.rootPath);
         workspace_.result = persistedWorkspace.result;
         workspace_.referenceResult = persistedWorkspace.referenceResult;
         workspace_.filterAnalysis = persistedWorkspace.filterAnalysis;
+        workspace_.minimumFilter = persistedWorkspace.minimumFilter;
+        workspace_.mixedFilter = persistedWorkspace.mixedFilter;
+        workspace_.ui.filterViewMode = persistedWorkspace.ui.filterViewMode;
         workspace_.smoothedResponse = {};
-        invalidateFilterDesign();
-        measurementPage_.setWorkspaceView(workspace_);
+        applySelectedFilterView();
+        refreshMeasurementPageView();
         analysisPage_.populate(workspace_);
         smoothingPage_.populate(workspace_);
         targetCurvePage_.populate(workspace_);
         filtersPage_.populate(workspace_);
     }
+    activeMeasurementTarget_ = MeasurementTarget::WorkspaceRoom;
+    refreshAlignmentPageView();
     refreshMeasurementStatus();
 }
 
 void WolfieApp::finalizeMeasurement() {
     const MeasurementStatus completedStatus = measurementController_.status();
+    const bool alignmentRun = activeMeasurementTarget_ == MeasurementTarget::Alignment;
     const bool referenceRun = completedStatus.runMode == MeasurementRunMode::Reference;
-    if (referenceRun) {
+    if (alignmentRun) {
+        alignmentResult_ = measurementController_.result();
+    } else if (referenceRun) {
         workspace_.referenceResult = measurementController_.result();
     } else {
+        alignmentResult_ = {};
         workspace_.result = measurementController_.result();
         workspace_.smoothedResponse = {};
         invalidateFilterDesign();
+        invalidateStoredFilters();
         invalidateFilterAnalysis();
         const int selected = tabControl_ == nullptr ? 0 : TabCtrl_GetCurSel(tabControl_);
-        if (selected == 2 || selected == 3 || selected == 4) {
+        if (selected == 3 || selected == 4 || selected == 5) {
             ensureSmoothedResponseReady();
         }
     }
-    measurementPage_.setWorkspaceView(workspace_);
-    analysisPage_.populate(workspace_);
-    smoothingPage_.populate(workspace_);
-    targetCurvePage_.populate(workspace_);
-    filtersPage_.populate(workspace_);
-    syncStateFromControls();
-    workspaceRepository_.save(workspace_);
-    const MeasurementResult& finishedResult = referenceRun ? workspace_.referenceResult : workspace_.result;
-    appendMeasurementLog(std::wstring(referenceRun ? L"Reference measurement finished. Generated "
-                                                   : L"Measurement finished. Generated ") +
-                         std::to_wstring(finishedResult.magnitudeResponse() == nullptr
-                                              ? 0
-                                              : finishedResult.magnitudeResponse()->xValues.size()) +
-                         L" response points. Peak capture level " +
-                         std::to_wstring(static_cast<int>(std::lround(completedStatus.peakAmplitudeDb))) +
-                         L" dB.");
-    appendMeasurementLog(L"Detected alignment: left " +
-                         std::to_wstring(finishedResult.analysis.left.detectedLatencySamples) +
-                         L" samples, right " +
-                         std::to_wstring(finishedResult.analysis.right.detectedLatencySamples) +
-                         L" samples.");
-    if (finishedResult.analysis.captureClippingDetected) {
-        appendMeasurementLog(L"Warning: clipping was detected during the sweep capture.", LogSeverity::Error);
+    refreshAlignmentPageView();
+    if (!alignmentRun) {
+        refreshMeasurementPageView();
+        analysisPage_.populate(workspace_);
+        smoothingPage_.populate(workspace_);
+        targetCurvePage_.populate(workspace_);
+        filtersPage_.populate(workspace_);
+        syncStateFromControls();
+        workspaceRepository_.save(workspace_);
     }
-    if (finishedResult.analysis.captureTooQuiet) {
-        appendMeasurementLog(L"Warning: sweep capture level was very low.", LogSeverity::Error);
+    const MeasurementResult& finishedResult = alignmentRun
+                                                  ? alignmentResult_
+                                                  : (referenceRun ? workspace_.referenceResult : workspace_.result);
+    if (!alignmentRun) {
+        appendMeasurementLog(std::wstring(referenceRun ? L"Reference measurement finished. Generated "
+                                                       : L"Measurement finished. Generated ") +
+                             std::to_wstring(finishedResult.magnitudeResponse() == nullptr
+                                                  ? 0
+                                                  : finishedResult.magnitudeResponse()->xValues.size()) +
+                             L" response points. Peak capture level " +
+                             std::to_wstring(static_cast<int>(std::lround(completedStatus.peakAmplitudeDb))) +
+                             L" dB.");
+        appendMeasurementLog(L"Detected alignment: left " +
+                             std::to_wstring(finishedResult.analysis.left.detectedLatencySamples) +
+                             L" samples, right " +
+                             std::to_wstring(finishedResult.analysis.right.detectedLatencySamples) +
+                             L" samples.");
+        if (finishedResult.analysis.captureClippingDetected) {
+            appendMeasurementLog(L"Warning: clipping was detected during the sweep capture.", LogSeverity::Error);
+        }
+        if (finishedResult.analysis.captureTooQuiet) {
+            appendMeasurementLog(L"Warning: sweep capture level was very low.", LogSeverity::Error);
+        }
     }
+    activeMeasurementTarget_ = MeasurementTarget::WorkspaceRoom;
     refreshMeasurementStatus();
 }
 
@@ -2141,3 +2650,4 @@ RECT WolfieApp::clientRect(HWND window) const {
 }
 
 }  // namespace wolfie
+

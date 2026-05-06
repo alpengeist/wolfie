@@ -56,6 +56,7 @@ public:
 
     void create(HWND parent, HINSTANCE instance, int controlId = 0);
     void setData(PlotGraphData data);
+    void setHoverCrosshairEnabled(bool enabled);
     void setSharedHoverMarker(bool enabled, bool active, double xValue);
     void setDefaultXRange(bool enabled, double minX, double maxX);
     void setDefaultYRange(bool enabled, double minY, double maxY);
@@ -82,6 +83,7 @@ private:
         bool tracking = false;
         POINT position{};
         double xValue = 0.0;
+        double yValue = 0.0;
     };
 
     struct BrushState {
@@ -128,6 +130,7 @@ private:
     double visibleMinY_ = -1.0;
     double visibleMaxY_ = 1.0;
     BrushState brush_;
+    bool hoverCrosshairEnabled_ = false;
     SharedHoverMarkerState sharedHoverMarker_;
     mutable HBITMAP backgroundCacheBitmap_ = nullptr;
     mutable SIZE backgroundCacheSize_{};

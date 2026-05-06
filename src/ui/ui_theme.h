@@ -38,6 +38,14 @@ inline HBRUSH panelBackgroundBrush() {
     return backgroundBrush();
 }
 
+inline COLORREF inputBackgroundColor() {
+    return GetSysColor(COLOR_WINDOW);
+}
+
+inline HBRUSH inputBackgroundBrush() {
+    return GetSysColorBrush(COLOR_WINDOW);
+}
+
 inline COLORREF graphBackgroundColor() {
     return RGB(255, 255, 255);
 }

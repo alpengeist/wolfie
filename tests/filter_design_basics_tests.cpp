@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 #include "filter_test_support.h"
@@ -38,6 +39,60 @@ double interpolateLogFrequency(const std::vector<double>& frequencyAxisHz,
     const double y1 = values[upperIndex];
     const double t = std::clamp((x - x0) / std::max(x1 - x0, 1.0e-9), 0.0, 1.0);
     return y0 + ((y1 - y0) * t);
+}
+
+wolfie::SmoothedResponse buildBoostLimitedDipResponse(double centerFrequencyHz,
+                                                      double depthDb,
+                                                      double logWidth) {
+    wolfie::SmoothedResponse response;
+    response.frequencyAxisHz = wolfie::tests::buildLogAxis(20.0, 20000.0, 512);
+    response.leftChannelDb.reserve(response.frequencyAxisHz.size());
+    response.rightChannelDb.reserve(response.frequencyAxisHz.size());
+    const double safeCenterHz = std::max(centerFrequencyHz, 1.0);
+    const double safeWidth = std::max(logWidth, 1.0e-6);
+    for (const double frequencyHz : response.frequencyAxisHz) {
+        const double logDistance =
+            (std::log10(std::max(frequencyHz, 1.0)) - std::log10(safeCenterHz)) / safeWidth;
+        const double responseDb = -depthDb * std::exp(-(logDistance * logDistance));
+        response.leftChannelDb.push_back(responseDb);
+        response.rightChannelDb.push_back(responseDb);
+    }
+    return response;
+}
+
+wolfie::SmoothedResponse buildCutLimitedPeakResponse(double centerFrequencyHz,
+                                                     double heightDb,
+                                                     double logWidth) {
+    wolfie::SmoothedResponse response;
+    response.frequencyAxisHz = wolfie::tests::buildLogAxis(20.0, 20000.0, 512);
+    response.leftChannelDb.reserve(response.frequencyAxisHz.size());
+    response.rightChannelDb.reserve(response.frequencyAxisHz.size());
+    const double safeCenterHz = std::max(centerFrequencyHz, 1.0);
+    const double safeWidth = std::max(logWidth, 1.0e-6);
+    for (const double frequencyHz : response.frequencyAxisHz) {
+        const double logDistance =
+            (std::log10(std::max(frequencyHz, 1.0)) - std::log10(safeCenterHz)) / safeWidth;
+        const double responseDb = heightDb * std::exp(-(logDistance * logDistance));
+        response.leftChannelDb.push_back(responseDb);
+        response.rightChannelDb.push_back(responseDb);
+    }
+    return response;
+}
+
+double maxFiniteValueInBand(const std::vector<double>& frequencyAxisHz,
+                            const std::vector<double>& values,
+                            double minFrequencyHz,
+                            double maxFrequencyHz) {
+    double maximum = -std::numeric_limits<double>::infinity();
+    for (size_t index = 0; index < frequencyAxisHz.size() && index < values.size(); ++index) {
+        if (!std::isfinite(values[index]) ||
+            frequencyAxisHz[index] < minFrequencyHz ||
+            frequencyAxisHz[index] > maxFrequencyHz) {
+            continue;
+        }
+        maximum = std::max(maximum, values[index]);
+    }
+    return maximum;
 }
 
 bool expectDesignedFilterLooksSane() {
@@ -240,13 +295,215 @@ bool expectLowCorrectionBoundChangesBassCorrectionShape() {
     return true;
 }
 
+bool expectDefaultSettingsUseNoBoostCeiling() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings defaultSettings;
+    defaultSettings.tapCount = 16384;
+    defaultSettings.maxCutDb = 12.0;
+    defaultSettings.highCorrectionHz = 18000.0;
+
+    wolfie::FilterDesignSettings boostedSettings = defaultSettings;
+    boostedSettings.maxBoostDb = 6.0;
+
+    const wolfie::SmoothedResponse response = wolfie::tests::buildLowFrequencyRollOffResponse();
+    const wolfie::FilterDesignResult defaultResult =
+        wolfie::measurement::designFilters(response, measurement, targetCurve, defaultSettings);
+    const wolfie::FilterDesignResult boostedResult =
+        wolfie::measurement::designFilters(response, measurement, targetCurve, boostedSettings);
+    if (!defaultResult.valid || !boostedResult.valid) {
+        std::cerr << "no-boost ceiling regression case did not produce valid filter results\n";
+        return false;
+    }
+
+    const auto maxCorrection = std::max_element(defaultResult.left.correctionCurveDb.begin(),
+                                                defaultResult.left.correctionCurveDb.end());
+    if (maxCorrection == defaultResult.left.correctionCurveDb.end() ||
+        *maxCorrection > 0.05) {
+        std::cerr << "default filter design did not stay at the 0 dB no-boost ceiling (max="
+                  << (maxCorrection == defaultResult.left.correctionCurveDb.end() ? 0.0 : *maxCorrection) << ")\n";
+        return false;
+    }
+
+    const double defaultBassCorrection = wolfie::tests::bandMeanAbs(defaultResult.frequencyAxisHz,
+                                                                    defaultResult.left.correctionCurveDb,
+                                                                    25.0,
+                                                                    80.0);
+    const double boostedBassCorrection = wolfie::tests::bandMeanAbs(boostedResult.frequencyAxisHz,
+                                                                    boostedResult.left.correctionCurveDb,
+                                                                    25.0,
+                                                                    80.0);
+    if (boostedBassCorrection < defaultBassCorrection + 2.0) {
+        std::cerr << "default no-boost ceiling did not materially reduce bass boost demand (default="
+                  << defaultBassCorrection << ", boosted=" << boostedBassCorrection << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectTargetCurveLevelOffsetSurvivesAnchoring() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    targetCurve.levelOffsetDb = 3.0;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    const wolfie::SmoothedResponse response = wolfie::tests::buildFlatResponse(18.0);
+    const wolfie::measurement::TargetCurvePlotData plot =
+        wolfie::measurement::buildTargetCurvePlotData(response, measurement, targetCurve, std::nullopt);
+    if (plot.frequencyAxisHz.empty() || plot.targetCurveDb.empty()) {
+        std::cerr << "level-offset target-curve plot came back empty\n";
+        return false;
+    }
+
+    double targetMeanDb = 0.0;
+    for (const double value : plot.targetCurveDb) {
+        targetMeanDb += value;
+    }
+    targetMeanDb /= static_cast<double>(plot.targetCurveDb.size());
+    if (std::abs(targetMeanDb - 21.0) > 0.25) {
+        std::cerr << "target-curve level offset was lost after anchoring\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectBoostCeilingHasInertiaForNarrowDips() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.maxBoostDb = 6.0;
+    filterSettings.maxCutDb = 12.0;
+    filterSettings.lowCorrectionHz = 30.0;
+    filterSettings.highCorrectionHz = 18000.0;
+    filterSettings.smoothness = 1.0;
+
+    const wolfie::SmoothedResponse narrowDip = buildBoostLimitedDipResponse(48.0, 12.0, 0.045);
+    const wolfie::SmoothedResponse broadDip = buildBoostLimitedDipResponse(48.0, 12.0, 0.14);
+    const wolfie::FilterDesignResult narrowResult =
+        wolfie::measurement::designFilters(narrowDip, measurement, targetCurve, filterSettings);
+    const wolfie::FilterDesignResult broadResult =
+        wolfie::measurement::designFilters(broadDip, measurement, targetCurve, filterSettings);
+    if (!narrowResult.valid || !broadResult.valid) {
+        std::cerr << "boost-ceiling inertia regression case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double narrowPeak = maxFiniteValueInBand(narrowResult.frequencyAxisHz,
+                                                   narrowResult.left.correctionCurveDb,
+                                                   30.0,
+                                                   90.0);
+    const double broadPeak = maxFiniteValueInBand(broadResult.frequencyAxisHz,
+                                                  broadResult.left.correctionCurveDb,
+                                                  30.0,
+                                                  90.0);
+    if (!std::isfinite(narrowPeak) || !std::isfinite(broadPeak)) {
+        std::cerr << "boost-ceiling inertia regression case did not publish usable correction values\n";
+        return false;
+    }
+
+    if (narrowPeak > 4.5) {
+        std::cerr << "narrow boost-limited dip still ran too hard into the ceiling (peak="
+                  << narrowPeak << ")\n";
+        return false;
+    }
+
+    const double narrowBandMean = wolfie::tests::bandMeanAbs(narrowResult.frequencyAxisHz,
+                                                             narrowResult.left.correctionCurveDb,
+                                                             35.0,
+                                                             75.0);
+    const double broadBandMean = wolfie::tests::bandMeanAbs(broadResult.frequencyAxisHz,
+                                                            broadResult.left.correctionCurveDb,
+                                                            35.0,
+                                                            75.0);
+    if (broadBandMean < narrowBandMean + 0.35) {
+        std::cerr << "broad dip did not draw materially more boost than the narrow dip (narrow="
+                  << narrowBandMean << ", broad=" << broadBandMean << ")\n";
+        return false;
+    }
+
+    if (broadPeak < 3.25) {
+        std::cerr << "broad dip no longer made meaningful use of the explicit boost budget (peak="
+                  << broadPeak << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectCutsUseConfiguredBudgetMoreLiterally() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    targetCurve.lowGainDb = -6.0;
+    targetCurve.midGainDb = -6.0;
+    targetCurve.highGainDb = -6.0;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings filterSettings;
+    filterSettings.tapCount = 16384;
+    filterSettings.maxBoostDb = 2.0;
+    filterSettings.maxCutDb = 12.0;
+    filterSettings.lowCorrectionHz = 30.0;
+    filterSettings.highCorrectionHz = 18000.0;
+    filterSettings.smoothness = 4.0;
+
+    const wolfie::SmoothedResponse peakResponse = buildCutLimitedPeakResponse(50.0, 11.0, 0.15);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(peakResponse, measurement, targetCurve, filterSettings);
+    if (!result.valid) {
+        std::cerr << "literal cut-budget regression case did not produce a valid filter result\n";
+        return false;
+    }
+
+    const double centerCorrection =
+        interpolateLogFrequency(result.frequencyAxisHz, result.left.correctionCurveDb, 50.0);
+    if (centerCorrection > -8.8) {
+        std::cerr << "cut budget still compressed too much before the solver (center="
+                  << centerCorrection << ")\n";
+        return false;
+    }
+
+    if (centerCorrection < -12.05) {
+        std::cerr << "cut budget exceeded the configured limit (center=" << centerCorrection << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int main() {
     return wolfie::tests::runTestCases({
         {"expectDesignedFilterLooksSane", expectDesignedFilterLooksSane},
         {"expectLowCorrectionBoundChangesBassCorrectionShape", expectLowCorrectionBoundChangesBassCorrectionShape},
+        {"expectDefaultSettingsUseNoBoostCeiling", expectDefaultSettingsUseNoBoostCeiling},
+        {"expectBoostCeilingHasInertiaForNarrowDips", expectBoostCeilingHasInertiaForNarrowDips},
+        {"expectCutsUseConfiguredBudgetMoreLiterally", expectCutsUseConfiguredBudgetMoreLiterally},
         {"expectExactTargetCurveEvaluationCapturesBellPeak", expectExactTargetCurveEvaluationCapturesBellPeak},
         {"expectTargetCurveAnchorsToMeasuredLevel", expectTargetCurveAnchorsToMeasuredLevel},
+        {"expectTargetCurveLevelOffsetSurvivesAnchoring", expectTargetCurveLevelOffsetSurvivesAnchoring},
     });
 }

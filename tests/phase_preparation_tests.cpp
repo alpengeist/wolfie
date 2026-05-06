@@ -1,9 +1,12 @@
+#include <cmath>
 #include <iostream>
 
 #include "filter_test_support.h"
 #include "test_harness.h"
 
 #include "measurement/filter_designer.h"
+#include "measurement/phase_preparation.h"
+#include "measurement/response_smoother.h"
 #include "measurement/target_curve_designer.h"
 
 namespace {
@@ -341,6 +344,105 @@ bool expectPhasePreparationFallsBackToRawSource() {
     return true;
 }
 
+bool expectExcessPhaseWindowReducesLateTailContribution() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings fullWindowSettings;
+    fullWindowSettings.tapCount = 16384;
+    fullWindowSettings.phaseMode = "mixed";
+
+    wolfie::FilterDesignSettings shortWindowSettings = fullWindowSettings;
+    shortWindowSettings.excessPhaseWindowMs = 4.0;
+
+    const wolfie::MeasurementResult phaseMeasurement =
+        wolfie::tests::buildImpulsePhaseMeasurement(measurement.sampleRate,
+                                                    0.0,
+                                                    static_cast<int>(measurement.sampleRate * 0.012),
+                                                    0.7);
+    const wolfie::SmoothedResponse response = wolfie::tests::buildFlatResponse(0.0);
+    const wolfie::FilterDesignResult fullWindowResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           fullWindowSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult shortWindowResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           shortWindowSettings,
+                                           &phaseMeasurement);
+    if (!fullWindowResult.valid || !shortWindowResult.valid) {
+        std::cerr << "excess-phase window case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double fullBandMean = wolfie::tests::bandMeanAbs(fullWindowResult.frequencyAxisHz,
+                                                           fullWindowResult.left.inputExcessPhaseContinuousDegrees,
+                                                           20.0,
+                                                           300.0);
+    const double shortBandMean = wolfie::tests::bandMeanAbs(shortWindowResult.frequencyAxisHz,
+                                                            shortWindowResult.left.inputExcessPhaseContinuousDegrees,
+                                                            20.0,
+                                                            300.0);
+    if (!std::isfinite(fullBandMean) || !std::isfinite(shortBandMean) || shortBandMean >= fullBandMean * 0.75) {
+        std::cerr << "excess-phase window did not reduce late-tail contribution enough (full="
+                  << fullBandMean << ", short=" << shortBandMean << ")\n";
+        return false;
+    }
+
+    if (!wolfie::tests::processLogContains(shortWindowResult, "Applied excess-phase window 4.0 ms")) {
+        std::cerr << "process log did not mention the configured excess-phase window\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectExcessPhaseWindowPreservesResponseAxisDensity() {
+    wolfie::MeasurementResult measurement;
+    const std::vector<double> responseAxisHz = wolfie::tests::buildLogAxis(20.0, 20000.0, 512);
+    measurement.valueSets.push_back(wolfie::tests::buildImpulseValueSet(0.0));
+    measurement.valueSets.back().key = "measurement.direct_impulse_response";
+    measurement.valueSets.push_back(
+        wolfie::tests::buildFlatMagnitudeSpectrum(responseAxisHz, "measurement.direct_magnitude_response"));
+    measurement.valueSets.push_back(
+        wolfie::tests::buildWrappedPhaseSpectrum(responseAxisHz,
+                                                "measurement.direct_phase_response",
+                                                0.0,
+                                                1.5,
+                                                -1.0));
+
+    wolfie::ResponseSmoothingSettings smoothing;
+    wolfie::measurement::normalizeResponseSmoothingSettings(smoothing);
+
+    const wolfie::measurement::PreparedPhaseData prepared =
+        wolfie::measurement::preparePhaseData(&measurement,
+                                              smoothing,
+                                              48000,
+                                              262144,
+                                              15.0);
+    if (!prepared.valid) {
+        std::cerr << "response-axis preservation case did not produce valid prepared phase data\n";
+        return false;
+    }
+    if (prepared.left.nativeFrequencyAxisHz.size() != responseAxisHz.size() ||
+        prepared.right.nativeFrequencyAxisHz.size() != responseAxisHz.size()) {
+        std::cerr << "excess-phase window promoted response data to an unusable axis density (left="
+                  << prepared.left.nativeFrequencyAxisHz.size() << ", right="
+                  << prepared.right.nativeFrequencyAxisHz.size() << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog() {
     wolfie::MeasurementSettings measurement;
     measurement.sampleRate = 48000;
@@ -415,6 +517,8 @@ int main() {
         {"expectExcessPhasePreparationIgnoresDisplayResponseShape", expectExcessPhasePreparationIgnoresDisplayResponseShape},
         {"expectPhasePreparationPrefersDirectSource", expectPhasePreparationPrefersDirectSource},
         {"expectPhasePreparationFallsBackToRawSource", expectPhasePreparationFallsBackToRawSource},
+        {"expectExcessPhaseWindowReducesLateTailContribution", expectExcessPhaseWindowReducesLateTailContribution},
+        {"expectExcessPhaseWindowPreservesResponseAxisDensity", expectExcessPhaseWindowPreservesResponseAxisDensity},
         {"expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog", expectFilterDesignPublishesPhasePreparationMetadataAndProcessLog},
     });
 }

@@ -64,7 +64,8 @@ struct PreparedPhaseView {
 PreparedPhaseData preparePhaseData(const MeasurementResult* result,
                                    const ResponseSmoothingSettings& smoothingSettings,
                                    int sampleRate,
-                                   int fftSize);
+                                   int fftSize,
+                                   double excessPhaseWindowMs);
 PreparedPhaseChannel prepareMatchedPhaseChannel(const std::vector<double>& nativeFrequencyAxisHz,
                                                 const std::vector<double>& measuredMagnitudeDb,
                                                 const std::vector<double>& unwrappedPhaseRadians,
@@ -72,6 +73,8 @@ PreparedPhaseChannel prepareMatchedPhaseChannel(const std::vector<double>& nativ
                                                 const ResponseSmoothingSettings& smoothingSettings,
                                                 int sampleRate,
                                                 int fftSize,
+                                                bool sourceOnLogAxis,
+                                                double excessPhaseWindowMs,
                                                 std::string sourceKey);
 PreparedPhaseView resamplePreparedPhaseChannel(const PreparedPhaseChannel& channel,
                                                const std::vector<double>& displayFrequencyAxisHz);

@@ -894,6 +894,7 @@ void TargetCurveGraph::onLButtonDown(LPARAM lParam) {
         drag_.bandIndex = bandIndex;
         drag_.origin = position;
         drag_.changed = false;
+        drag_.originalDisplayOffsetDb = displayCurveOffsetDb_;
         drag_.originalSettings = settings_;
         SetCapture(window_);
         invalidate();
@@ -1029,9 +1030,8 @@ void TargetCurveGraph::updateDrag(const POINT& position) {
     settings_ = drag_.originalSettings;
     switch (drag_.type) {
     case DragHandleType::BasicLow:
-        settings_.lowGainDb += deltaDb;
-        settings_.midGainDb += deltaDb;
-        settings_.highGainDb += deltaDb;
+        settings_.levelOffsetDb += deltaDb;
+        displayCurveOffsetDb_ = drag_.originalDisplayOffsetDb + deltaDb;
         break;
     case DragHandleType::BasicMid:
         settings_.midGainDb = currentSettingDb;
@@ -1123,6 +1123,7 @@ int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type)
     }
 
     if (!settings_.bypassEqBands) {
+        const double anchorOffsetDb = displayCurveOffsetDb_ - settings_.levelOffsetDb;
         for (int i = static_cast<int>(settings_.eqBands.size()) - 1; i >= 0; --i) {
             const TargetEqBand& band = settings_.eqBands[static_cast<size_t>(i)];
             if (!band.enabled) {
@@ -1132,7 +1133,8 @@ int TargetCurveGraph::hitTestHandle(const POINT& position, DragHandleType& type)
                                                                                   settings_,
                                                                                   plot_.minFrequencyHz,
                                                                                   plot_.maxFrequencyHz,
-                                                                                  band.frequencyHz);
+                                                                                  band.frequencyHz) +
+                                    anchorOffsetDb;
             const POINT point = pointOnCurve(layout.graph,
                                              plot_.minFrequencyHz,
                                              plot_.maxFrequencyHz,
@@ -1223,6 +1225,7 @@ void TargetCurveGraph::onPaint() const {
     drawRectHandle(frameDc, highPoint, RGB(92, 136, 196), drag_.active && drag_.type == DragHandleType::BasicHigh);
 
     if (!settings_.bypassEqBands) {
+        const double anchorOffsetDb = displayCurveOffsetDb_ - settings_.levelOffsetDb;
         for (size_t i = 0; i < settings_.eqBands.size(); ++i) {
             const TargetEqBand& band = settings_.eqBands[i];
             if (!band.enabled) {
@@ -1232,7 +1235,8 @@ void TargetCurveGraph::onPaint() const {
                                                                                   settings_,
                                                                                   plot_.minFrequencyHz,
                                                                                   plot_.maxFrequencyHz,
-                                                                                  band.frequencyHz);
+                                                                                  band.frequencyHz) +
+                                    anchorOffsetDb;
             const POINT point = pointOnCurve(layout.graph,
                                              plot_.minFrequencyHz,
                                              plot_.maxFrequencyHz,

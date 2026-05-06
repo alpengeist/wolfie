@@ -32,5 +32,8 @@ struct WaterfallPlotData {
 };
 
 WaterfallPlotData buildWaterfallPlotData(const MeasurementResult& result, MeasurementChannel channel);
+WaterfallPlotData buildExpectedWaterfallPlotData(const MeasurementResult& result,
+                                                 const FilterDesignResult& filterResult,
+                                                 MeasurementChannel channel);
 
 }  // namespace wolfie::measurement

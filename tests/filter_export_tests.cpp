@@ -35,6 +35,9 @@ bool expectRoonExportSupportsCommonSampleRates() {
 
     std::vector<std::filesystem::path> generatedFiles;
     std::wstring errorMessage;
+    const std::string parametersText =
+        "export.timestamp=2026-05-05T12:34\n"
+        "filters.phaseMode=minimum\n";
     const bool exported = wolfie::measurement::exportRoonFilterWavSet(exportDirectory,
                                                                       response,
                                                                       measurement,
@@ -43,13 +46,16 @@ bool expectRoonExportSupportsCommonSampleRates() {
                                                                       nullptr,
                                                                       wolfie::measurement::roonCommonSampleRates(),
                                                                       generatedFiles,
-                                                                      errorMessage);
+                                                                      errorMessage,
+                                                                      {},
+                                                                      "roon_2026-05-05T12-34",
+                                                                      parametersText);
     if (!exported) {
         std::wcerr << L"Roon export failed: " << errorMessage << L"\n";
         return false;
     }
 
-    if (generatedFiles.size() != (wolfie::measurement::roonCommonSampleRates().size() * 2) + 1) {
+    if (generatedFiles.size() != (wolfie::measurement::roonCommonSampleRates().size() * 2) + 2) {
         std::cerr << "Roon export did not generate the expected number of files\n";
         return false;
     }
@@ -90,7 +96,23 @@ bool expectRoonExportSupportsCommonSampleRates() {
         }
     }
 
-    const std::filesystem::path zipPath = wolfie::measurement::roonFilterArchivePath(exportDirectory);
+    const std::filesystem::path parametersPath = wolfie::measurement::roonFilterParametersPath(exportDirectory);
+    if (!std::filesystem::exists(parametersPath) || std::filesystem::file_size(parametersPath) == 0) {
+        std::cerr << "Roon export did not write parameters.txt\n";
+        return false;
+    }
+    {
+        std::ifstream parameters(parametersPath, std::ios::binary);
+        std::ostringstream parametersFileText;
+        parametersFileText << parameters.rdbuf();
+        if (parametersFileText.str() != parametersText) {
+            std::cerr << "Roon export parameters contents were unexpected\n";
+            return false;
+        }
+    }
+
+    const std::filesystem::path zipPath =
+        wolfie::measurement::roonFilterArchivePath(exportDirectory, "roon_2026-05-05T12-34");
     if (!std::filesystem::exists(zipPath) || std::filesystem::file_size(zipPath) == 0) {
         std::cerr << "Roon export did not write roon.zip\n";
         return false;
@@ -108,6 +130,10 @@ bool expectRoonExportSupportsCommonSampleRates() {
                 std::cerr << "Roon archive is missing an exported file name for " << sampleRate << " Hz\n";
                 return false;
             }
+        }
+        if (zipContents.find(parametersPath.filename().string()) == std::string::npos) {
+            std::cerr << "Roon archive is missing parameters.txt\n";
+            return false;
         }
     }
 
@@ -154,7 +180,10 @@ bool expectRoonMixedExportDiffersFromMinimum() {
                                                                              &phaseMeasurement,
                                                                              sampleRates,
                                                                              generatedFiles,
-                                                                             errorMessage);
+                                                                             errorMessage,
+                                                                             {},
+                                                                             "roon",
+                                                                             "filters.phaseMode=minimum\n");
     if (!minimumExported) {
         std::wcerr << L"Minimum-phase Roon export failed: " << errorMessage << L"\n";
         return false;
@@ -170,7 +199,10 @@ bool expectRoonMixedExportDiffersFromMinimum() {
                                                                            &phaseMeasurement,
                                                                            sampleRates,
                                                                            generatedFiles,
-                                                                           errorMessage);
+                                                                           errorMessage,
+                                                                           {},
+                                                                           "roon",
+                                                                           "filters.phaseMode=mixed\n");
     if (!mixedExported) {
         std::wcerr << L"Mixed-phase Roon export failed: " << errorMessage << L"\n";
         return false;

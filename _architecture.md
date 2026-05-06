@@ -54,6 +54,7 @@ Files:
 - `sweep_generator.h/.cpp`
 - `response_analyzer.h/.cpp`
 - `room_simulator.h/.cpp`
+- `sweet_spot_alignment.h/.cpp`
 - `measurement_controller.h/.cpp`
 - `target_curve_designer.h/.cpp`
 - `filter_designer.h/.cpp`
@@ -63,13 +64,14 @@ Files:
 Responsibilities:
 
 - `sweep_generator` creates playback sweep data and exported sweep WAV content.
-- `response_analyzer` turns captured audio into `MeasurementResult` value sets and analysis metadata.
+- `response_analyzer` turns captured audio into `MeasurementResult` value sets and analysis metadata, including direct/room transfer products and optional reference-compensated variants.
 - `room_simulator` generates synthetic room-response `MeasurementResult` data for UI and filter-testing workflows without audio I/O.
-- `measurement_controller` orchestrates a measurement run through an audio backend.
+- `sweet_spot_alignment` derives mic-centering guidance and direct-arrival pulse-overlay view data from measured timing metadata and impulse responses.
+- `measurement_controller` orchestrates room and reference measurement runs through an audio backend.
 - `target_curve_designer` computes target-curve view data without UI dependencies.
-- `filter_designer` computes correction curves, minimum-phase FIR filters, simulated responses, phase-derived diagnostics, and filter-design view data without UI dependencies.
+- `filter_designer` computes correction curves, FIR filters, mixed-phase phase shaping, simulated responses, phase-derived diagnostics, and filter-design view data without UI dependencies.
 - `stereo_diagnostics` computes left/right comparison diagnostics and analysis-plot data from measured transfer functions without UI dependencies.
-- `waterfall_builder` derives waterfall data from measured impulse responses.
+- `waterfall_builder` derives waterfall data from measured impulse responses and predicted post-filter impulse responses.
 
 Reasoning:
 
@@ -130,6 +132,7 @@ Files:
 - `response_graph.h/.cpp`
 - `plot_graph.h/.cpp`
 - `measurement_page.h/.cpp`
+- `alignment_page.h/.cpp`
 - `analysis_page.h/.cpp`
 - `room_simulation_dialog.h/.cpp`
 - `target_curve_graph.h/.cpp`
@@ -144,6 +147,7 @@ Responsibilities:
 - `response_graph` renders reusable response displays for measurement workflows.
 - `plot_graph` renders reusable non-interactive plots for filter-design workflows.
 - `measurement_page`, `analysis_page`, `target_curve_page`, and `filters_page` own their controls, layout, legend state, and graph synchronization.
+- `alignment_page` owns the dedicated mic-alignment workflow, including the alignment action, timing summary, and direct-arrival pulse overlay.
 - `analysis_page` presents left/right comparison diagnostics such as delay mismatch, impulse correlation, phase delta, and magnitude delta using prepared measurement data.
 - `room_simulation_dialog` owns the non-modal synthetic-room editor and delegates generation/persistence outward.
 - `target_curve_graph` and `waterfall_graph` implement specialized graph behavior for their workflows.
@@ -228,6 +232,15 @@ Reasoning:
 - This keeps `ctest` output attributable when runtime regresses, especially for the heavy mixed-phase and export paths.
 - Shared synthetic fixtures stay in `tests`, not in `src/measurement`, so production modules do not absorb test-only helpers.
 
+Real-workspace regression rule:
+
+- synthetic fixtures remain the first line of coverage for small, attributable DSP behavior
+- when a regression is reported from an actual saved workspace and the synthetic tests do not reproduce it, verification must also include a persisted workspace from `workspaces/`
+- the real-workspace check should load the workspace through `WorkspaceRepository`, rebuild `SmoothedResponse`, and rerun `measurement::designFilters(...)` with the saved `MeasurementResult`, smoothing settings, target curve, and filter settings
+- for mixed-phase regressions, compare minimum and mixed mode on that real workspace using realized outputs such as `filterResponseDb`, `correctedResponseDb`, filter peak location, post-peak FIR level, and expected waterfall data rather than relying only on synthetic phase fixtures
+- when the complaint is artifact level rather than basic correctness, also verify the same workspace across at least two tap counts so the acceptance check captures whether a larger FIR budget actually improves the realized result
+- temporary probe executables are acceptable for diagnosis, but the lasting protection should end up in focused native tests and documented acceptance criteria rather than leaving ad hoc tooling in the tree
+
 ## Dependency Direction
 
 The intended dependency flow is:
@@ -252,17 +265,28 @@ Practical examples:
 
 `WorkspaceRepository::save()` is the heavy full-workspace persistence path.
 
+Strong warning:
+
+- treat `WorkspaceRepository::save()` as forbidden from routine interactive UI event handlers
+- a click on a checkbox, toggle, tab-local option, legend control, zoom preset, export sample-rate selector, or similar `workspace.ui` field must not trigger the full workspace save path
+- if the edit only changes `workspace.ui`, the correct persistence path is `saveUiSettings()`, not `save()` and not broader settings persistence by habit
+- if this boundary is violated, expect visible lag, unnecessary CPU and disk activity, and repeated regressions from code that "looks harmless" at the call site
+
 Rules:
 
 - do not call `WorkspaceRepository::save()` from interactive UI paths such as sliders, graph zoom handlers, hover updates, or live recalculation feedback
+- do not use `WorkspaceRepository::saveSettings()` for UI-only state when `saveUiSettings()` is sufficient
 - automatic full-workspace writes belong at app exit and workspace switch boundaries
 - explicit user-driven save remains a separate action
 - narrower persistence helpers such as settings-only or UI-only saves should be used for interactive edits that need persistence without rewriting measurement payloads
+- in practice: `saveUiSettings()` is for `workspace.ui` edits; `saveSettings()` is for lighter non-measurement settings changes that are broader than UI state; `save()` is reserved for true full-workspace persistence
 
 Reasoning:
 
 - full workspace writes include much more than lightweight UI state
+- even the narrower settings save path is too broad for pure UI toggles because it still rewrites more than the interaction changed
 - calling the full save path from smoothing or filter controls causes avoidable stalls and regression-prone behavior
+- export sample-rate selection is a canonical example of UI-only state and must stay on the UI-only persistence path
 - this regression has happened repeatedly, so the timing boundary needs to stay explicit in the architecture document
 
 ## Runtime Flow
@@ -328,19 +352,42 @@ Architectural rule:
 
 ### Current Filter Model
 
-The current implementation is minimum-phase only.
+The current filter workflow is anchored by minimum-phase magnitude correction, with additional low-frequency phase handling layered on top.
 
-Consequences:
+Current phase modes:
 
-- `FilterDesignSettings::phaseMode` is normalized to `"minimum"`.
-- Designed FIR filters are minimum-phase FIRs.
-- Magnitude correction and predicted corrected response are simulated from those filters.
-- Minimum-phase correction does not modify excess phase.
+- `minimum` builds a minimum-phase FIR from the magnitude correction curve
+- `mixed` keeps the same magnitude-correction path and layers in bounded low-frequency excess-phase correction
+- `excess-lf` exists as an internal phase-preview path for diagnostics and tests
 
-That last point is intentional and currently visible in the data model:
+Architectural consequences:
 
-- `predictedExcessPhaseDegrees` is expected to match `inputExcessPhaseDegrees`
-- the excess-phase chart exists as a baseline for future excess-phase correction work, not as proof that excess phase is currently being corrected
+- magnitude correction still starts from `SmoothedResponse`
+- prepared phase data comes from `MeasurementResult`
+- minimum-phase reconstruction and bulk-delay removal happen before excess-phase interpretation
+- mixed-mode phase work is intentionally constrained and stereo-aware rather than treated as full-band free-form inversion
+- minimum-phase magnitude correction is cut-first: the inversion curve is capped at `0 dB` by default so the design reduces peaks without chasing troughs with boost, especially in the bass where boost quickly turns into excess phase rotation and group-delay ripple
+- the default no-boost ceiling stays at exactly `0 dB` with no implicit headroom; if smoother shoulders are needed, they should come from the solver regularization, FIR tap budget, and any explicit user-selected `maxBoostDb` rather than from hidden overshoot above the stated boost limit
+
+Final correction-shape principles:
+
+- the stated boost limit is literal: `0 dB` means no boost, not "almost no boost" and not hidden positive headroom
+- there is no implicit overshoot allowance above the configured boost ceiling
+- if the inversion shape needs to stay smoother near the ceiling, that should be achieved by the regularized solve, the available FIR tap count, response smoothing, and any explicit user-selected `maxBoostDb`
+- broad flat tops caused by a hidden limiter are not a desired outcome; if a smoother result needs some positive correction, that boost budget should be made explicit in settings
+- in practice, raising tap count and allowing a small explicit boost budget can produce a better-shaped inversion than trying to fake smoothness with concealed headroom
+
+In data-model terms:
+
+- minimum mode usually leaves predicted excess phase close to the measured input excess phase
+- mixed mode may reduce low-frequency excess phase while preserving the same general magnitude-correction workflow
+- the excess-phase and group-delay plots are now part of the active filter-design workflow, not just placeholders
+
+Mixed-phase regression policy:
+
+- evaluate mixed-mode changes against both synthetic fixtures and at least one persisted real workspace when the reported failure involves audible artifacts, waterfall decay, or narrow low-frequency magnitude loss
+- treat the realized FIR as the load-bearing artifact, not just the predicted plots: regressions may hide if only the correction target or averaged band metrics are inspected
+- when balancing bass preservation against late artifacts, the acceptance check is the combined result on the real workspace: low-frequency corrected-response drift versus minimum phase must stay bounded, and the realized mixed FIR plus expected waterfall must improve in the expected direction when tap count is increased for that regression
 
 ### Phase And Group-Delay Inputs
 
@@ -445,7 +492,7 @@ Series/color convention:
 Purpose:
 
 - show residual phase after removing bulk delay and minimum-phase contribution
-- provide a before/after comparison even though the current minimum-phase filter leaves excess phase unchanged
+- provide a before/after comparison for the active phase mode, including low-frequency mixed-phase behavior
 
 Current display decisions:
 
@@ -524,9 +571,8 @@ When extending the codebase, keep these rules intact:
 
 ## Future Extensions
 
-This structure supports several likely next steps:
+This structure still supports likely next steps without forcing the app shell or UI modules to absorb DSP logic:
 
-- a true excess-phase correction mode can extend `filter_designer` without redesigning the page module
 - additional filter diagnostics can be added to `FilterDesignResult` and visualized through `PlotGraph`
 - persistence can evolve independently of the page modules
 - new audio backends can plug into the existing controller structure

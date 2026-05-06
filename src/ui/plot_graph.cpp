@@ -141,6 +141,13 @@ double valueFromGraphX(const RECT& graph, PlotGraphXAxisMode mode, double minVal
     return valueFromXT(mode, minValue, maxValue, xT);
 }
 
+double valueFromGraphY(const RECT& graph, double minY, double maxY, int y) {
+    const int height = std::max(static_cast<int>(graph.bottom - graph.top), 1);
+    const double yT =
+        static_cast<double>(clampValue(static_cast<int>(graph.bottom - y), 0, height)) / static_cast<double>(height);
+    return minY + (yT * (maxY - minY));
+}
+
 int graphYFromValue(const RECT& graph, double value, double minY, double maxY) {
     const double range = std::max(maxY - minY, 1.0e-9);
     const double yT = clampValue((value - minY) / range, 0.0, 1.0);
@@ -540,10 +547,15 @@ bool sampleSeriesValue(const PlotGraphData& data, const PlotGraphSeries& series,
     return std::isfinite(sampledValue);
 }
 
-std::wstring buildHoverInfoText(const PlotGraphData& data, double xValue) {
+std::wstring buildHoverInfoText(const PlotGraphData& data, double xValue, bool hasCursorYValue, double cursorYValue) {
     if (data.xAxisMode == PlotGraphXAxisMode::LogFrequency) {
         std::wstring info = formatHoverFrequency(xValue);
         bool appendedSeriesValue = false;
+        if (hasCursorYValue) {
+            info += L" @ ";
+            info += formatHoverValue(cursorYValue, data.yUnit);
+            appendedSeriesValue = true;
+        }
         for (const PlotGraphSeries& series : data.series) {
             double sampledValue = 0.0;
             if (!sampleSeriesValue(data, series, xValue, sampledValue)) {
@@ -714,6 +726,29 @@ void drawSharedHoverMarker(HDC hdc, const GraphLayout& layout, const PlotGraphDa
     DeleteObject(markerPen);
 }
 
+void drawHoverCrosshair(HDC hdc, const GraphLayout& layout, const PlotGraphData& data, double xValue, int yPixel) {
+    if (data.xValues.empty() || xValue < layout.visibleMinX || xValue > layout.visibleMaxX) {
+        return;
+    }
+
+    const int x = graphXFromValue(layout.graph, data.xAxisMode, layout.visibleMinX, layout.visibleMaxX, xValue);
+    const int y = clampValue(yPixel, static_cast<int>(layout.graph.top), static_cast<int>(layout.graph.bottom));
+    HPEN markerPen = CreatePen(PS_DOT, 1, ui_theme::kAccent);
+    if (markerPen == nullptr) {
+        return;
+    }
+
+    const int savedDc = SaveDC(hdc);
+    IntersectClipRect(hdc, layout.graph.left, layout.graph.top, layout.graph.right, layout.graph.bottom);
+    SelectObject(hdc, markerPen);
+    MoveToEx(hdc, x, layout.graph.top, nullptr);
+    LineTo(hdc, x, layout.graph.bottom);
+    MoveToEx(hdc, layout.graph.left, y, nullptr);
+    LineTo(hdc, layout.graph.right, y);
+    RestoreDC(hdc, savedDc);
+    DeleteObject(markerPen);
+}
+
 }  // namespace
 
 void PlotGraph::registerWindowClass(HINSTANCE instance) {
@@ -748,6 +783,15 @@ void PlotGraph::setData(PlotGraphData data) {
         resetView();
     }
     invalidateBackgroundCache();
+    invalidate();
+}
+
+void PlotGraph::setHoverCrosshairEnabled(bool enabled) {
+    if (hoverCrosshairEnabled_ == enabled) {
+        return;
+    }
+
+    hoverCrosshairEnabled_ = enabled;
     invalidate();
 }
 
@@ -1255,16 +1299,21 @@ void PlotGraph::onMouseMove(LPARAM lParam) {
     const double hoveredX =
         insideGraph ? valueFromGraphX(layout.graph, data_.xAxisMode, layout.visibleMinX, layout.visibleMaxX, position.x)
                     : hover_.xValue;
+    const double hoveredY = insideGraph ? valueFromGraphY(layout.graph, layout.minY, layout.maxY, position.y)
+                                        : hover_.yValue;
     const bool hoverChanged = hover_.active != insideGraph ||
                               hover_.position.x != position.x ||
                               hover_.position.y != position.y ||
-                              std::abs(hover_.xValue - hoveredX) >= 1.0e-9;
+                              std::abs(hover_.xValue - hoveredX) >= 1.0e-9 ||
+                              std::abs(hover_.yValue - hoveredY) >= 1.0e-9;
     hover_.active = insideGraph;
     hover_.position = position;
     hover_.xValue = hoveredX;
+    hover_.yValue = hoveredY;
     if (hoverChanged) {
         notifyHoverChanged();
-        if (!brush_.active && (sharedHoverMarker_.enabled || data_.xAxisMode == PlotGraphXAxisMode::LogFrequency)) {
+        if (!brush_.active &&
+            (hoverCrosshairEnabled_ || sharedHoverMarker_.enabled || data_.xAxisMode == PlotGraphXAxisMode::LogFrequency)) {
             invalidate();
         }
     }
@@ -1287,7 +1336,8 @@ void PlotGraph::onMouseLeave() {
     hover_.tracking = false;
     if (hoverWasActive) {
         notifyHoverChanged();
-        if (!brush_.active && (sharedHoverMarker_.enabled || data_.xAxisMode == PlotGraphXAxisMode::LogFrequency)) {
+        if (!brush_.active &&
+            (hoverCrosshairEnabled_ || sharedHoverMarker_.enabled || data_.xAxisMode == PlotGraphXAxisMode::LogFrequency)) {
             invalidate();
         }
     }
@@ -1435,7 +1485,9 @@ void PlotGraph::onPaint() const {
         DeleteObject(selectionPen);
     }
 
-    if (sharedHoverMarker_.enabled && sharedHoverMarker_.active) {
+    if (hoverCrosshairEnabled_ && hover_.active) {
+        drawHoverCrosshair(frameDc, layout, data_, hover_.xValue, hover_.position.y);
+    } else if (sharedHoverMarker_.enabled && sharedHoverMarker_.active) {
         drawSharedHoverMarker(frameDc, layout, data_, sharedHoverMarker_.xValue);
     }
 
@@ -1466,7 +1518,7 @@ void PlotGraph::onPaint() const {
         }
 
         if (hasInfoXValue) {
-            const std::wstring infoText = buildHoverInfoText(data_, infoXValue);
+            const std::wstring infoText = buildHoverInfoText(data_, infoXValue, hover_.active, hover_.yValue);
             if (!infoText.empty()) {
                 SetTextColor(frameDc, ui_theme::kAccent);
                 DrawTextW(frameDc, infoText.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
