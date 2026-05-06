@@ -19,8 +19,29 @@ T clampValue(T value, T low, T high) {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kWaterfallSliceHopMs = 8.0;
 constexpr double kWaterfallMaxDurationMs = 3000.0;
-constexpr size_t kWaterfallDisplayFrequencyPointCount = 512;
-constexpr size_t kWaterfallSmoothingFrequencyPointCount = 2048;
+constexpr size_t kWaterfallDisplayFrequencyPointCount = 288;
+constexpr size_t kWaterfallSmoothingFrequencyPointCount = 1024;
+constexpr int kWaterfallSliceSmoothingResolutionPercent = 20;
+constexpr double kWaterfallSliceTailFadePortion = 0.35;
+
+struct WaterfallLinearSlice {
+    double timeMilliseconds = 0.0;
+    std::vector<double> magnitudes;
+};
+
+struct WaterfallLinearData {
+    std::vector<double> displayFrequencyAxisHz;
+    std::vector<double> smoothingFrequencyAxisHz;
+    std::vector<WaterfallLinearSlice> slices;
+    double peakMagnitude = 0.0;
+
+    [[nodiscard]] bool valid() const {
+        return !displayFrequencyAxisHz.empty() &&
+               !smoothingFrequencyAxisHz.empty() &&
+               !slices.empty() &&
+               peakMagnitude > 1.0e-12;
+    }
+};
 
 std::vector<double> smoothWaterfallSliceDb(const std::vector<double>& frequencyAxisHz,
                                            const std::vector<double>& sliceValuesDb) {
@@ -30,7 +51,7 @@ std::vector<double> smoothWaterfallSliceDb(const std::vector<double>& frequencyA
 
     ResponseSmoothingSettings settings;
     settings.psychoacousticModel = "octave sliding window";
-    settings.resolutionPercent = 100;
+    settings.resolutionPercent = kWaterfallSliceSmoothingResolutionPercent;
     settings.highFrequencySlopeCutoffHz = frequencyAxisHz.back();
     return smoothMagnitudeSeries(frequencyAxisHz, sliceValuesDb, settings);
 }
@@ -127,14 +148,25 @@ size_t zeroTimeIndex(const MeasurementValueSet& impulse) {
     return impulse.xValues.size() - 1;
 }
 
-void applyHannWindow(std::vector<double>& samples) {
+void applyDecayWindow(std::vector<double>& samples) {
     if (samples.size() < 2) {
         return;
     }
 
-    const double denominator = static_cast<double>(samples.size() - 1);
+    const size_t sampleCount = samples.size();
+    const size_t fadeLength =
+        clampValue<size_t>(static_cast<size_t>(std::lround(static_cast<double>(sampleCount) *
+                                                           kWaterfallSliceTailFadePortion)),
+                           8,
+                           sampleCount);
+    const size_t fadeStart = sampleCount > fadeLength ? sampleCount - fadeLength : 0;
+    const double denominator = static_cast<double>(std::max<size_t>(fadeLength - 1, 1));
     for (size_t i = 0; i < samples.size(); ++i) {
-        const double weight = 0.5 - (0.5 * std::cos((2.0 * kPi * static_cast<double>(i)) / denominator));
+        double weight = 1.0;
+        if (i >= fadeStart) {
+            const double fadeIndex = static_cast<double>(i - fadeStart);
+            weight = 0.5 + (0.5 * std::cos((kPi * fadeIndex) / denominator));
+        }
         samples[i] *= weight;
     }
 }
@@ -187,10 +219,10 @@ std::vector<double> convolveAndAlignImpulse(const std::vector<double>& impulse,
     return std::vector<double>(convolved.begin() + static_cast<std::ptrdiff_t>(alignmentSamples), convolved.end());
 }
 
-WaterfallPlotData buildWaterfallPlotDataFromImpulse(const MeasurementResult& result,
-                                                    const MeasurementValueSet& impulse,
-                                                    const std::vector<double>& values) {
-    WaterfallPlotData plot;
+WaterfallLinearData buildWaterfallLinearDataFromImpulse(const MeasurementResult& result,
+                                                        const MeasurementValueSet& impulse,
+                                                        const std::vector<double>& values) {
+    WaterfallLinearData plot;
     if (!impulse.valid()) {
         return plot;
     }
@@ -231,13 +263,13 @@ WaterfallPlotData buildWaterfallPlotDataFromImpulse(const MeasurementResult& res
         return plot;
     }
 
-    plot.frequencyAxisHz = buildLogFrequencyAxis(20.0, maxFrequencyHz, kWaterfallDisplayFrequencyPointCount);
-    if (plot.frequencyAxisHz.empty()) {
+    plot.displayFrequencyAxisHz = buildLogFrequencyAxis(20.0, maxFrequencyHz, kWaterfallDisplayFrequencyPointCount);
+    if (plot.displayFrequencyAxisHz.empty()) {
         return plot;
     }
-    const std::vector<double> smoothingFrequencyAxisHz =
+    plot.smoothingFrequencyAxisHz =
         buildLogFrequencyAxis(20.0, maxFrequencyHz, kWaterfallSmoothingFrequencyPointCount);
-    if (smoothingFrequencyAxisHz.empty()) {
+    if (plot.smoothingFrequencyAxisHz.empty()) {
         return plot;
     }
 
@@ -252,10 +284,6 @@ WaterfallPlotData buildWaterfallPlotDataFromImpulse(const MeasurementResult& res
         maxStartSample,
         static_cast<size_t>(std::lround((maxSliceDurationMs * static_cast<double>(sampleRate)) / 1000.0)));
 
-    std::vector<std::vector<double>> linearMagnitudes;
-    linearMagnitudes.reserve(static_cast<size_t>(sliceCount));
-    double globalPeakMagnitude = 0.0;
-
     for (int sliceIndex = 0; sliceIndex < sliceCount; ++sliceIndex) {
         const double sliceT = sliceCount <= 1
                                   ? 0.0
@@ -266,44 +294,55 @@ WaterfallPlotData buildWaterfallPlotDataFromImpulse(const MeasurementResult& res
         std::copy_n(positiveImpulse.begin() + static_cast<std::ptrdiff_t>(startSample),
                     windowLength,
                     windowed.begin());
-        applyHannWindow(windowed);
+        applyDecayWindow(windowed);
 
         const std::vector<std::complex<double>> spectrum = fftOfRealSignal(windowed, fftSize);
         if (spectrum.empty()) {
             continue;
         }
 
-        std::vector<double> sliceMagnitudes;
-        sliceMagnitudes.reserve(smoothingFrequencyAxisHz.size());
-        for (const double frequencyHz : smoothingFrequencyAxisHz) {
-            const double magnitude = std::abs(interpolateSpectrumAtFrequency(spectrum, sampleRate, frequencyHz));
-            sliceMagnitudes.push_back(magnitude);
-            globalPeakMagnitude = std::max(globalPeakMagnitude, magnitude);
-        }
-        linearMagnitudes.push_back(std::move(sliceMagnitudes));
-
-        WaterfallSlice slice;
+        WaterfallLinearSlice slice;
         slice.timeMilliseconds =
             static_cast<double>(startSample) * 1000.0 / static_cast<double>(sampleRate);
+        slice.magnitudes.reserve(plot.smoothingFrequencyAxisHz.size());
+        for (const double frequencyHz : plot.smoothingFrequencyAxisHz) {
+            const double magnitude = std::abs(interpolateSpectrumAtFrequency(spectrum, sampleRate, frequencyHz));
+            slice.magnitudes.push_back(magnitude);
+            plot.peakMagnitude = std::max(plot.peakMagnitude, magnitude);
+        }
         plot.slices.push_back(std::move(slice));
     }
 
-    if (plot.slices.empty() || globalPeakMagnitude <= 1.0e-12) {
-        return {};
+    return plot.valid() ? plot : WaterfallLinearData{};
+}
+
+WaterfallPlotData buildWaterfallPlotDataFromLinearData(const WaterfallLinearData& linearData,
+                                                       double normalizationPeakMagnitude) {
+    WaterfallPlotData plot;
+    if (!linearData.valid()) {
+        return plot;
     }
 
-    for (size_t i = 0; i < plot.slices.size() && i < linearMagnitudes.size(); ++i) {
+    plot.frequencyAxisHz = linearData.displayFrequencyAxisHz;
+    const double safePeakMagnitude = std::max(normalizationPeakMagnitude, 1.0e-12);
+    plot.slices.reserve(linearData.slices.size());
+
+    for (const WaterfallLinearSlice& linearSlice : linearData.slices) {
         std::vector<double> sliceValuesDb;
-        sliceValuesDb.reserve(linearMagnitudes[i].size());
-        for (const double magnitude : linearMagnitudes[i]) {
-            const double relativeMagnitude = std::max(magnitude, 1.0e-12) / globalPeakMagnitude;
+        sliceValuesDb.reserve(linearSlice.magnitudes.size());
+        for (const double magnitude : linearSlice.magnitudes) {
+            const double relativeMagnitude = std::max(magnitude, 1.0e-12) / safePeakMagnitude;
             const double valueDb = 20.0 * std::log10(relativeMagnitude);
             sliceValuesDb.push_back(clampValue(valueDb, plot.minDb, plot.maxDb));
         }
         const std::vector<double> smoothedSliceValuesDb =
-            smoothWaterfallSliceDb(smoothingFrequencyAxisHz, sliceValuesDb);
-        plot.slices[i].valuesDb =
-            resampleLogFrequency(smoothingFrequencyAxisHz, smoothedSliceValuesDb, plot.frequencyAxisHz);
+            smoothWaterfallSliceDb(linearData.smoothingFrequencyAxisHz, sliceValuesDb);
+
+        WaterfallSlice slice;
+        slice.timeMilliseconds = linearSlice.timeMilliseconds;
+        slice.valuesDb =
+            resampleLogFrequency(linearData.smoothingFrequencyAxisHz, smoothedSliceValuesDb, plot.frequencyAxisHz);
+        plot.slices.push_back(std::move(slice));
     }
 
     return plot.valid() ? plot : WaterfallPlotData{};
@@ -319,7 +358,8 @@ WaterfallPlotData buildWaterfallPlotData(const MeasurementResult& result, Measur
 
     const std::vector<double>& values =
         channel == MeasurementChannel::Right ? impulse->rightValues : impulse->leftValues;
-    return buildWaterfallPlotDataFromImpulse(result, *impulse, values);
+    const WaterfallLinearData linearData = buildWaterfallLinearDataFromImpulse(result, *impulse, values);
+    return buildWaterfallPlotDataFromLinearData(linearData, linearData.peakMagnitude);
 }
 
 WaterfallPlotData buildExpectedWaterfallPlotData(const MeasurementResult& result,
@@ -344,7 +384,17 @@ WaterfallPlotData buildExpectedWaterfallPlotData(const MeasurementResult& result
         return {};
     }
 
-    return buildWaterfallPlotDataFromImpulse(result, *impulse, expectedValues);
+    const WaterfallLinearData expectedLinearData =
+        buildWaterfallLinearDataFromImpulse(result, *impulse, expectedValues);
+    if (!expectedLinearData.valid()) {
+        return {};
+    }
+
+    const WaterfallLinearData measuredReferenceData =
+        buildWaterfallLinearDataFromImpulse(result, *impulse, sourceValues);
+    const double normalizationPeakMagnitude =
+        measuredReferenceData.valid() ? measuredReferenceData.peakMagnitude : expectedLinearData.peakMagnitude;
+    return buildWaterfallPlotDataFromLinearData(expectedLinearData, normalizationPeakMagnitude);
 }
 
 }  // namespace wolfie::measurement

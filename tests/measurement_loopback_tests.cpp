@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <numbers>
 #include <vector>
 
 #include "test_harness.h"
@@ -1290,6 +1291,72 @@ bool expectWaterfallPlotData() {
     return true;
 }
 
+bool expectExpectedWaterfallShowsFilterGainChange() {
+    wolfie::MeasurementResult result;
+    result.analysis.sampleRate = 48000;
+
+    wolfie::MeasurementValueSet impulse;
+    impulse.key = "measurement.raw_impulse_response";
+    impulse.xQuantity = "time";
+    impulse.xUnit = "seconds";
+
+    constexpr size_t sampleCount = 8192;
+    const double sampleStepSeconds = 1.0 / static_cast<double>(result.analysis.sampleRate);
+    impulse.xValues.reserve(sampleCount);
+    impulse.leftValues.reserve(sampleCount);
+    impulse.rightValues.reserve(sampleCount);
+    for (size_t index = 0; index < sampleCount; ++index) {
+        const double timeSeconds = static_cast<double>(index) * sampleStepSeconds;
+        const double decay = std::exp(-timeSeconds * 14.0);
+        const double sample =
+            decay * ((0.9 * std::cos(2.0 * std::numbers::pi * 160.0 * timeSeconds)) +
+                     (0.35 * std::cos(2.0 * std::numbers::pi * 960.0 * timeSeconds)));
+        impulse.xValues.push_back(timeSeconds);
+        impulse.leftValues.push_back(sample);
+        impulse.rightValues.push_back(sample);
+    }
+    result.valueSets.push_back(std::move(impulse));
+
+    const wolfie::measurement::WaterfallPlotData measuredPlot =
+        wolfie::measurement::buildWaterfallPlotData(result, wolfie::MeasurementChannel::Left);
+    if (!measuredPlot.valid()) {
+        std::cerr << "measured waterfall plot data was not generated for the gain-change case\n";
+        return false;
+    }
+
+    wolfie::FilterDesignResult filterResult;
+    filterResult.valid = true;
+    filterResult.left.filterTaps = {0.5};
+    filterResult.left.impulsePeakIndex = 0;
+
+    const wolfie::measurement::WaterfallPlotData expectedPlot =
+        wolfie::measurement::buildExpectedWaterfallPlotData(result, filterResult, wolfie::MeasurementChannel::Left);
+    if (!expectedPlot.valid()) {
+        std::cerr << "expected waterfall plot data was not generated for the gain-change case\n";
+        return false;
+    }
+
+    const auto averageDb = [](const std::vector<double>& values) {
+        double sum = 0.0;
+        for (const double value : values) {
+            sum += value;
+        }
+        return values.empty() ? 0.0 : sum / static_cast<double>(values.size());
+    };
+
+    const double measuredAverageDb = averageDb(measuredPlot.slices.front().valuesDb);
+    const double expectedAverageDb = averageDb(expectedPlot.slices.front().valuesDb);
+    const double averageDeltaDb = expectedAverageDb - measuredAverageDb;
+    if (averageDeltaDb > -4.5 || averageDeltaDb < -7.5) {
+        std::cerr << "expected waterfall did not preserve the filter gain change (delta="
+                  << averageDeltaDb
+                  << " dB)\n";
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int main() {
@@ -1316,5 +1383,6 @@ int main() {
         {"expectAlignmentMatchedCorrelationHandlesPolarityInversion",
          expectAlignmentMatchedCorrelationHandlesPolarityInversion},
         {"expectWaterfallPlotData", expectWaterfallPlotData},
+        {"expectExpectedWaterfallShowsFilterGainChange", expectExpectedWaterfallShowsFilterGainChange},
     });
 }

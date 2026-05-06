@@ -18,8 +18,9 @@ T clampValue(T value, T low, T high) {
 
 constexpr double kMinFrequencyHz = 20.0;
 constexpr double kMaxFrequencyHz = 20000.0;
+constexpr double kWaterfallYawDegrees = 27.0;
 
-double graphXT(double frequencyHz) {
+double rawGraphXT(double frequencyHz) {
     const double clamped = clampValue(frequencyHz, kMinFrequencyHz, 24000.0);
     if (clamped < 100.0) {
         return std::log10(clamped / 10.0) / 3.5;
@@ -31,6 +32,13 @@ double graphXT(double frequencyHz) {
         return (2.0 + std::log10(clamped / 1000.0)) / 3.5;
     }
     return (3.0 + (std::log10(clamped / 10000.0) / std::log10(2.0) * 0.5)) / 3.5;
+}
+
+double graphXT(double frequencyHz) {
+    const double minT = rawGraphXT(kMinFrequencyHz);
+    const double maxT = rawGraphXT(kMaxFrequencyHz);
+    const double rawT = rawGraphXT(frequencyHz);
+    return clampValue((rawT - minT) / std::max(maxT - minT, 1.0e-9), 0.0, 1.0);
 }
 
 int graphXFromFrequency(const RECT& graph, double frequencyHz) {
@@ -243,11 +251,18 @@ void WaterfallGraph::onPaint() const {
     const int textHeight = std::max(static_cast<int>(metrics.tmHeight), 12);
     const int yUnitWidth = measureTextWidth(hdc, L"dB") + 10;
     const int depthCount = static_cast<int>(data_.slices.size()) - 1;
-    const int elevation = clampValue<int>(static_cast<int>((rect.bottom - rect.top) / 5), 42, 86);
+    const int availableWidth = rect.right - rect.left;
+    const int availableHeight = rect.bottom - rect.top;
+    const int elevation = clampValue<int>(std::min(availableHeight / 4, availableWidth / 6), 56, 132);
+    const int depthDx =
+        std::max(16,
+                 static_cast<int>(std::lround(static_cast<double>(elevation) *
+                                              std::tan(kWaterfallYawDegrees * 3.14159265358979323846 / 180.0))));
+    const int graphRightMargin = 44 + depthDx + 10;
     RECT graph{
         rect.left + std::max(54, yUnitWidth + 54),
-        rect.top + elevation + 22,
-        rect.right - 54,
+        rect.top + elevation + 26,
+        rect.right - graphRightMargin,
         rect.bottom - ((textHeight * 2) + 16)
     };
 
@@ -262,9 +277,6 @@ void WaterfallGraph::onPaint() const {
     const double displayMaxDb = std::max(data_.maxDb, displayMinDb + 1.0);
     const std::vector<double> xTicks = majorFrequencyTicks();
     const std::vector<double> tickValues = yTicks(displayMinDb, displayMaxDb);
-    constexpr double kYawDegrees = 20.0;
-    const int depthDx =
-        std::max(8, static_cast<int>(std::lround(static_cast<double>(elevation) * std::tan(kYawDegrees * 3.14159265358979323846 / 180.0))));
     const auto projectX = [&](int x, double depthT) {
         return x + static_cast<int>(std::lround(depthT * static_cast<double>(depthDx)));
     };
