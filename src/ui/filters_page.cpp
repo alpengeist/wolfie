@@ -140,6 +140,50 @@ void drawLegendFrame(const DRAWITEMSTRUCT& draw) {
     DeleteObject(borderPen);
 }
 
+void drawPhaseCorrectionGroup(const DRAWITEMSTRUCT& draw) {
+    FillRect(draw.hDC, &draw.rcItem, ui_theme::backgroundBrush());
+
+    const int savedDc = SaveDC(draw.hDC);
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(draw.hwndItem, WM_GETFONT, 0, 0));
+    if (font != nullptr) {
+        SelectObject(draw.hDC, font);
+    }
+
+    constexpr wchar_t kTitle[] = L"Phase Correction";
+    SIZE titleSize{};
+    GetTextExtentPoint32W(draw.hDC, kTitle, static_cast<int>((sizeof(kTitle) / sizeof(kTitle[0])) - 1), &titleSize);
+
+    const int frameTop = draw.rcItem.top + 8;
+    const int frameLeft = draw.rcItem.left;
+    const int frameRight = draw.rcItem.right - 1;
+    const int frameBottom = draw.rcItem.bottom - 1;
+    const int titleLeft = draw.rcItem.left + 10;
+    const int titlePadding = 4;
+    const int titleRight = titleLeft + titleSize.cx + titlePadding;
+    const int titleTop = draw.rcItem.top;
+    const int titleBottom = titleTop + std::max(static_cast<int>(titleSize.cy), 16);
+
+    HPEN borderPen = CreatePen(PS_SOLID, 1, ui_theme::kBorder);
+    SelectObject(draw.hDC, borderPen);
+    MoveToEx(draw.hDC, frameLeft, frameTop, nullptr);
+    LineTo(draw.hDC, titleLeft - titlePadding, frameTop);
+    MoveToEx(draw.hDC, titleRight + titlePadding, frameTop, nullptr);
+    LineTo(draw.hDC, frameRight, frameTop);
+    MoveToEx(draw.hDC, frameLeft, frameTop, nullptr);
+    LineTo(draw.hDC, frameLeft, frameBottom);
+    LineTo(draw.hDC, frameRight, frameBottom);
+    LineTo(draw.hDC, frameRight, frameTop);
+
+    RECT titleRect{titleLeft, titleTop, titleRight, titleBottom};
+    SetBkMode(draw.hDC, OPAQUE);
+    SetBkColor(draw.hDC, ui_theme::backgroundColor());
+    SetTextColor(draw.hDC, IsWindowEnabled(draw.hwndItem) ? ui_theme::kText : ui_theme::kMuted);
+    DrawTextW(draw.hDC, kTitle, -1, &titleRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+
+    RestoreDC(draw.hDC, savedDc);
+    DeleteObject(borderPen);
+}
+
 COLORREF blendColor(COLORREF color, COLORREF target, double ratio) {
     const auto blendChannel = [ratio](BYTE from, BYTE to) -> BYTE {
         return static_cast<BYTE>(std::lround((static_cast<double>(from) * (1.0 - ratio)) +
@@ -520,9 +564,9 @@ void FiltersPage::createControls() {
                                                instance_,
                                                nullptr);
     controls_.valueSmoothness = CreateWindowW(L"STATIC", L"1", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.phaseCorrectionGroup = CreateWindowW(L"BUTTON",
+    controls_.phaseCorrectionGroup = CreateWindowW(L"STATIC",
                                                    L"Phase Correction",
-                                                   WS_CHILD | WS_VISIBLE | BS_GROUPBOX | kHelpBubbleChildClipStyle,
+                                                   WS_CHILD | WS_VISIBLE | SS_OWNERDRAW | kHelpBubbleChildClipStyle,
                                                    0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMixedPhaseMax = CreateWindowW(L"STATIC", L"Limit", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseMax = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
@@ -1098,11 +1142,11 @@ void FiltersPage::layout() {
     const int phaseFieldTop = phaseCorrectionTop + 18;
     const int phaseFieldLeft = contentLeft + 14;
     const int limitLeft = phaseFieldLeft;
-    const int windowLeft = limitLeft + 96;
-    const int strengthLeft = windowLeft + 100;
-    const int capLeft = strengthLeft + 110;
-    const int spotsLeft = capLeft + 100;
-    const int preRingLeft = spotsLeft + 164;
+    const int windowLeft = limitLeft + 118;
+    const int strengthLeft = windowLeft + 122;
+    const int capLeft = strengthLeft + 122;
+    const int spotsLeft = capLeft + 112;
+    const int preRingLeft = spotsLeft + 190;
     MoveWindow(controls_.labelMixedPhaseMax, limitLeft, phaseFieldTop, 52, 18, TRUE);
     MoveWindow(controls_.editMixedPhaseMax, limitLeft, phaseFieldTop + 22, 68, 26, TRUE);
     MoveWindow(controls_.unitMixedPhaseMax, limitLeft + 72, phaseFieldTop + 26, 22, 18, TRUE);
@@ -1118,7 +1162,7 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelPreRingingCompensationFrequencies, spotsLeft, phaseFieldTop, 74, 18, TRUE);
     MoveWindow(controls_.editPreRingingCompensationFrequencies, spotsLeft, phaseFieldTop + 22, 130, 26, TRUE);
     MoveWindow(controls_.unitPreRingingCompensationFrequencies, spotsLeft + 136, phaseFieldTop + 26, 22, 18, TRUE);
-    MoveWindow(controls_.labelPreRingingCompensationStrength, preRingLeft, phaseFieldTop, 126, 18, TRUE);
+    MoveWindow(controls_.labelPreRingingCompensationStrength, preRingLeft, phaseFieldTop, 160, 18, TRUE);
     MoveWindow(controls_.sliderPreRingingCompensationStrength, preRingLeft, phaseFieldTop + 20, 118, 32, TRUE);
     MoveWindow(controls_.valuePreRingingCompensationStrength, preRingLeft + 124, phaseFieldTop + 24, 36, 18, TRUE);
     MoveWindow(controls_.buttonRecalculate, contentLeft, phaseCorrectionTop + phaseCorrectionHeight + 12, contentWidth, 32, TRUE);
@@ -1272,7 +1316,27 @@ void FiltersPage::layout() {
                18,
                TRUE);
 
-    y += 24 + graphHeight + graphGap;
+    y += 52 + graphHeight + graphGap;
+    MoveWindow(controls_.impulseTitle, contentLeft, y, contentWidth, 18, TRUE);
+    const int impulseButtonTop = y + 20;
+    const int impulseButtonHeight = 24;
+    int impulseButtonLeft = contentLeft;
+    MoveWindow(controls_.buttonImpulseZoomOutX, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 48;
+    MoveWindow(controls_.buttonImpulseZoomInX, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 48;
+    MoveWindow(controls_.buttonImpulseResetX, impulseButtonLeft, impulseButtonTop, 70, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 82;
+    MoveWindow(controls_.buttonImpulseZoomOutY, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 48;
+    MoveWindow(controls_.buttonImpulseZoomInY, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 48;
+    MoveWindow(controls_.buttonImpulseResetY, impulseButtonLeft, impulseButtonTop, 70, impulseButtonHeight, TRUE);
+    impulseButtonLeft += 82;
+    MoveWindow(controls_.buttonImpulseFit, impulseButtonLeft, impulseButtonTop, 54, impulseButtonHeight, TRUE);
+    impulseGraph_.layout(RECT{contentLeft, y + 52, contentLeft + contentWidth, y + 52 + graphHeight});
+
+    y += 52 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
     MoveWindow(controls_.checkboxAlignGroupDelayLatency, graphRight - 204, y - 2, 124, 20, TRUE);
     MoveWindow(controls_.buttonGroupDelayEffect, graphRight - effectButtonWidth, y - 2, effectButtonWidth, 22, TRUE);
@@ -1302,26 +1366,6 @@ void FiltersPage::layout() {
     MoveWindow(controls_.checkboxShowPredictedGroupDelayRight, checkboxLeft, groupDelayFirstRowTop + (rowStep * 5), checkboxWidth, 20, TRUE);
     MoveWindow(controls_.linePredictedGroupDelayRight, lineLeft, groupDelayFirstRowTop + (rowStep * 5) + 8, lineWidth, lineHeight, TRUE);
     MoveWindow(controls_.labelPredictedGroupDelayRight, labelLeft, groupDelayFirstRowTop + (rowStep * 5) + 2, labelWidth, 18, TRUE);
-
-    y += 52 + graphHeight + graphGap;
-    MoveWindow(controls_.impulseTitle, contentLeft, y, contentWidth, 18, TRUE);
-    const int impulseButtonTop = y + 20;
-    const int impulseButtonHeight = 24;
-    int impulseButtonLeft = contentLeft;
-    MoveWindow(controls_.buttonImpulseZoomOutX, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
-    impulseButtonLeft += 48;
-    MoveWindow(controls_.buttonImpulseZoomInX, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
-    impulseButtonLeft += 48;
-    MoveWindow(controls_.buttonImpulseResetX, impulseButtonLeft, impulseButtonTop, 70, impulseButtonHeight, TRUE);
-    impulseButtonLeft += 82;
-    MoveWindow(controls_.buttonImpulseZoomOutY, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
-    impulseButtonLeft += 48;
-    MoveWindow(controls_.buttonImpulseZoomInY, impulseButtonLeft, impulseButtonTop, 42, impulseButtonHeight, TRUE);
-    impulseButtonLeft += 48;
-    MoveWindow(controls_.buttonImpulseResetY, impulseButtonLeft, impulseButtonTop, 70, impulseButtonHeight, TRUE);
-    impulseButtonLeft += 82;
-    MoveWindow(controls_.buttonImpulseFit, impulseButtonLeft, impulseButtonTop, 54, impulseButtonHeight, TRUE);
-    impulseGraph_.layout(RECT{contentLeft, y + 52, contentLeft + contentWidth, y + 52 + graphHeight});
 
     contentHeight_ = y + scrollOffset_ + 52 + graphHeight + sectionGap + 20;
     updateScrollBar();
@@ -2223,13 +2267,17 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     case WM_DRAWITEM:
         if (page != nullptr) {
             const auto* draw = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
-                if (draw != nullptr) {
-                    if (draw->hwndItem == page->controls_.buttonRecalculate) {
-                        return page->drawRecalculateButton(*draw) ? TRUE : FALSE;
-                    }
-                    if (draw->hwndItem == page->controls_.inversionLegendFrame ||
-                        draw->hwndItem == page->controls_.correctedLegendFrame ||
-                        draw->hwndItem == page->controls_.excessPhaseLegendFrame ||
+            if (draw != nullptr) {
+                if (draw->hwndItem == page->controls_.buttonRecalculate) {
+                    return page->drawRecalculateButton(*draw) ? TRUE : FALSE;
+                }
+                if (draw->hwndItem == page->controls_.phaseCorrectionGroup) {
+                    drawPhaseCorrectionGroup(*draw);
+                    return TRUE;
+                }
+                if (draw->hwndItem == page->controls_.inversionLegendFrame ||
+                    draw->hwndItem == page->controls_.correctedLegendFrame ||
+                    draw->hwndItem == page->controls_.excessPhaseLegendFrame ||
                     draw->hwndItem == page->controls_.requestedMixedGroupDelayLegendFrame ||
                     draw->hwndItem == page->controls_.groupDelayLegendFrame) {
                     drawLegendFrame(*draw);

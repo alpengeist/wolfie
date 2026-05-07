@@ -192,6 +192,29 @@ Why this split exists:
 - Press-and-hold help bubbles are more reliable in this Win32 surface than transient hover balloons and make parameter semantics discoverable without leaving the workflow.
 - Centralizing theme values keeps cosmetic changes local and avoids drift between `response_graph`, `plot_graph`, `target_curve_graph`, and `waterfall_graph`.
 
+### Win32 Scrolling And Paint Hygiene
+
+The page modules use native Win32 child controls on scrolling surfaces. This is fragile because `ScrollWindowEx`, `WS_CLIPCHILDREN`, `WS_CLIPSIBLINGS`, native group boxes, owner-drawn controls, and static labels all participate in repaint ordering. Visual smearing during scroll is usually a paint invalidation problem, not a layout problem.
+
+Good patterns:
+
+- Controls that draw framed areas, colored swatches, graph legends, custom buttons, or panel-like regions must explicitly fill their whole client area before drawing content.
+- Owner-drawn frame controls are preferred when a native control does not reliably erase the area it visually owns during page scrolling.
+- When using `ScrollWindowEx`, include the invalidation/erase flags needed for the moved surface and repaint affected child controls whose native painting is known to be incomplete.
+- Keep scroll handling in the owning page module. The page should own `contentHeight_`, scroll offset, scrollbar updates, child positioning, and repaint invalidation for its own controls.
+- Use `WS_CLIPSIBLINGS` on overlapping child controls and `WS_CLIPCHILDREN` on parent pages deliberately, then verify that every exposed background area is still painted by either the parent or the child that owns it.
+- If a control changes enabled state, visibility, z-order, or text color, invalidate the control or its containing area so stale pixels are not left behind.
+- Prefer shared theme brushes and colors for erase/fill paths so repainted areas match the rest of the native page surface exactly.
+
+Bad patterns:
+
+- Do not rely on a native `BS_GROUPBOX` to erase the interior of a visual group on a scrolling page; it primarily draws a frame/title and can leave child-control trails behind.
+- Do not fix smearing by adding broad layout churn, forced full-page relayouts, or unrelated control moves when the issue is stale pixels.
+- Do not draw only borders, text, or glyphs in an owner-drawn control without first painting the background that control visually owns.
+- Do not assume `WS_CLIPCHILDREN` solves repaint artifacts by itself. It can prevent the parent from repainting exactly the area that a child control fails to erase.
+- Do not hide scroll artifacts with oversized invalidation unless a smaller target is not practical; repaint the affected control or region first.
+- Do not add custom paint code into `WolfieApp` for page-local artifacts. The page that owns the controls should own the paint fix.
+
 ### `src/wolfie_app.*`
 
 Purpose: application shell and composition root.
