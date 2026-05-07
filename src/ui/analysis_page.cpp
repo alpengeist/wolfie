@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <string>
 
 #include <commctrl.h>
@@ -15,10 +14,7 @@ namespace wolfie::ui {
 
 namespace {
 
-template <typename T>
-T clampValue(T value, T low, T high) {
-    return std::max(low, std::min(value, high));
-}
+constexpr std::string_view kAnalysisWindow = "room";
 
 const StereoDiagnosticsResult& selectFilterDiagnostics(const FilterAnalysisResult& filterAnalysis,
                                                        std::string_view /*window*/) {
@@ -49,18 +45,6 @@ void AnalysisPage::create(HWND parent, HINSTANCE instance) {
 }
 
 void AnalysisPage::createControls() {
-    controls_.labelWindow = CreateWindowW(L"STATIC", L"Window", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.comboWindow = CreateWindowW(L"COMBOBOX",
-                                          nullptr,
-                                          WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                                          0,
-                                          0,
-                                          0,
-                                          0,
-                                          window_,
-                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboWindow)),
-                                          instance_,
-                                          nullptr);
     controls_.buttonRefresh = CreateWindowW(L"BUTTON",
                                             L"Refresh Filter Analysis",
                                             WS_CHILD | WS_VISIBLE | WS_TABSTOP,
@@ -111,8 +95,6 @@ void AnalysisPage::createControls() {
     controls_.magnitudeTitle =
         CreateWindowW(L"STATIC", L"L-R Magnitude Delta", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
 
-    populateWindowCombo(controls_.comboWindow);
-
     phaseGraph_.create(window_, instance_, kPhaseGraph);
     magnitudeGraph_.create(window_, instance_, kMagnitudeGraph);
     phaseGraph_.setDefaultXRange(true, 20.0, 20000.0);
@@ -126,25 +108,11 @@ void AnalysisPage::layout() {
     const int contentTop = 20;
     const int innerWidth = std::max(520L, pageRect.right - (contentLeft * 2));
     const int innerHeight = std::max(420L, pageRect.bottom - (contentTop * 2));
-    const int comboWidth = 180;
-    const int labelWidth = 70;
     const int refreshButtonWidth = 170;
     const int topRowTop = contentTop;
 
-    MoveWindow(controls_.labelWindow, contentLeft, topRowTop + 4, labelWidth, 18, TRUE);
-    MoveWindow(controls_.comboWindow, contentLeft + labelWidth + 8, topRowTop, comboWidth, 220, TRUE);
-    MoveWindow(controls_.buttonRefresh,
-               contentLeft + labelWidth + 8 + comboWidth + 12,
-               topRowTop,
-               refreshButtonWidth,
-               24,
-               TRUE);
-    MoveWindow(controls_.progressRefresh,
-               contentLeft + labelWidth + 8 + comboWidth + 12,
-               topRowTop + 2,
-               refreshButtonWidth,
-               20,
-               TRUE);
+    MoveWindow(controls_.buttonRefresh, contentLeft, topRowTop, refreshButtonWidth, 24, TRUE);
+    MoveWindow(controls_.progressRefresh, contentLeft, topRowTop + 2, refreshButtonWidth, 20, TRUE);
     MoveWindow(controls_.note, contentLeft, topRowTop + 34, innerWidth, 18, TRUE);
 
     const int summaryTop = topRowTop + 64;
@@ -181,10 +149,6 @@ void AnalysisPage::setVisible(bool visible) const {
 }
 
 void AnalysisPage::populate(const WorkspaceState& workspace) {
-    updatingControls_ = true;
-    SendMessageW(controls_.comboWindow, CB_SETCURSEL, comboIndexFromWindow(workspace.ui.analysisWindow), 0);
-    updatingControls_ = false;
-
     phaseGraph_.setDefaultXRange(true, 20.0, 20000.0);
     magnitudeGraph_.setDefaultXRange(true, 20.0, 20000.0);
     if (workspace.ui.analysisGraphHasCustomFrequencyRange) {
@@ -208,8 +172,7 @@ void AnalysisPage::setCalculationInProgress(bool running, const std::wstring& st
 }
 
 void AnalysisPage::syncToWorkspace(WorkspaceState& workspace) const {
-    workspace.ui.analysisWindow =
-        windowFromComboIndex(static_cast<int>(SendMessageW(controls_.comboWindow, CB_GETCURSEL, 0, 0)));
+    workspace.ui.analysisWindow = std::string(kAnalysisWindow);
     workspace.ui.analysisGraphHasCustomFrequencyRange = phaseGraph_.hasCustomXRange();
     workspace.ui.analysisGraphVisibleMinFrequencyHz = phaseGraph_.visibleMinX();
     workspace.ui.analysisGraphVisibleMaxFrequencyHz = phaseGraph_.visibleMaxX();
@@ -220,16 +183,6 @@ bool AnalysisPage::handleCommand(WORD commandId,
                                  WorkspaceState& workspace,
                                  bool& viewSettingsChanged,
                                  bool& refreshRequested) {
-    if (commandId == kComboWindow && notificationCode == CBN_SELCHANGE) {
-        if (updatingControls_) {
-            return true;
-        }
-        syncToWorkspace(workspace);
-        refreshDiagnostics(workspace);
-        viewSettingsChanged = true;
-        return true;
-    }
-
     if (commandId == kButtonRefresh && notificationCode == BN_CLICKED) {
         refreshRequested = true;
         return true;
@@ -250,10 +203,8 @@ bool AnalysisPage::handleCommand(WORD commandId,
 }
 
 void AnalysisPage::refreshDiagnostics(const WorkspaceState& workspace) {
-    const std::string window =
-        windowFromComboIndex(static_cast<int>(SendMessageW(controls_.comboWindow, CB_GETCURSEL, 0, 0)));
-    beforeDiagnostics_ = measurement::buildStereoDiagnostics(workspace.result, window);
-    afterDiagnostics_ = selectFilterDiagnostics(workspace.filterAnalysis, window);
+    beforeDiagnostics_ = measurement::buildStereoDiagnostics(workspace.result, kAnalysisWindow);
+    afterDiagnostics_ = selectFilterDiagnostics(workspace.filterAnalysis, kAnalysisWindow);
     hasMeasurementData_ = workspace.result.hasAnyValues();
 
     if (!hasMeasurementData_) {
@@ -271,9 +222,6 @@ void AnalysisPage::refreshDiagnostics(const WorkspaceState& workspace) {
 }
 
 void AnalysisPage::refreshActionControls() {
-    if (controls_.comboWindow != nullptr) {
-        EnableWindow(controls_.comboWindow, calculationInProgress_ ? FALSE : TRUE);
-    }
     if (controls_.buttonRefresh != nullptr) {
         const bool showButton = !calculationInProgress_;
         ShowWindow(controls_.buttonRefresh, showButton ? SW_SHOW : SW_HIDE);
@@ -455,19 +403,6 @@ LRESULT CALLBACK AnalysisPage::PageWindowProc(HWND window, UINT message, WPARAM 
     default:
         return DefWindowProcW(window, message, wParam, lParam);
     }
-}
-
-void AnalysisPage::populateWindowCombo(HWND combo) {
-    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
-    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Room"));
-}
-
-int AnalysisPage::comboIndexFromWindow(const std::string& /*window*/) {
-    return 0;
-}
-
-std::string AnalysisPage::windowFromComboIndex(int /*index*/) {
-    return "room";
 }
 
 std::wstring AnalysisPage::formatMetricValue(double value,

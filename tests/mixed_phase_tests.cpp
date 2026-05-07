@@ -870,6 +870,63 @@ bool expectPreRingingCompensationBacksOffListedBand() {
     return true;
 }
 
+bool expectMixedModePublishesRequestedTransitionDiagnostics() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings settings;
+    settings.tapCount = 16384;
+    settings.phaseMode = "mixed";
+    settings.mixedPhaseMaxFrequencyHz = 180.0;
+    settings.mixedPhaseMaxCorrectionDegrees = 360.0;
+
+    const wolfie::SmoothedResponse response = wolfie::tests::buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        wolfie::tests::buildPhaseMeasurement(measurement.sampleRate, 0.0, 3.0, 0.0);
+    const wolfie::FilterDesignResult result =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           settings,
+                                           &phaseMeasurement);
+    if (!result.valid) {
+        std::cerr << "mixed transition diagnostic case did not produce a valid filter result\n";
+        return false;
+    }
+
+    if (result.requestedMixedTransitionStartHz < 170.0 ||
+        result.requestedMixedTransitionStartHz > 190.0 ||
+        result.requestedMixedTransitionEndHz <= result.requestedMixedTransitionStartHz + 100.0) {
+        std::cerr << "mixed transition diagnostic frequencies were not published sensibly (start="
+                  << result.requestedMixedTransitionStartHz << ", end="
+                  << result.requestedMixedTransitionEndHz << ")\n";
+        return false;
+    }
+
+    if (result.left.requestedMixedGroupDelayPreSolveMs.size() != result.frequencyAxisHz.size() ||
+        result.left.requestedMixedGroupDelayMs.size() != result.frequencyAxisHz.size() ||
+        result.right.requestedMixedGroupDelayPreSolveMs.size() != result.frequencyAxisHz.size() ||
+        result.right.requestedMixedGroupDelayMs.size() != result.frequencyAxisHz.size()) {
+        std::cerr << "mixed transition diagnostic group-delay series were not published at display resolution\n";
+        return false;
+    }
+
+    if (!wolfie::tests::processLogContains(result, "Left requested mixed group-delay pre-solve transition") ||
+        !wolfie::tests::processLogContains(result, "Left requested mixed group-delay post-solve transition") ||
+        !wolfie::tests::processLogContains(result, "Right requested mixed group-delay pre-solve transition") ||
+        !wolfie::tests::processLogContains(result, "Right requested mixed group-delay post-solve transition")) {
+        std::cerr << "mixed transition diagnostics were not reported in the process log\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool expectPreRingingCompensationFrequenciesStayWithinPhaseRange() {
     wolfie::FilterDesignSettings settings;
     settings.phaseMode = "mixed";
@@ -911,6 +968,7 @@ int main() {
         {"expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps", expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps},
         {"expectMixedModeDoesNotPushWrappedEnergyIntoLateTail", expectMixedModeDoesNotPushWrappedEnergyIntoLateTail},
         {"expectPreRingingCompensationBacksOffListedBand", expectPreRingingCompensationBacksOffListedBand},
+        {"expectMixedModePublishesRequestedTransitionDiagnostics", expectMixedModePublishesRequestedTransitionDiagnostics},
         {"expectPreRingingCompensationFrequenciesStayWithinPhaseRange", expectPreRingingCompensationFrequenciesStayWithinPhaseRange},
     });
 }

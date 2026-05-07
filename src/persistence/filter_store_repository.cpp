@@ -14,6 +14,7 @@ namespace {
 constexpr std::string_view kFilterStoreMagicV1 = "wolfie-filter-store-v1";
 constexpr std::string_view kFilterStoreMagicV2 = "wolfie-filter-store-v2";
 constexpr std::string_view kFilterStoreMagicV3 = "wolfie-filter-store-v3";
+constexpr std::string_view kFilterStoreMagicV4 = "wolfie-filter-store-v4";
 constexpr uint32_t kMaxStringBytes = 1u << 20;
 constexpr uint32_t kMaxVectorElements = 1u << 22;
 constexpr uint32_t kMaxProcessLogEntries = 1u << 14;
@@ -21,7 +22,8 @@ constexpr uint32_t kMaxProcessLogEntries = 1u << 14;
 enum class FilterStoreVersion {
     V1,
     V2,
-    V3
+    V3,
+    V4
 };
 
 std::filesystem::path filterStorePath(const std::filesystem::path& rootPath, std::string_view variant) {
@@ -181,6 +183,7 @@ bool writeChannelResult(std::ofstream& out, const FilterDesignChannelResult& cha
            writeDoubleVector(out, channel.filterResponseDb) &&
            writeDoubleVector(out, channel.correctedResponseDb) &&
            writeDoubleVector(out, channel.inputGroupDelayMs) &&
+           writeDoubleVector(out, channel.requestedMixedGroupDelayPreSolveMs) &&
            writeDoubleVector(out, channel.requestedMixedGroupDelayMs) &&
            writeDoubleVector(out, channel.groupDelayMs) &&
            writeDoubleVector(out, channel.inputExcessPhaseDegrees) &&
@@ -202,7 +205,9 @@ bool readChannelResult(std::ifstream& in,
         !readDoubleVector(in, channel.filterResponseDb) ||
         !readDoubleVector(in, channel.correctedResponseDb) ||
         !readDoubleVector(in, channel.inputGroupDelayMs) ||
-        (version == FilterStoreVersion::V3 &&
+        (version == FilterStoreVersion::V4 &&
+         !readDoubleVector(in, channel.requestedMixedGroupDelayPreSolveMs)) ||
+        ((version == FilterStoreVersion::V3 || version == FilterStoreVersion::V4) &&
          !readDoubleVector(in, channel.requestedMixedGroupDelayMs)) ||
         !readDoubleVector(in, channel.groupDelayMs) ||
         !readDoubleVector(in, channel.inputExcessPhaseDegrees) ||
@@ -235,6 +240,8 @@ bool writeStoredFilter(std::ofstream& out, const StoredFilterDesign& storedFilte
              writeString(out, storedFilter.result.phasePreparationSourceKey) &&
              writeString(out, storedFilter.result.phasePreparationSeriesKind) &&
              writeScalar(out, storedFilter.result.phasePreparationBulkDelaySeconds) &&
+             writeScalar(out, storedFilter.result.requestedMixedTransitionStartHz) &&
+             writeScalar(out, storedFilter.result.requestedMixedTransitionEndHz) &&
              writeStringVector(out, storedFilter.result.processLog) &&
              writeDoubleVector(out, storedFilter.result.frequencyAxisHz) &&
              writeDoubleVector(out, storedFilter.result.targetCurveDb) &&
@@ -272,6 +279,9 @@ bool readStoredFilter(std::ifstream& in,
         !readString(in, storedFilter.result.phasePreparationSourceKey) ||
         !readString(in, storedFilter.result.phasePreparationSeriesKind) ||
         !readScalar(in, storedFilter.result.phasePreparationBulkDelaySeconds) ||
+        (version == FilterStoreVersion::V4 &&
+         (!readScalar(in, storedFilter.result.requestedMixedTransitionStartHz) ||
+          !readScalar(in, storedFilter.result.requestedMixedTransitionEndHz))) ||
         !readStringVector(in, storedFilter.result.processLog) ||
         !readDoubleVector(in, storedFilter.result.frequencyAxisHz) ||
         !readDoubleVector(in, storedFilter.result.targetCurveDb) ||
@@ -304,9 +314,9 @@ bool saveVariantFile(const std::filesystem::path& rootPath,
         return false;
     }
 
-    const std::array<char, kFilterStoreMagicV3.size()> magicBytes = [] {
-        std::array<char, kFilterStoreMagicV3.size()> bytes{};
-        std::copy(kFilterStoreMagicV3.begin(), kFilterStoreMagicV3.end(), bytes.begin());
+    const std::array<char, kFilterStoreMagicV4.size()> magicBytes = [] {
+        std::array<char, kFilterStoreMagicV4.size()> bytes{};
+        std::copy(kFilterStoreMagicV4.begin(), kFilterStoreMagicV4.end(), bytes.begin());
         return bytes;
     }();
 
@@ -324,25 +334,28 @@ bool loadVariantFile(const std::filesystem::path& rootPath,
         return false;
     }
 
-    std::array<char, kFilterStoreMagicV3.size()> magicBytes{};
+    std::array<char, kFilterStoreMagicV4.size()> magicBytes{};
     if (!in.read(magicBytes.data(), static_cast<std::streamsize>(magicBytes.size()))) {
         return false;
     }
+    const bool isV4 =
+        std::equal(magicBytes.begin(), magicBytes.end(), kFilterStoreMagicV4.begin(), kFilterStoreMagicV4.end());
     const bool isV3 =
         std::equal(magicBytes.begin(), magicBytes.end(), kFilterStoreMagicV3.begin(), kFilterStoreMagicV3.end());
     const bool isV2 =
         std::equal(magicBytes.begin(), magicBytes.end(), kFilterStoreMagicV2.begin(), kFilterStoreMagicV2.end());
     const bool isV1 =
         std::equal(magicBytes.begin(), magicBytes.end(), kFilterStoreMagicV1.begin(), kFilterStoreMagicV1.end());
-    if (!isV1 && !isV2 && !isV3) {
+    if (!isV1 && !isV2 && !isV3 && !isV4) {
         storedFilter = {};
         return false;
     }
 
     return readStoredFilter(in,
                             storedFilter,
-                            isV3 ? FilterStoreVersion::V3
-                                 : (isV2 ? FilterStoreVersion::V2 : FilterStoreVersion::V1));
+                            isV4 ? FilterStoreVersion::V4
+                                 : (isV3 ? FilterStoreVersion::V3
+                                         : (isV2 ? FilterStoreVersion::V2 : FilterStoreVersion::V1)));
 }
 
 }  // namespace

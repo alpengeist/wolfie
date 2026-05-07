@@ -40,9 +40,24 @@ struct PlotGraphSeries {
     PlotGraphLineStyle lineStyle = PlotGraphLineStyle::Solid;
 };
 
+struct PlotGraphXMarker {
+    double xValue = 0.0;
+    COLORREF color = RGB(0, 0, 0);
+    PlotGraphLineStyle lineStyle = PlotGraphLineStyle::Dash;
+};
+
+struct PlotGraphXSpan {
+    double startX = 0.0;
+    double endX = 0.0;
+    COLORREF color = RGB(0, 0, 0);
+    BYTE alpha = 32;
+};
+
 struct PlotGraphData {
     std::vector<double> xValues;
     std::vector<PlotGraphSeries> series;
+    std::vector<PlotGraphXMarker> xMarkers;
+    std::vector<PlotGraphXSpan> xSpans;
     PlotGraphXAxisMode xAxisMode = PlotGraphXAxisMode::LogFrequency;
     PlotGraphYAxisMode yAxisMode = PlotGraphYAxisMode::Auto;
     std::wstring xUnit;

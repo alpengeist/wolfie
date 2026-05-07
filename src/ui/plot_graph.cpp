@@ -766,6 +766,86 @@ void fillSelectionOverlay(HDC hdc, const RECT& selection) {
     DeleteDC(overlayDc);
 }
 
+void fillXSpanOverlay(HDC hdc,
+                      const RECT& graph,
+                      const PlotGraphData& data,
+                      double minVisibleX,
+                      double maxVisibleX,
+                      const PlotGraphXSpan& span) {
+    if (data.xValues.empty()) {
+        return;
+    }
+
+    const double startX = std::max(std::min(span.startX, span.endX), minVisibleX);
+    const double endX = std::min(std::max(span.startX, span.endX), maxVisibleX);
+    if (endX <= startX) {
+        return;
+    }
+
+    RECT spanRect{
+        graphXFromValue(graph, data.xAxisMode, minVisibleX, maxVisibleX, startX),
+        graph.top,
+        graphXFromValue(graph, data.xAxisMode, minVisibleX, maxVisibleX, endX),
+        graph.bottom,
+    };
+    if (spanRect.right <= spanRect.left) {
+        spanRect.right = spanRect.left + 1;
+    }
+
+    const int width = std::max(spanRect.right - spanRect.left, 1L);
+    const int height = std::max(spanRect.bottom - spanRect.top, 1L);
+    HDC overlayDc = CreateCompatibleDC(hdc);
+    if (overlayDc == nullptr) {
+        return;
+    }
+
+    HBITMAP overlayBitmap = CreateCompatibleBitmap(hdc, width, height);
+    if (overlayBitmap == nullptr) {
+        DeleteDC(overlayDc);
+        return;
+    }
+
+    HBITMAP oldOverlayBitmap = reinterpret_cast<HBITMAP>(SelectObject(overlayDc, overlayBitmap));
+    RECT overlayRect{0, 0, width, height};
+    HBRUSH overlayBrush = CreateSolidBrush(span.color);
+    FillRect(overlayDc, &overlayRect, overlayBrush);
+    DeleteObject(overlayBrush);
+
+    BLENDFUNCTION blend{};
+    blend.BlendOp = AC_SRC_OVER;
+    blend.SourceConstantAlpha = span.alpha;
+    AlphaBlend(hdc, spanRect.left, spanRect.top, width, height, overlayDc, 0, 0, width, height, blend);
+
+    SelectObject(overlayDc, oldOverlayBitmap);
+    DeleteObject(overlayBitmap);
+    DeleteDC(overlayDc);
+}
+
+void drawXMarker(HDC hdc,
+                 const RECT& graph,
+                 const PlotGraphData& data,
+                 double minVisibleX,
+                 double maxVisibleX,
+                 const PlotGraphXMarker& marker) {
+    if (data.xValues.empty() || marker.xValue < minVisibleX || marker.xValue > maxVisibleX) {
+        return;
+    }
+
+    HPEN markerPen = CreatePen(marker.lineStyle == PlotGraphLineStyle::Dash ? PS_DASH : PS_SOLID, 1, marker.color);
+    if (markerPen == nullptr) {
+        return;
+    }
+
+    const int x = graphXFromValue(graph, data.xAxisMode, minVisibleX, maxVisibleX, marker.xValue);
+    const int savedDc = SaveDC(hdc);
+    IntersectClipRect(hdc, graph.left, graph.top, graph.right, graph.bottom);
+    SelectObject(hdc, markerPen);
+    MoveToEx(hdc, x, graph.top, nullptr);
+    LineTo(hdc, x, graph.bottom);
+    RestoreDC(hdc, savedDc);
+    DeleteObject(markerPen);
+}
+
 void drawSharedHoverMarker(HDC hdc, const GraphLayout& layout, const PlotGraphData& data, double xValue) {
     if (data.xValues.empty() || xValue < layout.visibleMinX || xValue > layout.visibleMaxX) {
         return;
@@ -1260,6 +1340,10 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
     }
     DeleteObject(stripeBrush);
 
+    for (const PlotGraphXSpan& span : data_.xSpans) {
+        fillXSpanOverlay(hdc, layout.graph, data_, layout.visibleMinX, layout.visibleMaxX, span);
+    }
+
     SetDCPenColor(hdc, ui_theme::kBorder);
     Rectangle(hdc, layout.graph.left, layout.graph.top, layout.graph.right, layout.graph.bottom);
 
@@ -1273,6 +1357,10 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
         const int y = graphYFromValue(layout.graph, tick, layout.minY, layout.maxY);
         MoveToEx(hdc, layout.graph.left, y, nullptr);
         LineTo(hdc, layout.graph.right, y);
+    }
+
+    for (const PlotGraphXMarker& marker : data_.xMarkers) {
+        drawXMarker(hdc, layout.graph, data_, layout.visibleMinX, layout.visibleMaxX, marker);
     }
 
     if (!data_.xValues.empty()) {

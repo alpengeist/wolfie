@@ -124,6 +124,10 @@ private:
         HWND labelExcessPhasePredictedLeft = nullptr;
         HWND requestedMixedGroupDelayTitle = nullptr;
         HWND requestedMixedGroupDelayLegendFrame = nullptr;
+        HWND lineRequestedMixedGroupDelayPreRight = nullptr;
+        HWND labelRequestedMixedGroupDelayPreRight = nullptr;
+        HWND lineRequestedMixedGroupDelayPreLeft = nullptr;
+        HWND labelRequestedMixedGroupDelayPreLeft = nullptr;
         HWND lineRequestedMixedGroupDelayRight = nullptr;
         HWND labelRequestedMixedGroupDelayRight = nullptr;
         HWND lineRequestedMixedGroupDelayLeft = nullptr;

@@ -40,8 +40,6 @@ private:
     };
 
     struct Controls {
-        HWND labelWindow = nullptr;
-        HWND comboWindow = nullptr;
         HWND buttonRefresh = nullptr;
         HWND progressRefresh = nullptr;
         HWND note = nullptr;
@@ -51,15 +49,11 @@ private:
     };
 
     static constexpr wchar_t kPageClassName[] = L"WolfieAnalysisPage";
-    static constexpr int kComboWindow = 3501;
     static constexpr int kButtonRefresh = 3502;
     static constexpr int kPhaseGraph = 3503;
     static constexpr int kMagnitudeGraph = 3504;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
-    static void populateWindowCombo(HWND combo);
-    static int comboIndexFromWindow(const std::string& window);
-    static std::string windowFromComboIndex(int index);
     static std::wstring formatMetricValue(double value, const wchar_t* unit, int decimals, bool signedValue = false);
 
     void createControls();
@@ -84,7 +78,6 @@ private:
     std::wstring calculationStatusText_;
     bool hasMeasurementData_ = false;
     bool calculationInProgress_ = false;
-    bool updatingControls_ = false;
 };
 
 }  // namespace wolfie::ui

@@ -794,10 +794,14 @@ void FiltersPage::createControls() {
                                                                   nullptr,
                                                                   instance_,
                                                                   nullptr);
+    controls_.lineRequestedMixedGroupDelayPreRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelRequestedMixedGroupDelayPreRight = CreateWindowW(L"STATIC", L"R pre", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.lineRequestedMixedGroupDelayPreLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelRequestedMixedGroupDelayPreLeft = CreateWindowW(L"STATIC", L"L pre", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.lineRequestedMixedGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelRequestedMixedGroupDelayRight = CreateWindowW(L"STATIC", L"R req", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelRequestedMixedGroupDelayRight = CreateWindowW(L"STATIC", L"R post", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.lineRequestedMixedGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelRequestedMixedGroupDelayLeft = CreateWindowW(L"STATIC", L"L req", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelRequestedMixedGroupDelayLeft = CreateWindowW(L"STATIC", L"L post", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonGroupDelayEffect = CreateWindowW(L"BUTTON",
@@ -1121,27 +1125,51 @@ void FiltersPage::layout() {
     MoveWindow(controls_.requestedMixedGroupDelayLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     requestedMixedGroupDelayGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int requestedMixedGroupDelayFirstRowTop = y + 24 + 18;
-    MoveWindow(controls_.lineRequestedMixedGroupDelayLeft,
+    MoveWindow(controls_.lineRequestedMixedGroupDelayPreLeft,
                lineLeft,
                requestedMixedGroupDelayFirstRowTop + 8,
                lineWidth,
                lineHeight,
                TRUE);
-    MoveWindow(controls_.labelRequestedMixedGroupDelayLeft,
+    MoveWindow(controls_.labelRequestedMixedGroupDelayPreLeft,
                labelLeft,
                requestedMixedGroupDelayFirstRowTop + 2,
                labelWidth,
                18,
                TRUE);
-    MoveWindow(controls_.lineRequestedMixedGroupDelayRight,
+    MoveWindow(controls_.lineRequestedMixedGroupDelayPreRight,
                lineLeft,
                requestedMixedGroupDelayFirstRowTop + rowStep + 8,
                lineWidth,
                lineHeight,
                TRUE);
-    MoveWindow(controls_.labelRequestedMixedGroupDelayRight,
+    MoveWindow(controls_.labelRequestedMixedGroupDelayPreRight,
                labelLeft,
                requestedMixedGroupDelayFirstRowTop + rowStep + 2,
+               labelWidth,
+               18,
+               TRUE);
+    MoveWindow(controls_.lineRequestedMixedGroupDelayLeft,
+               lineLeft,
+               requestedMixedGroupDelayFirstRowTop + (rowStep * 2) + 8,
+               lineWidth,
+               lineHeight,
+               TRUE);
+    MoveWindow(controls_.labelRequestedMixedGroupDelayLeft,
+               labelLeft,
+               requestedMixedGroupDelayFirstRowTop + (rowStep * 2) + 2,
+               labelWidth,
+               18,
+               TRUE);
+    MoveWindow(controls_.lineRequestedMixedGroupDelayRight,
+               lineLeft,
+               requestedMixedGroupDelayFirstRowTop + (rowStep * 3) + 8,
+               lineWidth,
+               lineHeight,
+               TRUE);
+    MoveWindow(controls_.labelRequestedMixedGroupDelayRight,
+               labelLeft,
+               requestedMixedGroupDelayFirstRowTop + (rowStep * 3) + 2,
                labelWidth,
                18,
                TRUE);
@@ -2096,6 +2124,8 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         static HBRUSH lineExcessPhaseInputLeftBrush = CreateSolidBrush(ui_theme::kGreen);
         static HBRUSH lineExcessPhasePredictedRightBrush = CreateSolidBrush(ui_theme::kMagenta);
         static HBRUSH lineExcessPhasePredictedLeftBrush = CreateSolidBrush(ui_theme::kGray);
+        static HBRUSH lineRequestedMixedGroupDelayPreRightBrush = CreateSolidBrush(ui_theme::kRed);
+        static HBRUSH lineRequestedMixedGroupDelayPreLeftBrush = CreateSolidBrush(ui_theme::kGreen);
         static HBRUSH lineRequestedMixedGroupDelayRightBrush = CreateSolidBrush(ui_theme::kMagenta);
         static HBRUSH lineRequestedMixedGroupDelayLeftBrush = CreateSolidBrush(ui_theme::kGray);
         static HBRUSH lineInputGroupDelayLeftBrush = CreateSolidBrush(ui_theme::kGreen);
@@ -2165,6 +2195,14 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
             if (control == page->controls_.lineExcessPhasePredictedLeft) {
                 SetBkColor(hdc, ui_theme::kGray);
                 return reinterpret_cast<INT_PTR>(lineExcessPhasePredictedLeftBrush);
+            }
+            if (control == page->controls_.lineRequestedMixedGroupDelayPreRight) {
+                SetBkColor(hdc, ui_theme::kRed);
+                return reinterpret_cast<INT_PTR>(lineRequestedMixedGroupDelayPreRightBrush);
+            }
+            if (control == page->controls_.lineRequestedMixedGroupDelayPreLeft) {
+                SetBkColor(hdc, ui_theme::kGreen);
+                return reinterpret_cast<INT_PTR>(lineRequestedMixedGroupDelayPreLeftBrush);
             }
             if (control == page->controls_.lineRequestedMixedGroupDelayRight) {
                 SetBkColor(hdc, ui_theme::kMagenta);
@@ -2979,17 +3017,45 @@ PlotGraphData FiltersPage::buildRequestedMixedGroupDelayGraphData(const Workspac
         return data;
     }
 
+    if (sourceResult->requestedMixedTransitionEndHz > sourceResult->requestedMixedTransitionStartHz &&
+        sourceResult->requestedMixedTransitionStartHz > 0.0) {
+        data.xSpans.push_back({sourceResult->requestedMixedTransitionStartHz,
+                               sourceResult->requestedMixedTransitionEndHz,
+                               blendColor(ui_theme::kAccent, ui_theme::graphBackgroundColor(), 0.88),
+                               34});
+        data.xMarkers.push_back({sourceResult->requestedMixedTransitionStartHz,
+                                 ui_theme::kAccent,
+                                 PlotGraphLineStyle::Dash});
+        data.xMarkers.push_back({sourceResult->requestedMixedTransitionEndHz,
+                                 blendColor(ui_theme::kMuted, ui_theme::kAccent, 0.35),
+                                 PlotGraphLineStyle::Dash});
+    }
+
     double minY = std::numeric_limits<double>::max();
     double maxY = std::numeric_limits<double>::lowest();
+    if (!sourceResult->right.requestedMixedGroupDelayPreSolveMs.empty()) {
+        accumulateFiniteRange(sourceResult->right.requestedMixedGroupDelayPreSolveMs, minY, maxY);
+        data.series.push_back({L"Right pre",
+                               ui_theme::kRed,
+                               sourceResult->right.requestedMixedGroupDelayPreSolveMs,
+                               PlotGraphLineStyle::Dash});
+    }
+    if (!sourceResult->left.requestedMixedGroupDelayPreSolveMs.empty()) {
+        accumulateFiniteRange(sourceResult->left.requestedMixedGroupDelayPreSolveMs, minY, maxY);
+        data.series.push_back({L"Left pre",
+                               ui_theme::kGreen,
+                               sourceResult->left.requestedMixedGroupDelayPreSolveMs,
+                               PlotGraphLineStyle::Dash});
+    }
     if (!sourceResult->right.requestedMixedGroupDelayMs.empty()) {
         accumulateFiniteRange(sourceResult->right.requestedMixedGroupDelayMs, minY, maxY);
-        data.series.push_back({L"Right request",
+        data.series.push_back({L"Right post",
                                ui_theme::kMagenta,
                                sourceResult->right.requestedMixedGroupDelayMs});
     }
     if (!sourceResult->left.requestedMixedGroupDelayMs.empty()) {
         accumulateFiniteRange(sourceResult->left.requestedMixedGroupDelayMs, minY, maxY);
-        data.series.push_back({L"Left request",
+        data.series.push_back({L"Left post",
                                ui_theme::kGray,
                                sourceResult->left.requestedMixedGroupDelayMs});
     }

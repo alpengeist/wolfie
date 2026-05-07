@@ -380,6 +380,7 @@ struct FilterDesignChannelResult {
     std::vector<double> filterResponseDb;
     std::vector<double> correctedResponseDb;
     std::vector<double> inputGroupDelayMs;
+    std::vector<double> requestedMixedGroupDelayPreSolveMs;
     std::vector<double> requestedMixedGroupDelayMs;
     std::vector<double> groupDelayMs;
     std::vector<double> inputExcessPhaseDegrees;
@@ -404,6 +405,8 @@ struct FilterDesignResult {
     std::string phasePreparationSourceKey;
     std::string phasePreparationSeriesKind;
     double phasePreparationBulkDelaySeconds = 0.0;
+    double requestedMixedTransitionStartHz = 0.0;
+    double requestedMixedTransitionEndHz = 0.0;
     std::vector<std::string> processLog;
     std::vector<double> frequencyAxisHz;
     std::vector<double> targetCurveDb;

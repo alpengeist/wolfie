@@ -35,6 +35,23 @@ struct MixedPhaseLimitBand {
     double taperEndHz = 0.0;
 };
 
+struct MixedPhaseCorrectionDesign {
+    std::vector<double> preSolveCorrectionDegrees;
+    std::vector<double> postSolveCorrectionDegrees;
+    std::vector<double> preSolveGroupDelayMs;
+    std::vector<double> postSolveGroupDelayMs;
+};
+
+struct TransitionBandDiagnostic {
+    bool available = false;
+    double startHz = 0.0;
+    double endHz = 0.0;
+    double peakHz = 0.0;
+    double peakMs = 0.0;
+    double rmsMs = 0.0;
+    double signedAreaMsHz = 0.0;
+};
+
 template <typename T>
 T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
@@ -163,36 +180,87 @@ MixedPhaseLimitBand mixedPhaseLimitBand(const FilterDesignSettings& settings, in
     return band;
 }
 
-std::string describeRequestedGroupDelayPeak(const std::vector<double>& frequencyAxisHz,
-                                            const std::vector<double>& groupDelayMs,
-                                            std::string_view channelName) {
+double transitionDiagnosticStartHz(const MixedPhaseLimitBand& band) {
+    return std::min(band.taperEndHz, std::max(band.fullCorrectionHz * 0.7, 1.0));
+}
+
+TransitionBandDiagnostic analyzeTransitionBand(const std::vector<double>& frequencyAxisHz,
+                                               const std::vector<double>& groupDelayMs,
+                                               const MixedPhaseLimitBand& band) {
+    TransitionBandDiagnostic diagnostic;
+    diagnostic.startHz = transitionDiagnosticStartHz(band);
+    diagnostic.endHz = band.taperEndHz;
+
     const size_t count = std::min(frequencyAxisHz.size(), groupDelayMs.size());
-    if (count == 0) {
-        return {};
+    if (count == 0 || diagnostic.endHz <= diagnostic.startHz) {
+        return diagnostic;
     }
 
+    double sumSquares = 0.0;
+    double maxMagnitude = 0.0;
+    size_t used = 0;
     size_t bestIndex = 0;
-    double bestMagnitude = 0.0;
+    double signedAreaMsHz = 0.0;
+    double previousFrequencyHz = 0.0;
+    double previousDelayMs = 0.0;
+    bool havePrevious = false;
+
     for (size_t index = 0; index < count; ++index) {
-        if (!std::isfinite(frequencyAxisHz[index]) || !std::isfinite(groupDelayMs[index])) {
+        const double frequencyHz = frequencyAxisHz[index];
+        const double delayMs = groupDelayMs[index];
+        if (!std::isfinite(frequencyHz) ||
+            !std::isfinite(delayMs) ||
+            frequencyHz < diagnostic.startHz ||
+            frequencyHz > diagnostic.endHz) {
             continue;
         }
-        const double magnitude = std::abs(groupDelayMs[index]);
-        if (magnitude > bestMagnitude) {
-            bestMagnitude = magnitude;
+
+        const double magnitude = std::abs(delayMs);
+        if (!diagnostic.available || magnitude > maxMagnitude) {
+            maxMagnitude = magnitude;
             bestIndex = index;
         }
+
+        sumSquares += delayMs * delayMs;
+        ++used;
+        diagnostic.available = true;
+
+        if (havePrevious) {
+            signedAreaMsHz += 0.5 * (previousDelayMs + delayMs) * (frequencyHz - previousFrequencyHz);
+        }
+        previousFrequencyHz = frequencyHz;
+        previousDelayMs = delayMs;
+        havePrevious = true;
     }
 
-    if (bestMagnitude <= 1.0e-6) {
-        return std::string(channelName) + " requested mixed group delay stayed near zero.";
+    if (!diagnostic.available || used == 0) {
+        return diagnostic;
     }
 
+    diagnostic.peakHz = frequencyAxisHz[bestIndex];
+    diagnostic.peakMs = groupDelayMs[bestIndex];
+    diagnostic.rmsMs = std::sqrt(sumSquares / static_cast<double>(used));
+    diagnostic.signedAreaMsHz = signedAreaMsHz;
+    return diagnostic;
+}
+
+std::string describeTransitionBandDiagnostic(std::string_view channelName,
+                                             std::string_view stageName,
+                                             const TransitionBandDiagnostic& diagnostic) {
     std::ostringstream stream;
     stream.setf(std::ios::fixed);
     stream.precision(2);
-    stream << channelName << " requested mixed group-delay peak "
-           << groupDelayMs[bestIndex] << " ms at " << frequencyAxisHz[bestIndex] << " Hz.";
+    if (!diagnostic.available) {
+        stream << channelName << " requested mixed group-delay " << stageName
+               << " transition band had no finite samples.";
+        return stream.str();
+    }
+
+    stream << channelName << " requested mixed group-delay " << stageName << " transition "
+           << diagnostic.startHz << " to " << diagnostic.endHz << " Hz: peak "
+           << diagnostic.peakMs << " ms at " << diagnostic.peakHz << " Hz, RMS "
+           << diagnostic.rmsMs << " ms, signed area " << diagnostic.signedAreaMsHz
+           << " ms*Hz.";
     return stream.str();
 }
 
@@ -892,27 +960,28 @@ double preRingingCompensationWeightAt(double frequencyHz, const FilterDesignSett
     return 1.0 - (settings.preRingingCompensationStrength * strongestBackoff);
 }
 
-std::vector<double> buildExcessPhaseCorrectionDegrees(const std::vector<double>& displayFrequencyAxisHz,
-                                                      const std::vector<double>& inputExcessPhaseRadians,
-                                                      const FilterDesignSettings& settings,
-                                                      int sampleRate) {
+MixedPhaseCorrectionDesign buildExcessPhaseCorrectionDesign(const std::vector<double>& displayFrequencyAxisHz,
+                                                            const std::vector<double>& inputExcessPhaseRadians,
+                                                            const FilterDesignSettings& settings,
+                                                            int sampleRate) {
     const size_t count = std::min(displayFrequencyAxisHz.size(), inputExcessPhaseRadians.size());
+    MixedPhaseCorrectionDesign design;
     std::vector<double> inputExcessPhaseDegrees;
     inputExcessPhaseDegrees.reserve(count);
     for (size_t index = 0; index < count; ++index) {
         inputExcessPhaseDegrees.push_back(inputExcessPhaseRadians[index] * kRadiansToDegrees);
     }
 
-    std::vector<double> desiredCorrectionDegrees(count, 0.0);
+    design.preSolveCorrectionDegrees.assign(count, 0.0);
     std::vector<double> trackingWeights(count, 0.0);
-    std::vector<double> taperWeights(count, 0.0);
+    std::vector<double> limitWeights(count, 0.0);
     for (size_t index = 0; index < count; ++index) {
         const double taperWeight =
             excessPhaseCorrectionWeightAt(displayFrequencyAxisHz[index], settings, sampleRate);
         const double compensatedWeight =
             taperWeight * preRingingCompensationWeightAt(displayFrequencyAxisHz[index], settings);
-        taperWeights[index] = compensatedWeight;
-        desiredCorrectionDegrees[index] =
+        limitWeights[index] = compensatedWeight;
+        design.preSolveCorrectionDegrees[index] =
             -inputExcessPhaseDegrees[index] * compensatedWeight * settings.mixedPhaseStrength;
         trackingWeights[index] = compensatedWeight * compensatedWeight;
     }
@@ -920,15 +989,43 @@ std::vector<double> buildExcessPhaseCorrectionDegrees(const std::vector<double>&
     const double regularization = 48.0 *
                                   std::max(static_cast<double>(count) / 512.0, 1.0) *
                                   smoothnessRegularizationScale(std::max(settings.smoothness, 1.0));
-    std::vector<double> correctionDegrees =
-        solveRegularizedCurve(desiredCorrectionDegrees, trackingWeights, regularization);
-    for (size_t index = 0; index < correctionDegrees.size() && index < taperWeights.size(); ++index) {
-        const double taperWeight = taperWeights[index];
-        const double limitedDegrees = settings.mixedPhaseMaxCorrectionDegrees * taperWeight;
-        correctionDegrees[index] =
-            clampValue(correctionDegrees[index] * taperWeight, -limitedDegrees, limitedDegrees);
+    design.postSolveCorrectionDegrees =
+        solveRegularizedCurve(design.preSolveCorrectionDegrees, trackingWeights, regularization);
+    for (size_t index = 0; index < design.postSolveCorrectionDegrees.size() && index < limitWeights.size(); ++index) {
+        const double limitedDegrees = settings.mixedPhaseMaxCorrectionDegrees * limitWeights[index];
+        design.postSolveCorrectionDegrees[index] =
+            clampValue(design.postSolveCorrectionDegrees[index], -limitedDegrees, limitedDegrees);
     }
-    return correctionDegrees;
+    design.preSolveGroupDelayMs =
+        buildGroupDelayMs(displayFrequencyAxisHz, degreesToRadians(design.preSolveCorrectionDegrees));
+    design.postSolveGroupDelayMs =
+        buildGroupDelayMs(displayFrequencyAxisHz, degreesToRadians(design.postSolveCorrectionDegrees));
+    return design;
+}
+
+std::vector<double> buildExcessPhaseCorrectionDegrees(const std::vector<double>& displayFrequencyAxisHz,
+                                                      const std::vector<double>& inputExcessPhaseRadians,
+                                                      const FilterDesignSettings& settings,
+                                                      int sampleRate) {
+    return buildExcessPhaseCorrectionDesign(displayFrequencyAxisHz,
+                                            inputExcessPhaseRadians,
+                                            settings,
+                                            sampleRate)
+        .postSolveCorrectionDegrees;
+}
+
+MixedPhaseCorrectionDesign averageCorrectionDesign(const MixedPhaseCorrectionDesign& left,
+                                                   const MixedPhaseCorrectionDesign& right) {
+    MixedPhaseCorrectionDesign averaged;
+    averaged.preSolveCorrectionDegrees =
+        averageSeries(left.preSolveCorrectionDegrees, right.preSolveCorrectionDegrees);
+    averaged.postSolveCorrectionDegrees =
+        averageSeries(left.postSolveCorrectionDegrees, right.postSolveCorrectionDegrees);
+    averaged.preSolveGroupDelayMs =
+        averageSeries(left.preSolveGroupDelayMs, right.preSolveGroupDelayMs);
+    averaged.postSolveGroupDelayMs =
+        averageSeries(left.postSolveGroupDelayMs, right.postSolveGroupDelayMs);
+    return averaged;
 }
 
 std::vector<double> buildPositivePhaseCorrectionRadians(int sampleRate,
@@ -1195,6 +1292,7 @@ struct DesignedChannel {
     std::vector<double> filterResponseDb;
     std::vector<double> correctedResponseDb;
     std::vector<double> inputGroupDelayMs;
+    std::vector<double> requestedMixedGroupDelayPreSolveMs;
     std::vector<double> requestedMixedGroupDelayMs;
     std::vector<double> groupDelayMs;
     std::vector<double> inputExcessPhaseDegrees;
@@ -1265,7 +1363,7 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
                               const ResponseSmoothingSettings& smoothingSettings,
                               const FilterDesignSettings& settings,
                               NormalizedPhaseMode phaseMode,
-                              const std::vector<double>* sharedMixedCorrectionDegrees,
+                              const MixedPhaseCorrectionDesign* sharedMixedCorrectionDesign,
                               int sampleRate,
                               int fftSize) {
     DesignedChannel channel;
@@ -1288,21 +1386,21 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
         const std::vector<double> positiveMagnitude =
             buildPositiveMagnitudeResponse(sampleRate, fftSize, displayFrequencyAxisHz, channel.correctionDb);
         if (useMixedMode) {
-            const std::vector<double> correctionPhaseDegrees =
-                sharedMixedCorrectionDegrees != nullptr &&
-                        sharedMixedCorrectionDegrees->size() == displayFrequencyAxisHz.size()
-                    ? *sharedMixedCorrectionDegrees
-                    : buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
-                                                        inputPhaseView->excessPhaseRadians,
-                                                        settings,
-                                                        sampleRate);
-            channel.requestedMixedGroupDelayMs =
-                buildGroupDelayMs(displayFrequencyAxisHz, degreesToRadians(correctionPhaseDegrees));
+            const MixedPhaseCorrectionDesign correctionDesign =
+                sharedMixedCorrectionDesign != nullptr &&
+                        sharedMixedCorrectionDesign->postSolveCorrectionDegrees.size() == displayFrequencyAxisHz.size()
+                    ? *sharedMixedCorrectionDesign
+                    : buildExcessPhaseCorrectionDesign(displayFrequencyAxisHz,
+                                                       inputPhaseView->excessPhaseRadians,
+                                                       settings,
+                                                       sampleRate);
+            channel.requestedMixedGroupDelayPreSolveMs = correctionDesign.preSolveGroupDelayMs;
+            channel.requestedMixedGroupDelayMs = correctionDesign.postSolveGroupDelayMs;
             const std::vector<double> positivePhaseCorrectionRadians =
                 buildPositivePhaseCorrectionRadians(sampleRate,
                                                     fftSize,
                                                     displayFrequencyAxisHz,
-                                                    correctionPhaseDegrees);
+                                                    correctionDesign.postSolveCorrectionDegrees);
             channel.filterTaps = buildMixedPhaseImpulse(positiveMagnitude,
                                                         positivePhaseCorrectionRadians,
                                                         fftSize,
@@ -1350,14 +1448,16 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
         channel.inputExcessPhaseContinuousDegrees = inputPhaseView->continuousExcessPhaseDegrees;
 
         if (useExcessPreview) {
-            const std::vector<double> correctionPhaseDegrees =
-                buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
-                                                  inputPhaseView->excessPhaseRadians,
-                                                  settings,
-                                                  sampleRate);
-            const std::vector<double> correctionPhaseRadians = degreesToRadians(correctionPhaseDegrees);
+            const MixedPhaseCorrectionDesign correctionDesign =
+                buildExcessPhaseCorrectionDesign(displayFrequencyAxisHz,
+                                                 inputPhaseView->excessPhaseRadians,
+                                                 settings,
+                                                 sampleRate);
+            const std::vector<double> correctionPhaseRadians =
+                degreesToRadians(correctionDesign.postSolveCorrectionDegrees);
 
-            channel.requestedMixedGroupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, correctionPhaseRadians);
+            channel.requestedMixedGroupDelayPreSolveMs = correctionDesign.preSolveGroupDelayMs;
+            channel.requestedMixedGroupDelayMs = correctionDesign.postSolveGroupDelayMs;
             channel.groupDelayMs = channel.requestedMixedGroupDelayMs;
             const PreparedPhaseView predictedView =
                 buildPredictedPhaseView(*preparedInput,
@@ -1536,7 +1636,8 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     const PreparedPhaseView rightPreparedView =
         preparedPhase.valid ? resamplePreparedPhaseChannel(preparedPhase.right, displayFrequencyAxisHz)
                             : PreparedPhaseView{};
-    std::vector<double> sharedMixedCorrectionDegrees;
+    MixedPhaseCorrectionDesign sharedMixedCorrectionDesign;
+    bool haveSharedMixedCorrectionDesign = false;
     if (phaseMode == NormalizedPhaseMode::Mixed &&
         leftPreparedView.valid() &&
         rightPreparedView.valid()) {
@@ -1556,17 +1657,18 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
         const bool preserveStereoRelationship =
             std::min(leftLfMean, rightLfMean) >= 15.0 && stereoLfDelta >= 45.0;
         if (preserveStereoRelationship) {
-            const std::vector<double> leftCorrectionDegrees =
-                buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
-                                                  leftPreparedView.excessPhaseRadians,
-                                                  settings,
-                                                  exportMeasurement.sampleRate);
-            const std::vector<double> rightCorrectionDegrees =
-                buildExcessPhaseCorrectionDegrees(displayFrequencyAxisHz,
-                                                  rightPreparedView.excessPhaseRadians,
-                                                  settings,
-                                                  exportMeasurement.sampleRate);
-            sharedMixedCorrectionDegrees = averageSeries(leftCorrectionDegrees, rightCorrectionDegrees);
+            const MixedPhaseCorrectionDesign leftCorrectionDesign =
+                buildExcessPhaseCorrectionDesign(displayFrequencyAxisHz,
+                                                 leftPreparedView.excessPhaseRadians,
+                                                 settings,
+                                                 exportMeasurement.sampleRate);
+            const MixedPhaseCorrectionDesign rightCorrectionDesign =
+                buildExcessPhaseCorrectionDesign(displayFrequencyAxisHz,
+                                                 rightPreparedView.excessPhaseRadians,
+                                                 settings,
+                                                 exportMeasurement.sampleRate);
+            sharedMixedCorrectionDesign = averageCorrectionDesign(leftCorrectionDesign, rightCorrectionDesign);
+            haveSharedMixedCorrectionDesign = true;
             appendProcessLog(result.processLog,
                              "Built shared low-frequency mixed-phase correction to preserve stereo phase relationship.");
         } else {
@@ -1588,18 +1690,24 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
                                          response.smoothingSettings,
                                          settings,
                                          phaseMode,
-                                         sharedMixedCorrectionDegrees.empty() ? nullptr : &sharedMixedCorrectionDegrees,
+                                         haveSharedMixedCorrectionDesign ? &sharedMixedCorrectionDesign : nullptr,
                                          exportMeasurement.sampleRate,
                                          fftSize);
     appendProcessLog(result.processLog, "Designed left filter channel.");
     if (phaseMode == NormalizedPhaseMode::Mixed) {
-        const std::string message =
-            describeRequestedGroupDelayPeak(displayFrequencyAxisHz,
-                                            left.requestedMixedGroupDelayMs,
-                                            "Left");
-        if (!message.empty()) {
-            appendProcessLog(result.processLog, message);
-        }
+        const MixedPhaseLimitBand band = mixedPhaseLimitBand(settings, exportMeasurement.sampleRate);
+        appendProcessLog(result.processLog,
+                         describeTransitionBandDiagnostic("Left",
+                                                          "pre-solve",
+                                                          analyzeTransitionBand(displayFrequencyAxisHz,
+                                                                                left.requestedMixedGroupDelayPreSolveMs,
+                                                                                band)));
+        appendProcessLog(result.processLog,
+                         describeTransitionBandDiagnostic("Left",
+                                                          "post-solve",
+                                                          analyzeTransitionBand(displayFrequencyAxisHz,
+                                                                                left.requestedMixedGroupDelayMs,
+                                                                                band)));
     }
     DesignedChannel right = designChannel(displayFrequencyAxisHz,
                                           targetCurveDb,
@@ -1609,18 +1717,24 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
                                           response.smoothingSettings,
                                           settings,
                                           phaseMode,
-                                          sharedMixedCorrectionDegrees.empty() ? nullptr : &sharedMixedCorrectionDegrees,
+                                          haveSharedMixedCorrectionDesign ? &sharedMixedCorrectionDesign : nullptr,
                                           exportMeasurement.sampleRate,
                                           fftSize);
     appendProcessLog(result.processLog, "Designed right filter channel.");
     if (phaseMode == NormalizedPhaseMode::Mixed) {
-        const std::string message =
-            describeRequestedGroupDelayPeak(displayFrequencyAxisHz,
-                                            right.requestedMixedGroupDelayMs,
-                                            "Right");
-        if (!message.empty()) {
-            appendProcessLog(result.processLog, message);
-        }
+        const MixedPhaseLimitBand band = mixedPhaseLimitBand(settings, exportMeasurement.sampleRate);
+        appendProcessLog(result.processLog,
+                         describeTransitionBandDiagnostic("Right",
+                                                          "pre-solve",
+                                                          analyzeTransitionBand(displayFrequencyAxisHz,
+                                                                                right.requestedMixedGroupDelayPreSolveMs,
+                                                                                band)));
+        appendProcessLog(result.processLog,
+                         describeTransitionBandDiagnostic("Right",
+                                                          "post-solve",
+                                                          analyzeTransitionBand(displayFrequencyAxisHz,
+                                                                                right.requestedMixedGroupDelayMs,
+                                                                                band)));
     }
 
     if (phaseMode == NormalizedPhaseMode::Mixed &&
@@ -1663,12 +1777,18 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     result.phasePreparationSourceKey = preparedPhase.sourceKey;
     result.phasePreparationSeriesKind = preparedPhase.sourceSeriesKind;
     result.phasePreparationBulkDelaySeconds = preparedPhase.bulkDelaySeconds;
+    if (phaseMode == NormalizedPhaseMode::Mixed) {
+        const MixedPhaseLimitBand band = mixedPhaseLimitBand(settings, exportMeasurement.sampleRate);
+        result.requestedMixedTransitionStartHz = band.fullCorrectionHz;
+        result.requestedMixedTransitionEndHz = band.taperEndHz;
+    }
     result.frequencyAxisHz = displayFrequencyAxisHz;
     result.targetCurveDb = targetCurveDb;
     result.left.correctionCurveDb = left.correctionDb;
     result.left.filterResponseDb = left.filterResponseDb;
     result.left.correctedResponseDb = left.correctedResponseDb;
     result.left.inputGroupDelayMs = left.inputGroupDelayMs;
+    result.left.requestedMixedGroupDelayPreSolveMs = left.requestedMixedGroupDelayPreSolveMs;
     result.left.requestedMixedGroupDelayMs = left.requestedMixedGroupDelayMs;
     result.left.groupDelayMs = left.groupDelayMs;
     result.left.inputExcessPhaseDegrees = left.inputExcessPhaseDegrees;
@@ -1684,6 +1804,7 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     result.right.filterResponseDb = right.filterResponseDb;
     result.right.correctedResponseDb = right.correctedResponseDb;
     result.right.inputGroupDelayMs = right.inputGroupDelayMs;
+    result.right.requestedMixedGroupDelayPreSolveMs = right.requestedMixedGroupDelayPreSolveMs;
     result.right.requestedMixedGroupDelayMs = right.requestedMixedGroupDelayMs;
     result.right.groupDelayMs = right.groupDelayMs;
     result.right.inputExcessPhaseDegrees = right.inputExcessPhaseDegrees;
