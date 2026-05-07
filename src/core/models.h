@@ -267,7 +267,7 @@ struct MeasurementResult {
 
 struct ResponseSmoothingSettings {
     std::string psychoacousticModel = "ERB auditory smoothing";
-    int resolutionPercent = 50;
+    int resolutionPercent = 12;
     double lowFrequencyWindowCycles = 15.0;
     double highFrequencyWindowCycles = 15.0;
     double highFrequencySlopeCutoffHz = 21000.0;

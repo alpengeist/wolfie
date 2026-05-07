@@ -28,7 +28,6 @@
 #include "ui/filters_page.h"
 #include "ui/measurement_page.h"
 #include "ui/room_simulation_dialog.h"
-#include "ui/smoothing_page.h"
 #include "ui/target_curve_page.h"
 
 namespace wolfie {
@@ -157,7 +156,6 @@ private:
     HACCEL acceleratorTable_ = nullptr;
     HWND tabControl_ = nullptr;
     HWND pageAnalysis_ = nullptr;
-    HWND pageSmoothing_ = nullptr;
     HWND pageTargetCurve_ = nullptr;
     HWND pageExport_ = nullptr;
     HWND exportCommentLabel_ = nullptr;
@@ -186,7 +184,6 @@ private:
     ui::MeasurementPage measurementPage_;
     ui::AnalysisPage analysisPage_;
     ui::RoomSimulationDialog roomSimulationDialog_;
-    ui::SmoothingPage smoothingPage_;
     ui::TargetCurvePage targetCurvePage_;
     ui::FiltersPage filtersPage_;
     MeasurementController measurementController_;

@@ -30,16 +30,28 @@ public:
     bool handleCommand(WORD commandId,
                        WORD notificationCode,
                        WorkspaceState& workspace,
+                       bool& smoothingChanged,
                        bool& curveChanged,
                        bool& persistencePending,
                        bool& persistNowRequested);
-    bool handleHScroll(HWND source, WorkspaceState& workspace, bool& curveChanged, bool& persistencePending);
+    bool handleHScroll(HWND source,
+                       WorkspaceState& workspace,
+                       bool& smoothingChanged,
+                       bool& curveChanged,
+                       bool& persistencePending);
     bool handleDrawItem(const DRAWITEMSTRUCT* draw) const;
 
     [[nodiscard]] HWND window() const { return window_; }
 
 private:
     struct Controls {
+        HWND smoothingGroup = nullptr;
+        HWND smoothingModelLabel = nullptr;
+        HWND smoothingModelCombo = nullptr;
+        HWND smoothingResolutionLabel = nullptr;
+        HWND smoothingPsychoSlider = nullptr;
+        HWND smoothingOctaveSlider = nullptr;
+        HWND smoothingEffectiveParameter = nullptr;
         HWND profileLabel = nullptr;
         HWND comboProfiles = nullptr;
         HWND buttonUndoProfile = nullptr;
@@ -88,6 +100,9 @@ private:
     static constexpr int kCommentEdit = 3315;
     static constexpr int kButtonNewProfile = 3316;
     static constexpr int kButtonUndoProfile = 3317;
+    static constexpr int kComboSmoothingModel = 3318;
+    static constexpr int kPsychoSmoothingSlider = 3319;
+    static constexpr int kOctaveSmoothingSlider = 3320;
     static constexpr WORD kBandToggleNotification = 0x7F14;
     static constexpr int kFrequencySliderMax = 1000;
     static constexpr int kGainSliderMax = 240;
@@ -110,6 +125,14 @@ private:
     static double sliderPositionToGain(int position);
     static int qToSliderPosition(double q);
     static double sliderPositionToQ(int position);
+    static int psychoWindowSliderPositionFromValue(int cycles);
+    static int psychoWindowValueFromSliderPosition(LRESULT position);
+    static int octaveDenominatorSliderPositionFromValue(int denominator);
+    static int octaveDenominatorValueFromSliderPosition(LRESULT position);
+    static void populateSmoothingModelCombo(HWND combo);
+    static int smoothingModelComboIndex(const std::string& model);
+    static std::string smoothingModelFromComboIndex(int index);
+    static std::wstring formatEffectiveSmoothingParameter(const ResponseSmoothingSettings& settings);
     static std::wstring requestProfileName(HWND owner, HINSTANCE instance);
 
     void createControls();
@@ -118,6 +141,7 @@ private:
     void syncAllOffState(TargetCurveSettings& settings) const;
     void syncActiveProfileFromWorkspaceState(WorkspaceState& workspace) const;
     void selectActiveProfile(WorkspaceState& workspace, const std::string& profileName);
+    void refreshSmoothingControls(const WorkspaceState& workspace);
     void refreshList(const WorkspaceState& workspace);
     void refreshProfileControls(const WorkspaceState& workspace);
     void refreshDetailControls(const WorkspaceState& workspace);

@@ -21,7 +21,7 @@ constexpr double kWaterfallSliceHopMs = 8.0;
 constexpr double kWaterfallMaxDurationMs = 3000.0;
 constexpr size_t kWaterfallDisplayFrequencyPointCount = 288;
 constexpr size_t kWaterfallSmoothingFrequencyPointCount = 1024;
-constexpr int kWaterfallSliceSmoothingResolutionPercent = 20;
+constexpr int kWaterfallSliceSmoothingOctaveDenominator = 8;
 constexpr double kWaterfallSliceTailFadePortion = 0.35;
 
 struct WaterfallLinearSlice {
@@ -51,7 +51,7 @@ std::vector<double> smoothWaterfallSliceDb(const std::vector<double>& frequencyA
 
     ResponseSmoothingSettings settings;
     settings.psychoacousticModel = "octave sliding window";
-    settings.resolutionPercent = kWaterfallSliceSmoothingResolutionPercent;
+    settings.resolutionPercent = kWaterfallSliceSmoothingOctaveDenominator;
     settings.highFrequencySlopeCutoffHz = frequencyAxisHz.back();
     return smoothMagnitudeSeries(frequencyAxisHz, sliceValuesDb, settings);
 }

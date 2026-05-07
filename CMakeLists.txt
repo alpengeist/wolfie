@@ -98,8 +98,6 @@ add_executable(wolfie WIN32
     src/ui/settings_dialog.h
     src/ui/splash_screen.cpp
     src/ui/splash_screen.h
-    src/ui/smoothing_page.cpp
-    src/ui/smoothing_page.h
     src/ui/target_curve_graph.cpp
     src/ui/target_curve_graph.h
     src/ui/target_curve_page.cpp

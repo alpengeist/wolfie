@@ -9,6 +9,7 @@
 #include <windowsx.h>
 
 #include "core/text_utils.h"
+#include "measurement/response_smoother.h"
 #include "measurement/target_curve_designer.h"
 #include "ui/ui_theme.h"
 
@@ -20,6 +21,10 @@ constexpr double kFrequencyWheelScalePerStep = 1.0166666667;
 constexpr double kGainWheelStepDb = 0.1;
 constexpr double kQWheelStep = 0.1;
 constexpr wchar_t kProfilePromptClassName[] = L"WolfieTargetCurveProfilePrompt";
+constexpr int kPsychoWindowMinCycles = 5;
+constexpr int kPsychoWindowMaxCycles = 20;
+constexpr int kOctaveDenominatorMin = 2;
+constexpr int kOctaveDenominatorMax = 24;
 
 struct ProfilePromptDialogState {
     std::wstring value;
@@ -98,6 +103,10 @@ bool nearlyEqual(double first, double second) {
     return std::abs(first - second) <= 1.0e-6;
 }
 
+bool isOctaveSlidingWindowModel(std::string_view model) {
+    return model == "octave sliding window" || model == "1/12 octave sliding window";
+}
+
 bool targetEqBandEqual(const TargetEqBand& first, const TargetEqBand& second) {
     return first.enabled == second.enabled &&
            first.colorIndex == second.colorIndex &&
@@ -160,6 +169,49 @@ void TargetCurvePage::create(HWND parent, HINSTANCE instance) {
 }
 
 void TargetCurvePage::createControls() {
+    controls_.smoothingGroup = CreateWindowW(L"BUTTON", L"Smoothing", WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+                                             0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.smoothingModelLabel = CreateWindowW(L"STATIC", L"Model", WS_CHILD | WS_VISIBLE,
+                                                  0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.smoothingModelCombo = CreateWindowW(L"COMBOBOX",
+                                                  nullptr,
+                                                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                                  0,
+                                                  0,
+                                                  0,
+                                                  0,
+                                                  window_,
+                                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(kComboSmoothingModel)),
+                                                  instance_,
+                                                  nullptr);
+    controls_.smoothingResolutionLabel = CreateWindowW(L"STATIC", L"Resolution", WS_CHILD | WS_VISIBLE,
+                                                       0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.smoothingPsychoSlider = CreateWindowExW(0,
+                                                      TRACKBAR_CLASSW,
+                                                      nullptr,
+                                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ,
+                                                      0,
+                                                      0,
+                                                      0,
+                                                      0,
+                                                      window_,
+                                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPsychoSmoothingSlider)),
+                                                      instance_,
+                                                      nullptr);
+    controls_.smoothingOctaveSlider = CreateWindowExW(0,
+                                                      TRACKBAR_CLASSW,
+                                                      nullptr,
+                                                      WS_CHILD | WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ,
+                                                      0,
+                                                      0,
+                                                      0,
+                                                      0,
+                                                      window_,
+                                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOctaveSmoothingSlider)),
+                                                      instance_,
+                                                      nullptr);
+    controls_.smoothingEffectiveParameter = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+                                                          0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.profileLabel = CreateWindowW(L"STATIC", L"Profile", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.comboProfiles = CreateWindowW(L"COMBOBOX",
                                             nullptr,
@@ -237,7 +289,18 @@ void TargetCurvePage::createControls() {
     SendMessageW(controls_.gainSlider, TBM_SETRANGEMAX, FALSE, kGainSliderMax);
     SendMessageW(controls_.qSlider, TBM_SETRANGEMIN, FALSE, 0);
     SendMessageW(controls_.qSlider, TBM_SETRANGEMAX, FALSE, kQSliderMax);
+    SendMessageW(controls_.smoothingPsychoSlider, TBM_SETRANGEMIN, FALSE, 0);
+    SendMessageW(controls_.smoothingPsychoSlider, TBM_SETRANGEMAX, FALSE, kPsychoWindowMaxCycles - kPsychoWindowMinCycles);
+    SendMessageW(controls_.smoothingPsychoSlider, TBM_SETTICFREQ, 1, 0);
+    SendMessageW(controls_.smoothingPsychoSlider, TBM_SETLINESIZE, 0, 1);
+    SendMessageW(controls_.smoothingPsychoSlider, TBM_SETPAGESIZE, 0, 1);
+    SendMessageW(controls_.smoothingOctaveSlider, TBM_SETRANGEMIN, FALSE, 0);
+    SendMessageW(controls_.smoothingOctaveSlider, TBM_SETRANGEMAX, FALSE, (kOctaveDenominatorMax - kOctaveDenominatorMin) / 2);
+    SendMessageW(controls_.smoothingOctaveSlider, TBM_SETTICFREQ, 1, 0);
+    SendMessageW(controls_.smoothingOctaveSlider, TBM_SETLINESIZE, 0, 1);
+    SendMessageW(controls_.smoothingOctaveSlider, TBM_SETPAGESIZE, 0, 1);
     SendMessageW(controls_.listBands, LB_SETITEMHEIGHT, 0, 26);
+    populateSmoothingModelCombo(controls_.smoothingModelCombo);
     bandListProc_ = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(controls_.listBands,
                                                                 GWLP_WNDPROC,
                                                                 reinterpret_cast<LONG_PTR>(BandListProc)));
@@ -261,8 +324,43 @@ void TargetCurvePage::layout() {
     const int gap = 24;
     const int graphWidth = std::max(320, innerWidth - sidebarWidth - gap);
     const int sidebarLeft = contentLeft + graphWidth + gap;
+    const bool wideSmoothingLayout = graphWidth >= 520;
+    const int smoothingGroupHeight = wideSmoothingLayout ? 100 : 120;
+    const int smoothingInnerLeft = contentLeft + 16;
+    const int smoothingInnerTop = contentTop + 20;
+    const int smoothingInnerWidth = std::max(260, graphWidth - 32);
+    const int smoothingSliderWidth = 140;
+    const int smoothingInfoGap = 10;
+    const int controlTopOffset = 22;
 
-    const RECT graphBounds{contentLeft, contentTop, contentLeft + graphWidth, contentTop + innerHeight};
+    MoveWindow(controls_.smoothingGroup, contentLeft, contentTop, graphWidth, smoothingGroupHeight, TRUE);
+    if (wideSmoothingLayout) {
+        const int modelWidth = std::min(240, std::max(180, smoothingInnerWidth / 3));
+        const int resolutionLeft = smoothingInnerLeft + modelWidth + 20;
+        const int resolutionWidth = smoothingSliderWidth;
+        const int effectiveInfoLeft = resolutionLeft + resolutionWidth + smoothingInfoGap;
+        const int effectiveInfoWidth = std::max(160, (contentLeft + graphWidth - 16) - effectiveInfoLeft);
+        MoveWindow(controls_.smoothingModelLabel, smoothingInnerLeft, smoothingInnerTop, 72, 18, TRUE);
+        MoveWindow(controls_.smoothingModelCombo, smoothingInnerLeft, smoothingInnerTop + controlTopOffset, modelWidth, 220, TRUE);
+        MoveWindow(controls_.smoothingResolutionLabel, resolutionLeft, smoothingInnerTop, 96, 18, TRUE);
+        MoveWindow(controls_.smoothingPsychoSlider, resolutionLeft, smoothingInnerTop + controlTopOffset - 2, resolutionWidth, 30, TRUE);
+        MoveWindow(controls_.smoothingOctaveSlider, resolutionLeft, smoothingInnerTop + controlTopOffset - 2, resolutionWidth, 30, TRUE);
+        MoveWindow(controls_.smoothingEffectiveParameter, effectiveInfoLeft, smoothingInnerTop + controlTopOffset, effectiveInfoWidth, 20, TRUE);
+    } else {
+        const int comboWidth = std::min(260, smoothingInnerWidth);
+        const int resolutionWidth = smoothingSliderWidth;
+        const int effectiveInfoLeft = smoothingInnerLeft + resolutionWidth + smoothingInfoGap;
+        const int effectiveInfoWidth = std::max(90, (contentLeft + graphWidth - 16) - effectiveInfoLeft);
+        MoveWindow(controls_.smoothingModelLabel, smoothingInnerLeft, smoothingInnerTop, 72, 18, TRUE);
+        MoveWindow(controls_.smoothingModelCombo, smoothingInnerLeft, smoothingInnerTop + controlTopOffset, comboWidth, 220, TRUE);
+        MoveWindow(controls_.smoothingResolutionLabel, smoothingInnerLeft, smoothingInnerTop + 50, 96, 18, TRUE);
+        MoveWindow(controls_.smoothingPsychoSlider, smoothingInnerLeft, smoothingInnerTop + 70, resolutionWidth, 30, TRUE);
+        MoveWindow(controls_.smoothingOctaveSlider, smoothingInnerLeft, smoothingInnerTop + 70, resolutionWidth, 30, TRUE);
+        MoveWindow(controls_.smoothingEffectiveParameter, effectiveInfoLeft, smoothingInnerTop + 72, effectiveInfoWidth, 24, TRUE);
+    }
+
+    const int graphTop = contentTop + smoothingGroupHeight + 16;
+    const RECT graphBounds{contentLeft, graphTop, contentLeft + graphWidth, contentTop + innerHeight};
     graph_.layout(graphBounds);
 
     MoveWindow(controls_.profileLabel, sidebarLeft, contentTop, 56, 20, TRUE);
@@ -323,6 +421,7 @@ void TargetCurvePage::populate(const WorkspaceState& workspace) {
         captureLoadingState(workspace);
     }
     updatingControls_ = true;
+    refreshSmoothingControls(workspace);
     refreshProfileControls(workspace);
     SendMessageW(controls_.checkboxBypassAll,
                  BM_SETCHECK,
@@ -354,6 +453,7 @@ void TargetCurvePage::syncToWorkspace(WorkspaceState& workspace) const {
 bool TargetCurvePage::handleCommand(WORD commandId,
                                     WORD notificationCode,
                                     WorkspaceState& workspace,
+                                    bool& smoothingChanged,
                                     bool& curveChanged,
                                     bool& persistencePending,
                                     bool& persistNowRequested) {
@@ -391,6 +491,24 @@ bool TargetCurvePage::handleCommand(WORD commandId,
     }
 
     switch (commandId) {
+    case kComboSmoothingModel:
+        if (notificationCode != CBN_SELCHANGE) {
+            return false;
+        }
+        workspace.smoothing.psychoacousticModel =
+            smoothingModelFromComboIndex(static_cast<int>(SendMessageW(controls_.smoothingModelCombo, CB_GETCURSEL, 0, 0)));
+        if (isOctaveSlidingWindowModel(workspace.smoothing.psychoacousticModel)) {
+            workspace.smoothing.resolutionPercent =
+                octaveDenominatorValueFromSliderPosition(octaveDenominatorSliderPositionFromValue(workspace.smoothing.resolutionPercent));
+        } else {
+            const int cycles = psychoWindowValueFromSliderPosition(
+                psychoWindowSliderPositionFromValue(measurement::effectiveLowWindowCycles(workspace.smoothing)));
+            workspace.smoothing.lowFrequencyWindowCycles = static_cast<double>(cycles);
+            workspace.smoothing.highFrequencyWindowCycles = static_cast<double>(cycles);
+        }
+        refreshSmoothingControls(workspace);
+        smoothingChanged = true;
+        return true;
     case kButtonUndoProfile:
         curveChanged = hasLoadingCurveChanges(workspace);
         undoToLoadingState(workspace);
@@ -544,7 +662,30 @@ bool TargetCurvePage::handleCommand(WORD commandId,
     return true;
 }
 
-bool TargetCurvePage::handleHScroll(HWND source, WorkspaceState& workspace, bool& curveChanged, bool& persistencePending) {
+bool TargetCurvePage::handleHScroll(HWND source,
+                                    WorkspaceState& workspace,
+                                    bool& smoothingChanged,
+                                    bool& curveChanged,
+                                    bool& persistencePending) {
+    if (source == controls_.smoothingPsychoSlider) {
+        const int cycles = psychoWindowValueFromSliderPosition(
+            SendMessageW(controls_.smoothingPsychoSlider, TBM_GETPOS, 0, 0));
+        workspace.smoothing.lowFrequencyWindowCycles = static_cast<double>(cycles);
+        workspace.smoothing.highFrequencyWindowCycles = static_cast<double>(cycles);
+        setWindowTextValue(controls_.smoothingEffectiveParameter, formatEffectiveSmoothingParameter(workspace.smoothing));
+        smoothingChanged = true;
+        return true;
+    }
+
+    if (source == controls_.smoothingOctaveSlider) {
+        workspace.smoothing.resolutionPercent =
+            octaveDenominatorValueFromSliderPosition(
+                SendMessageW(controls_.smoothingOctaveSlider, TBM_GETPOS, 0, 0));
+        setWindowTextValue(controls_.smoothingEffectiveParameter, formatEffectiveSmoothingParameter(workspace.smoothing));
+        smoothingChanged = true;
+        return true;
+    }
+
     if (selectedBandIndex_ < 0 || selectedBandIndex_ >= static_cast<int>(workspace.targetCurve.eqBands.size())) {
         return false;
     }
@@ -971,6 +1112,84 @@ double TargetCurvePage::sliderPositionToQ(int position) {
     const double maxLog = std::log10(6.0);
     const double t = static_cast<double>(clampValue(position, 0, kQSliderMax)) / static_cast<double>(kQSliderMax);
     return std::pow(10.0, minLog + ((maxLog - minLog) * t));
+}
+
+void TargetCurvePage::populateSmoothingModelCombo(HWND combo) {
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"ERB auditory smoothing"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"octave sliding window"));
+}
+
+int TargetCurvePage::smoothingModelComboIndex(const std::string& model) {
+    if (model == "octave sliding window" ||
+        model == "1/12 octave sliding window") {
+        return 1;
+    }
+    return 0;
+}
+
+int TargetCurvePage::psychoWindowSliderPositionFromValue(int cycles) {
+    return clampValue(cycles, kPsychoWindowMinCycles, kPsychoWindowMaxCycles) - kPsychoWindowMinCycles;
+}
+
+int TargetCurvePage::psychoWindowValueFromSliderPosition(LRESULT position) {
+    return kPsychoWindowMinCycles +
+           clampValue(static_cast<int>(position), 0, kPsychoWindowMaxCycles - kPsychoWindowMinCycles);
+}
+
+int TargetCurvePage::octaveDenominatorSliderPositionFromValue(int denominator) {
+    const int rounded = static_cast<int>(std::lround(static_cast<double>(denominator) / 2.0) * 2.0);
+    const int clamped = clampValue(rounded, kOctaveDenominatorMin, kOctaveDenominatorMax);
+    return (clamped - kOctaveDenominatorMin) / 2;
+}
+
+int TargetCurvePage::octaveDenominatorValueFromSliderPosition(LRESULT position) {
+    return kOctaveDenominatorMin +
+           (clampValue(static_cast<int>(position), 0, (kOctaveDenominatorMax - kOctaveDenominatorMin) / 2) * 2);
+}
+
+std::string TargetCurvePage::smoothingModelFromComboIndex(int index) {
+    if (index == 1) {
+        return "octave sliding window";
+    }
+    return "ERB auditory smoothing";
+}
+
+std::wstring TargetCurvePage::formatEffectiveSmoothingParameter(const ResponseSmoothingSettings& settings) {
+    ResponseSmoothingSettings normalizedSettings = settings;
+    measurement::normalizeResponseSmoothingSettings(normalizedSettings);
+    if (normalizedSettings.psychoacousticModel == "octave sliding window") {
+        return L"1/" +
+               std::to_wstring(measurement::effectiveSlidingOctaveDenominator(normalizedSettings)) +
+               L" octave";
+    }
+    return std::to_wstring(measurement::effectiveLowWindowCycles(normalizedSettings)) +
+           L" cycles";
+}
+
+void TargetCurvePage::refreshSmoothingControls(const WorkspaceState& workspace) {
+    SendMessageW(controls_.smoothingModelCombo, CB_SETCURSEL, smoothingModelComboIndex(workspace.smoothing.psychoacousticModel), 0);
+    SetWindowTextW(controls_.smoothingResolutionLabel, L"Resolution");
+    if (isOctaveSlidingWindowModel(workspace.smoothing.psychoacousticModel)) {
+        ShowWindow(controls_.smoothingPsychoSlider, SW_HIDE);
+        ShowWindow(controls_.smoothingOctaveSlider, SW_SHOW);
+        EnableWindow(controls_.smoothingPsychoSlider, FALSE);
+        EnableWindow(controls_.smoothingOctaveSlider, TRUE);
+        SendMessageW(controls_.smoothingOctaveSlider,
+                     TBM_SETPOS,
+                     TRUE,
+                     octaveDenominatorSliderPositionFromValue(workspace.smoothing.resolutionPercent));
+    } else {
+        ShowWindow(controls_.smoothingOctaveSlider, SW_HIDE);
+        ShowWindow(controls_.smoothingPsychoSlider, SW_SHOW);
+        EnableWindow(controls_.smoothingOctaveSlider, FALSE);
+        EnableWindow(controls_.smoothingPsychoSlider, TRUE);
+        SendMessageW(controls_.smoothingPsychoSlider,
+                     TBM_SETPOS,
+                     TRUE,
+                     psychoWindowSliderPositionFromValue(measurement::effectiveLowWindowCycles(workspace.smoothing)));
+    }
+    setWindowTextValue(controls_.smoothingEffectiveParameter, formatEffectiveSmoothingParameter(workspace.smoothing));
 }
 
 void TargetCurvePage::refreshList(const WorkspaceState& workspace) {

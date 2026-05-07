@@ -35,12 +35,12 @@ std::string canonicalModelName(std::string_view modelName) {
     return kErbModelName;
 }
 
-double resolutionFactorFromPercent(int resolutionPercent) {
-    const double t = clampValue(static_cast<double>(resolutionPercent) / 100.0, 0.0, 1.0);
-    if (t <= 0.5) {
-        return 0.5 + t;
+int clampOctaveDenominator(int denominator) {
+    int clamped = clampValue(denominator, 2, 24);
+    if ((clamped % 2) != 0) {
+        clamped += (clamped == 24) ? -1 : 1;
     }
-    return 1.0 + ((t - 0.5) * 2.0);
+    return clamped;
 }
 
 double erbRate(double frequencyHz) {
@@ -257,26 +257,32 @@ void flattenHighFrequencyTail(const std::vector<double>& frequencyAxisHz,
 
 void normalizeResponseSmoothingSettings(ResponseSmoothingSettings& settings) {
     settings.psychoacousticModel = canonicalModelName(settings.psychoacousticModel);
-    settings.resolutionPercent = clampValue(settings.resolutionPercent, 0, 100);
-    settings.lowFrequencyWindowCycles = clampValue(settings.lowFrequencyWindowCycles, 1.0, 120.0);
-    settings.highFrequencyWindowCycles = clampValue(settings.highFrequencyWindowCycles, 1.0, 120.0);
+    settings.resolutionPercent = clampOctaveDenominator(settings.resolutionPercent);
+    settings.lowFrequencyWindowCycles = clampValue(settings.lowFrequencyWindowCycles, 5.0, 20.0);
+    settings.highFrequencyWindowCycles = clampValue(settings.highFrequencyWindowCycles, 5.0, 20.0);
     settings.highFrequencySlopeCutoffHz = clampValue(settings.highFrequencySlopeCutoffHz, 1000.0, 48000.0);
 }
 
 double smoothingResolutionFactor(const ResponseSmoothingSettings& settings) {
-    return resolutionFactorFromPercent(settings.resolutionPercent);
+    ResponseSmoothingSettings normalizedSettings = settings;
+    normalizeResponseSmoothingSettings(normalizedSettings);
+    if (normalizedSettings.psychoacousticModel == kOctaveSlidingWindowModelName) {
+        return static_cast<double>(normalizedSettings.resolutionPercent) / 12.0;
+    }
+    return (static_cast<double>(effectiveLowWindowCycles(normalizedSettings)) +
+            static_cast<double>(effectiveHighWindowCycles(normalizedSettings))) / 30.0;
 }
 
 int effectiveLowWindowCycles(const ResponseSmoothingSettings& settings) {
-    return std::max(1, static_cast<int>(std::lround(settings.lowFrequencyWindowCycles * smoothingResolutionFactor(settings))));
+    return clampValue(static_cast<int>(std::lround(settings.lowFrequencyWindowCycles)), 5, 20);
 }
 
 int effectiveHighWindowCycles(const ResponseSmoothingSettings& settings) {
-    return std::max(1, static_cast<int>(std::lround(settings.highFrequencyWindowCycles * smoothingResolutionFactor(settings))));
+    return clampValue(static_cast<int>(std::lround(settings.highFrequencyWindowCycles)), 5, 20);
 }
 
 int effectiveSlidingOctaveDenominator(const ResponseSmoothingSettings& settings) {
-    return std::max(1, static_cast<int>(std::lround(12.0 * smoothingResolutionFactor(settings))));
+    return clampOctaveDenominator(settings.resolutionPercent);
 }
 
 std::vector<double> smoothMagnitudeSeries(const std::vector<double>& frequencyAxisHz,

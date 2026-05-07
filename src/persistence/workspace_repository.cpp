@@ -1792,21 +1792,6 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
             workspace.measurement.leadInSamples = static_cast<int>(*value);
         }
         loadUiSettingsFromJson(*content, workspace.ui);
-        if (const auto model = findJsonString(*content, "psychoacousticModel")) {
-            workspace.smoothing.psychoacousticModel = *model;
-        }
-        if (const auto value = findJsonNumber(*content, "resolutionPercent")) {
-            workspace.smoothing.resolutionPercent = static_cast<int>(*value);
-        }
-        if (const auto value = findJsonNumber(*content, "lowFrequencyWindowCycles")) {
-            workspace.smoothing.lowFrequencyWindowCycles = *value;
-        }
-        if (const auto value = findJsonNumber(*content, "highFrequencyWindowCycles")) {
-            workspace.smoothing.highFrequencyWindowCycles = *value;
-        }
-        if (const auto value = findJsonNumber(*content, "highFrequencySlopeCutoffHz")) {
-            workspace.smoothing.highFrequencySlopeCutoffHz = *value;
-        }
         if (const auto value = findJsonNumber(*content, "lowGainDb")) {
             workspace.targetCurve.lowGainDb = *value;
         }
