@@ -576,6 +576,42 @@ std::wstring buildHoverInfoText(const PlotGraphData& data, double xValue, bool h
     return {};
 }
 
+std::wstring formatMeasurementValue(double value, const std::wstring& unit) {
+    std::wstring text = formatAxisValue(value);
+    if (!unit.empty()) {
+        text += L" ";
+        text += unit;
+    }
+    return text;
+}
+
+POINT clampPointToGraph(const RECT& graph, POINT point) {
+    point.x = clampValue(point.x, graph.left, graph.right);
+    point.y = clampValue(point.y, graph.top, graph.bottom);
+    return point;
+}
+
+std::wstring buildMeasurementInfoText(const PlotGraphData& data, double deltaX, double deltaY) {
+    std::wstring info = L"dx ";
+    info += formatMeasurementValue(deltaX, data.xUnit);
+    info += L"    dy ";
+    info += formatMeasurementValue(deltaY, data.yUnit);
+    if (data.measurementDerivedValueMode == PlotGraphMeasurementDerivedValueMode::QuarterCycleFrequencyFromDeltaX) {
+        const double deltaXMs = std::abs(deltaX);
+        if (deltaXMs >= 1.0e-6) {
+            const double quarterCycleFrequencyHz = 250.0 / deltaXMs;
+            info += L"    f ";
+            info += formatHoverFrequency(quarterCycleFrequencyHz);
+            info += L" (assuming quarter cycle)";
+        }
+    }
+    return info;
+}
+
+std::wstring buildMeasurementCursorText(const PlotGraphData& data, double deltaX, double deltaY) {
+    return L"dx " + formatMeasurementValue(deltaX, data.xUnit) + L"  dy " + formatMeasurementValue(deltaY, data.yUnit);
+}
+
 void drawResetButton(HDC hdc, const RECT& rect, bool enabled) {
     const COLORREF fill = enabled ? RGB(235, 240, 247) : RGB(243, 246, 250);
     const COLORREF textColor = enabled ? ui_theme::kText : ui_theme::kMuted;
@@ -749,6 +785,76 @@ void drawHoverCrosshair(HDC hdc, const GraphLayout& layout, const PlotGraphData&
     DeleteObject(markerPen);
 }
 
+void drawMeasurementOverlay(HDC hdc,
+                            const GraphLayout& layout,
+                            const PlotGraphData& data,
+                            const POINT& anchor,
+                            const POINT& current) {
+    const POINT clampedAnchor = clampPointToGraph(layout.graph, anchor);
+    const POINT clampedCurrent = clampPointToGraph(layout.graph, current);
+
+    HPEN measurementPen = CreatePen(PS_SOLID, 1, ui_theme::kAccent);
+    if (measurementPen == nullptr) {
+        return;
+    }
+
+    const int savedDc = SaveDC(hdc);
+    IntersectClipRect(hdc, layout.graph.left, layout.graph.top, layout.graph.right, layout.graph.bottom);
+    SelectObject(hdc, measurementPen);
+    MoveToEx(hdc, clampedAnchor.x, clampedAnchor.y, nullptr);
+    LineTo(hdc, clampedCurrent.x, clampedCurrent.y);
+    Ellipse(hdc, clampedAnchor.x - 3, clampedAnchor.y - 3, clampedAnchor.x + 4, clampedAnchor.y + 4);
+    Ellipse(hdc, clampedCurrent.x - 3, clampedCurrent.y - 3, clampedCurrent.x + 4, clampedCurrent.y + 4);
+    RestoreDC(hdc, savedDc);
+    DeleteObject(measurementPen);
+
+    const double anchorX =
+        valueFromGraphX(layout.graph, data.xAxisMode, layout.visibleMinX, layout.visibleMaxX, clampedAnchor.x);
+    const double anchorY = valueFromGraphY(layout.graph, layout.minY, layout.maxY, clampedAnchor.y);
+    const double currentX =
+        valueFromGraphX(layout.graph, data.xAxisMode, layout.visibleMinX, layout.visibleMaxX, clampedCurrent.x);
+    const double currentY = valueFromGraphY(layout.graph, layout.minY, layout.maxY, clampedCurrent.y);
+    const std::wstring cursorText = buildMeasurementCursorText(data, currentX - anchorX, currentY - anchorY);
+
+    SIZE textSize{};
+    GetTextExtentPoint32W(hdc, cursorText.c_str(), static_cast<int>(cursorText.size()), &textSize);
+    RECT textRect{
+        clampedCurrent.x + 10,
+        clampedCurrent.y - textSize.cy - 10,
+        clampedCurrent.x + 18 + textSize.cx,
+        clampedCurrent.y - 2,
+    };
+    const int graphWidth = layout.graph.right - layout.graph.left;
+    const int graphHeight = layout.graph.bottom - layout.graph.top;
+    if (textRect.right > layout.graph.right - 4) {
+        OffsetRect(&textRect, -(textRect.right - (layout.graph.right - 4)), 0);
+    }
+    if (textRect.left < layout.graph.left + 4) {
+        OffsetRect(&textRect, (layout.graph.left + 4) - textRect.left, 0);
+    }
+    if (textRect.top < layout.graph.top + 4) {
+        OffsetRect(&textRect, 0, (layout.graph.top + 4) - textRect.top);
+    }
+    if (textRect.bottom > layout.graph.bottom - 4) {
+        OffsetRect(&textRect, 0, -((textRect.bottom) - (layout.graph.bottom - 4)));
+    }
+    if (graphWidth > 0 && graphHeight > 0) {
+        HBRUSH textBrush = CreateSolidBrush(RGB(255, 255, 255));
+        FillRect(hdc, &textRect, textBrush);
+        DeleteObject(textBrush);
+        HPEN textBorderPen = CreatePen(PS_SOLID, 1, ui_theme::kBorder);
+        HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, textBorderPen));
+        HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)));
+        Rectangle(hdc, textRect.left, textRect.top, textRect.right, textRect.bottom);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(textBorderPen);
+        RECT drawRect{textRect.left + 4, textRect.top + 2, textRect.right - 4, textRect.bottom - 2};
+        SetTextColor(hdc, ui_theme::kAccent);
+        DrawTextW(hdc, cursorText.c_str(), -1, &drawRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    }
+}
+
 }  // namespace
 
 void PlotGraph::registerWindowClass(HINSTANCE instance) {
@@ -779,6 +885,7 @@ void PlotGraph::create(HWND parent, HINSTANCE instance, int controlId) {
 
 void PlotGraph::setData(PlotGraphData data) {
     data_ = std::move(data);
+    measurement_ = {};
     if (data_.xValues.empty()) {
         resetView();
     }
@@ -848,6 +955,7 @@ void PlotGraph::setVisibleXRange(double minX, double maxX) {
     visibleMinX_ = nextMinX;
     visibleMaxX_ = nextMaxX;
     brush_ = {};
+    measurement_ = {};
     invalidateBackgroundCache();
     invalidate();
 }
@@ -857,6 +965,7 @@ void PlotGraph::resetXRange() {
     visibleMinX_ = 0.0;
     visibleMaxX_ = 1.0;
     brush_ = {};
+    measurement_ = {};
     invalidateBackgroundCache();
     invalidate();
 }
@@ -865,6 +974,7 @@ void PlotGraph::resetYRange() {
     hasCustomYRange_ = false;
     visibleMinY_ = -1.0;
     visibleMaxY_ = 1.0;
+    measurement_ = {};
     invalidateBackgroundCache();
     invalidate();
 }
@@ -877,6 +987,7 @@ void PlotGraph::resetView() {
     visibleMinY_ = -1.0;
     visibleMaxY_ = 1.0;
     brush_ = {};
+    measurement_ = {};
     invalidateBackgroundCache();
     invalidate();
 }
@@ -911,6 +1022,7 @@ bool PlotGraph::zoomX(double factor) {
     hasCustomXRange_ = true;
     visibleMinX_ = nextMinX;
     visibleMaxX_ = nextMaxX;
+    measurement_ = {};
     invalidateBackgroundCache();
     invalidate();
     return true;
@@ -940,6 +1052,7 @@ bool PlotGraph::zoomXFromMin(double factor) {
     hasCustomXRange_ = true;
     visibleMinX_ = nextMinX;
     visibleMaxX_ = nextMaxX;
+    measurement_ = {};
     invalidateBackgroundCache();
     invalidate();
     return true;
@@ -999,6 +1112,7 @@ bool PlotGraph::zoomY(double factor) {
     hasCustomYRange_ = true;
     visibleMinY_ = nextMinY;
     visibleMaxY_ = nextMaxY;
+    measurement_ = {};
     invalidateBackgroundCache();
     invalidate();
     return true;
@@ -1237,19 +1351,34 @@ void PlotGraph::onLButtonDown(LPARAM lParam) {
     }
 
     SetFocus(window_);
-    brush_.active = true;
-    brush_.anchor = position;
-    brush_.current = position;
+    const bool controlPressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    if (controlPressed) {
+        measurement_.active = true;
+        measurement_.anchor = position;
+        measurement_.current = position;
+        brush_ = {};
+    } else {
+        brush_.active = true;
+        brush_.anchor = position;
+        brush_.current = position;
+        measurement_ = {};
+    }
     SetCapture(window_);
     invalidate();
 }
 
 void PlotGraph::onLButtonUp(LPARAM lParam) {
-    if (!brush_.active || window_ == nullptr) {
+    if ((!brush_.active && !measurement_.active) || window_ == nullptr) {
         return;
     }
 
-    brush_.current = POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    const POINT current{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (measurement_.active) {
+        measurement_.current = current;
+    }
+    if (brush_.active) {
+        brush_.current = current;
+    }
     if (GetCapture() == window_) {
         ReleaseCapture();
     } else {
@@ -1312,10 +1441,20 @@ void PlotGraph::onMouseMove(LPARAM lParam) {
     hover_.yValue = hoveredY;
     if (hoverChanged) {
         notifyHoverChanged();
-        if (!brush_.active &&
+        if (!brush_.active && !measurement_.active &&
             (hoverCrosshairEnabled_ || sharedHoverMarker_.enabled || data_.xAxisMode == PlotGraphXAxisMode::LogFrequency)) {
             invalidate();
         }
+    }
+
+    if (measurement_.active) {
+        if (position.x == measurement_.current.x && position.y == measurement_.current.y) {
+            return;
+        }
+
+        measurement_.current = position;
+        invalidate();
+        return;
     }
 
     if (!brush_.active) {
@@ -1336,7 +1475,7 @@ void PlotGraph::onMouseLeave() {
     hover_.tracking = false;
     if (hoverWasActive) {
         notifyHoverChanged();
-        if (!brush_.active &&
+        if (!brush_.active && !measurement_.active &&
             (hoverCrosshairEnabled_ || sharedHoverMarker_.enabled || data_.xAxisMode == PlotGraphXAxisMode::LogFrequency)) {
             invalidate();
         }
@@ -1344,7 +1483,13 @@ void PlotGraph::onMouseLeave() {
 }
 
 void PlotGraph::onCaptureChanged() {
-    if (!brush_.active || window_ == nullptr) {
+    if ((!brush_.active && !measurement_.active) || window_ == nullptr) {
+        return;
+    }
+
+    if (measurement_.active) {
+        measurement_ = {};
+        invalidate();
         return;
     }
 
@@ -1485,14 +1630,30 @@ void PlotGraph::onPaint() const {
         DeleteObject(selectionPen);
     }
 
-    if (hoverCrosshairEnabled_ && hover_.active) {
+    if (measurement_.active) {
+        drawMeasurementOverlay(frameDc, layout, data_, measurement_.anchor, measurement_.current);
+    }
+
+    if (!measurement_.active && hoverCrosshairEnabled_ && hover_.active) {
         drawHoverCrosshair(frameDc, layout, data_, hover_.xValue, hover_.position.y);
-    } else if (sharedHoverMarker_.enabled && sharedHoverMarker_.active) {
+    } else if (!measurement_.active && sharedHoverMarker_.enabled && sharedHoverMarker_.active) {
         drawSharedHoverMarker(frameDc, layout, data_, sharedHoverMarker_.xValue);
     }
 
     RECT infoRect{layout.graph.left, rect.top + 2, layout.resetButton.left - 8, layout.graph.top - 4};
-    if (brush_.active && hasBrushWidth(brush_.anchor, brush_.current)) {
+    if (measurement_.active) {
+        const POINT clampedAnchor = clampPointToGraph(layout.graph, measurement_.anchor);
+        const POINT clampedCurrent = clampPointToGraph(layout.graph, measurement_.current);
+        const double anchorX =
+            valueFromGraphX(layout.graph, data_.xAxisMode, layout.visibleMinX, layout.visibleMaxX, clampedAnchor.x);
+        const double anchorY = valueFromGraphY(layout.graph, layout.minY, layout.maxY, clampedAnchor.y);
+        const double currentX =
+            valueFromGraphX(layout.graph, data_.xAxisMode, layout.visibleMinX, layout.visibleMaxX, clampedCurrent.x);
+        const double currentY = valueFromGraphY(layout.graph, layout.minY, layout.maxY, clampedCurrent.y);
+        const std::wstring infoText = buildMeasurementInfoText(data_, currentX - anchorX, currentY - anchorY);
+        SetTextColor(frameDc, ui_theme::kAccent);
+        DrawTextW(frameDc, infoText.c_str(), -1, &infoRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    } else if (brush_.active && hasBrushWidth(brush_.anchor, brush_.current)) {
         const double minX = valueFromGraphX(layout.graph,
                                             data_.xAxisMode,
                                             layout.visibleMinX,

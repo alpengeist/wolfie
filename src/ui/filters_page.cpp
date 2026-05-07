@@ -2849,6 +2849,8 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
     data.yAxisMode = PlotGraphYAxisMode::SymmetricAroundZero;
     data.xUnit = L"ms";
     data.yUnit = L"linear";
+    data.measurementDerivedValueMode =
+        PlotGraphMeasurementDerivedValueMode::QuarterCycleFrequencyFromDeltaX;
     if (workspace.ui.filterViewMode == "difference" &&
         workspace.minimumFilter.available() &&
         workspace.mixedFilter.available()) {

@@ -28,6 +28,11 @@ enum class PlotGraphLineStyle {
     Dash
 };
 
+enum class PlotGraphMeasurementDerivedValueMode {
+    None,
+    QuarterCycleFrequencyFromDeltaX
+};
+
 struct PlotGraphSeries {
     std::wstring label;
     COLORREF color = RGB(0, 0, 0);
@@ -45,6 +50,8 @@ struct PlotGraphData {
     bool fixedYRange = false;
     double minY = 0.0;
     double maxY = 1.0;
+    PlotGraphMeasurementDerivedValueMode measurementDerivedValueMode =
+        PlotGraphMeasurementDerivedValueMode::None;
 };
 
 class PlotGraph {
@@ -92,6 +99,12 @@ private:
         POINT current{};
     };
 
+    struct MeasurementState {
+        bool active = false;
+        POINT anchor{};
+        POINT current{};
+    };
+
     struct SharedHoverMarkerState {
         bool enabled = false;
         bool active = false;
@@ -130,6 +143,7 @@ private:
     double visibleMinY_ = -1.0;
     double visibleMaxY_ = 1.0;
     BrushState brush_;
+    MeasurementState measurement_;
     bool hoverCrosshairEnabled_ = false;
     SharedHoverMarkerState sharedHoverMarker_;
     mutable HBITMAP backgroundCacheBitmap_ = nullptr;
