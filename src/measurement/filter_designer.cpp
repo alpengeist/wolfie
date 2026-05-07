@@ -30,6 +30,11 @@ enum class NormalizedPhaseMode {
     Mixed
 };
 
+struct MixedPhaseLimitBand {
+    double fullCorrectionHz = 0.0;
+    double taperEndHz = 0.0;
+};
+
 template <typename T>
 T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
@@ -143,6 +148,51 @@ std::string describePhasePreparationSource(const PreparedPhaseData& preparedPhas
     if (!preparedPhase.phaseValueSetKey.empty()) {
         stream << " from " << preparedPhase.phaseValueSetKey;
     }
+    return stream.str();
+}
+
+MixedPhaseLimitBand mixedPhaseLimitBand(const FilterDesignSettings& settings, int sampleRate) {
+    const double nyquist = static_cast<double>(std::max(sampleRate, 1)) * 0.5;
+    MixedPhaseLimitBand band;
+    band.fullCorrectionHz =
+        clampValue(settings.mixedPhaseMaxFrequencyHz, 60.0, std::max(120.0, nyquist * 0.25));
+    band.taperEndHz =
+        clampValue(band.fullCorrectionHz * 4.0,
+                   band.fullCorrectionHz + 80.0,
+                   std::max(band.fullCorrectionHz + 80.0, nyquist * 0.6));
+    return band;
+}
+
+std::string describeRequestedGroupDelayPeak(const std::vector<double>& frequencyAxisHz,
+                                            const std::vector<double>& groupDelayMs,
+                                            std::string_view channelName) {
+    const size_t count = std::min(frequencyAxisHz.size(), groupDelayMs.size());
+    if (count == 0) {
+        return {};
+    }
+
+    size_t bestIndex = 0;
+    double bestMagnitude = 0.0;
+    for (size_t index = 0; index < count; ++index) {
+        if (!std::isfinite(frequencyAxisHz[index]) || !std::isfinite(groupDelayMs[index])) {
+            continue;
+        }
+        const double magnitude = std::abs(groupDelayMs[index]);
+        if (magnitude > bestMagnitude) {
+            bestMagnitude = magnitude;
+            bestIndex = index;
+        }
+    }
+
+    if (bestMagnitude <= 1.0e-6) {
+        return std::string(channelName) + " requested mixed group delay stayed near zero.";
+    }
+
+    std::ostringstream stream;
+    stream.setf(std::ios::fixed);
+    stream.precision(2);
+    stream << channelName << " requested mixed group-delay peak "
+           << groupDelayMs[bestIndex] << " ms at " << frequencyAxisHz[bestIndex] << " Hz.";
     return stream.str();
 }
 
@@ -803,20 +853,16 @@ double excessPhaseCorrectionWeightAt(double frequencyHz,
         return 0.0;
     }
 
-    const double nyquist = static_cast<double>(std::max(sampleRate, 1)) * 0.5;
-    const double fullCorrectionHz =
-        clampValue(settings.mixedPhaseMaxFrequencyHz, 60.0, std::max(120.0, nyquist * 0.25));
-    const double taperEndHz =
-        clampValue(fullCorrectionHz * 2.0, fullCorrectionHz + 40.0, std::max(fullCorrectionHz + 40.0, nyquist * 0.4));
+    const MixedPhaseLimitBand band = mixedPhaseLimitBand(settings, sampleRate);
 
-    if (frequencyHz <= fullCorrectionHz) {
+    if (frequencyHz <= band.fullCorrectionHz) {
         return lowWeight;
     }
-    if (frequencyHz >= taperEndHz) {
+    if (frequencyHz >= band.taperEndHz) {
         return 0.0;
     }
-    return lowWeight * (1.0 - smoothRamp((frequencyHz - fullCorrectionHz) /
-                                         std::max(taperEndHz - fullCorrectionHz, 1.0e-9)));
+    return lowWeight * (1.0 - smoothRamp((frequencyHz - band.fullCorrectionHz) /
+                                         std::max(band.taperEndHz - band.fullCorrectionHz, 1.0e-9)));
 }
 
 double preRingingCompensationWeightAt(double frequencyHz, const FilterDesignSettings& settings) {
@@ -1426,6 +1472,15 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     appendProcessLog(result.processLog,
                      "Normalized filter settings: phase mode " + settings.phaseMode +
                          ", tap count " + std::to_string(settings.tapCount) + ".");
+    if (phaseMode == NormalizedPhaseMode::Mixed) {
+        const MixedPhaseLimitBand band = mixedPhaseLimitBand(settings, exportMeasurement.sampleRate);
+        std::ostringstream stream;
+        stream.setf(std::ios::fixed);
+        stream.precision(0);
+        stream << "Mixed-phase limit runs at full strength through " << band.fullCorrectionHz
+               << " Hz and tapers out by " << band.taperEndHz << " Hz.";
+        appendProcessLog(result.processLog, stream.str());
+    }
     if (!settings.preRingingCompensationFrequenciesHz.empty() &&
         settings.preRingingCompensationStrength > 1.0e-6) {
         std::ostringstream stream;
@@ -1537,6 +1592,15 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
                                          exportMeasurement.sampleRate,
                                          fftSize);
     appendProcessLog(result.processLog, "Designed left filter channel.");
+    if (phaseMode == NormalizedPhaseMode::Mixed) {
+        const std::string message =
+            describeRequestedGroupDelayPeak(displayFrequencyAxisHz,
+                                            left.requestedMixedGroupDelayMs,
+                                            "Left");
+        if (!message.empty()) {
+            appendProcessLog(result.processLog, message);
+        }
+    }
     DesignedChannel right = designChannel(displayFrequencyAxisHz,
                                           targetCurveDb,
                                           rightSourceDb,
@@ -1549,6 +1613,15 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
                                           exportMeasurement.sampleRate,
                                           fftSize);
     appendProcessLog(result.processLog, "Designed right filter channel.");
+    if (phaseMode == NormalizedPhaseMode::Mixed) {
+        const std::string message =
+            describeRequestedGroupDelayPeak(displayFrequencyAxisHz,
+                                            right.requestedMixedGroupDelayMs,
+                                            "Right");
+        if (!message.empty()) {
+            appendProcessLog(result.processLog, message);
+        }
+    }
 
     if (phaseMode == NormalizedPhaseMode::Mixed &&
         !left.filterTaps.empty() &&
