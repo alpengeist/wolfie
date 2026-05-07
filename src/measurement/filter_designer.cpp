@@ -174,7 +174,7 @@ MixedPhaseLimitBand mixedPhaseLimitBand(const FilterDesignSettings& settings, in
     band.fullCorrectionHz =
         clampValue(settings.mixedPhaseMaxFrequencyHz, 60.0, std::max(120.0, nyquist * 0.25));
     band.taperEndHz =
-        clampValue(band.fullCorrectionHz * 4.0,
+        clampValue(band.fullCorrectionHz * 2.5,
                    band.fullCorrectionHz + 80.0,
                    std::max(band.fullCorrectionHz + 80.0, nyquist * 0.6));
     return band;
@@ -265,11 +265,13 @@ std::string describeTransitionBandDiagnostic(std::string_view channelName,
 }
 
 std::vector<int> normalizePreRingingCompensationFrequencies(const std::vector<int>& frequenciesHz,
-                                                            const FilterDesignSettings& settings) {
+                                                            const FilterDesignSettings& settings,
+                                                            int sampleRate) {
     std::vector<int> normalized;
     normalized.reserve(frequenciesHz.size());
     const int minFrequencyHz = static_cast<int>(std::ceil(settings.lowCorrectionHz));
-    const int maxFrequencyHz = static_cast<int>(std::floor(settings.mixedPhaseMaxFrequencyHz));
+    const MixedPhaseLimitBand band = mixedPhaseLimitBand(settings, sampleRate);
+    const int maxFrequencyHz = static_cast<int>(std::floor(band.taperEndHz));
     for (const int frequencyHz : frequenciesHz) {
         if (frequencyHz < minFrequencyHz || frequencyHz > maxFrequencyHz) {
             continue;
@@ -1601,7 +1603,9 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     settings.preRingingCompensationStrength =
         clampValue(settings.preRingingCompensationStrength, 0.0, 1.0);
     settings.preRingingCompensationFrequenciesHz =
-        normalizePreRingingCompensationFrequencies(settings.preRingingCompensationFrequenciesHz, settings);
+        normalizePreRingingCompensationFrequencies(settings.preRingingCompensationFrequenciesHz,
+                                                   settings,
+                                                   sampleRate);
 }
 
 FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,

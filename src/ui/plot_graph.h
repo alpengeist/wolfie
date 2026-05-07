@@ -65,6 +65,8 @@ struct PlotGraphData {
     bool fixedYRange = false;
     double minY = 0.0;
     double maxY = 1.0;
+    bool zebraStripeYBands = false;
+    int yTickSubdivision = 1;
     PlotGraphMeasurementDerivedValueMode measurementDerivedValueMode =
         PlotGraphMeasurementDerivedValueMode::None;
 };

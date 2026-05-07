@@ -32,6 +32,7 @@ constexpr double kImpulseGraphMixedNegativeWindowMs = 50.0;
 constexpr double kImpulseGraphPositiveWindowMs = 50.0;
 constexpr double kImpulseGraphMinZoomFactor = 0.5;
 constexpr double kImpulseGraphMaxZoomFactor = 2.0;
+constexpr double kImpulseGraphDefaultYLimit = 0.2;
 
 template <typename T>
 T clampValue(T value, T low, T high) {
@@ -425,6 +426,11 @@ std::vector<double> subtractConstant(const std::vector<double>& values, double o
     return shifted;
 }
 
+void configureFilterPlotAppearance(PlotGraphData& data) {
+    data.zebraStripeYBands = true;
+    data.yTickSubdivision = 2;
+}
+
 }  // namespace
 
 void FiltersPage::registerPageWindowClass(HINSTANCE instance) {
@@ -514,27 +520,31 @@ void FiltersPage::createControls() {
                                                instance_,
                                                nullptr);
     controls_.valueSmoothness = CreateWindowW(L"STATIC", L"1", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelMixedPhaseMax = CreateWindowW(L"STATIC", L"Phase Limit", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.phaseCorrectionGroup = CreateWindowW(L"BUTTON",
+                                                   L"Phase Correction",
+                                                   WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+                                                   0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelMixedPhaseMax = CreateWindowW(L"STATIC", L"Limit", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseMax = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseMax)), instance_, nullptr);
     controls_.unitMixedPhaseMax = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelExcessPhaseWindow = CreateWindowW(L"STATIC", L"Phase Window", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelExcessPhaseWindow = CreateWindowW(L"STATIC", L"Window", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editExcessPhaseWindow = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditExcessPhaseWindow)), instance_, nullptr);
     controls_.unitExcessPhaseWindow = CreateWindowW(L"STATIC", L"ms", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelMixedPhaseStrength = CreateWindowW(L"STATIC", L"Phase Strength", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelMixedPhaseStrength = CreateWindowW(L"STATIC", L"Strength", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseStrength = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                        0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseStrength)), instance_, nullptr);
     controls_.unitMixedPhaseStrength = CreateWindowW(L"STATIC", L"0..1", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelMixedPhaseCap = CreateWindowW(L"STATIC", L"Phase Cap", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelMixedPhaseCap = CreateWindowW(L"STATIC", L"Cap", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseCap = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseCap)), instance_, nullptr);
     controls_.unitMixedPhaseCap = CreateWindowW(L"STATIC", L"deg", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelPreRingingCompensationFrequencies = CreateWindowW(L"STATIC", L"Pre-Ring Spots", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelPreRingingCompensationFrequencies = CreateWindowW(L"STATIC", L"Ring Spots", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editPreRingingCompensationFrequencies = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                                       0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditPreRingingCompensationFrequencies)), instance_, nullptr);
     controls_.unitPreRingingCompensationFrequencies = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.labelPreRingingCompensationStrength = CreateWindowW(L"STATIC", L"Pre-Ring Strength", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelPreRingingCompensationStrength = CreateWindowW(L"STATIC", L"Ring Compensation", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.sliderPreRingingCompensationStrength = CreateWindowW(TRACKBAR_CLASSW,
                                                                    nullptr,
                                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ | kHelpBubbleChildClipStyle,
@@ -557,7 +567,7 @@ void FiltersPage::createControls() {
     helpBubble_.registerLabel(controls_.labelMaxCut, L"Limits how much attenuation the calculated correction may apply.");
     helpBubble_.registerLabel(controls_.labelSmoothness, L"Controls how tightly the correction follows response detail instead of smoothing it out.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseMax, L"Sets the highest frequency where mixed-phase correction is allowed.");
-    helpBubble_.registerLabel(controls_.labelExcessPhaseWindow, L"Sets the time window in milliseconds used to derive the phase-preparation transfer before mixed-phase correction is computed.");
+    helpBubble_.registerLabel(controls_.labelExcessPhaseWindow, L"Sets the time window in milliseconds used to derive the phase-preparation transfer before mixed-phase correction is computed. Increase it only while the requested mixed group-delay chart keeps showing believable low-frequency structure inside the intended correction range. If larger windows start introducing group-delay spikes in the lower mids, especially above the Limit, reduce the window.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseStrength, L"Controls how strongly mixed-phase correction is applied within the allowed range.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseCap, L"Caps the maximum phase rotation the mixed-phase solver may request.");
     helpBubble_.registerLabel(controls_.labelPreRingingCompensationFrequencies, L"Enter space- or comma-separated center frequencies where mixed-phase correction should back off to reduce pre-ringing.");
@@ -794,12 +804,60 @@ void FiltersPage::createControls() {
                                                                   nullptr,
                                                                   instance_,
                                                                   nullptr);
+    controls_.checkboxShowRequestedMixedGroupDelayPreRight = CreateWindowW(
+        L"BUTTON",
+        L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        0,
+        0,
+        0,
+        0,
+        window_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowRequestedMixedGroupDelayPreRight)),
+        instance_,
+        nullptr);
     controls_.lineRequestedMixedGroupDelayPreRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelRequestedMixedGroupDelayPreRight = CreateWindowW(L"STATIC", L"R pre", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowRequestedMixedGroupDelayPreLeft = CreateWindowW(
+        L"BUTTON",
+        L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        0,
+        0,
+        0,
+        0,
+        window_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowRequestedMixedGroupDelayPreLeft)),
+        instance_,
+        nullptr);
     controls_.lineRequestedMixedGroupDelayPreLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelRequestedMixedGroupDelayPreLeft = CreateWindowW(L"STATIC", L"L pre", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowRequestedMixedGroupDelayRight = CreateWindowW(
+        L"BUTTON",
+        L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        0,
+        0,
+        0,
+        0,
+        window_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowRequestedMixedGroupDelayRight)),
+        instance_,
+        nullptr);
     controls_.lineRequestedMixedGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelRequestedMixedGroupDelayRight = CreateWindowW(L"STATIC", L"R post", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.checkboxShowRequestedMixedGroupDelayLeft = CreateWindowW(
+        L"BUTTON",
+        L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        0,
+        0,
+        0,
+        0,
+        window_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCheckboxShowRequestedMixedGroupDelayLeft)),
+        instance_,
+        nullptr);
     controls_.lineRequestedMixedGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelRequestedMixedGroupDelayLeft = CreateWindowW(L"STATIC", L"L post", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Group Delay", WS_CHILD | WS_VISIBLE,
@@ -1027,29 +1085,46 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelSmoothness, contentLeft + 716, top, 250, 18, TRUE);
     MoveWindow(controls_.sliderSmoothness, contentLeft + 716, top + 20, 120, 32, TRUE);
     MoveWindow(controls_.valueSmoothness, contentLeft + 842, top + 24, 36, 18, TRUE);
-    const int mixedTop = top + 62;
-    MoveWindow(controls_.labelMixedPhaseMax, contentLeft, mixedTop, 84, 18, TRUE);
-    MoveWindow(controls_.editMixedPhaseMax, contentLeft, mixedTop + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitMixedPhaseMax, contentLeft + 72, mixedTop + 26, 22, 18, TRUE);
-    MoveWindow(controls_.labelExcessPhaseWindow, contentLeft + 112, mixedTop, 102, 18, TRUE);
-    MoveWindow(controls_.editExcessPhaseWindow, contentLeft + 112, mixedTop + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitExcessPhaseWindow, contentLeft + 184, mixedTop + 26, 24, 18, TRUE);
-    MoveWindow(controls_.labelMixedPhaseStrength, contentLeft + 232, mixedTop, 102, 18, TRUE);
-    MoveWindow(controls_.editMixedPhaseStrength, contentLeft + 232, mixedTop + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitMixedPhaseStrength, contentLeft + 304, mixedTop + 26, 34, 18, TRUE);
-    MoveWindow(controls_.labelMixedPhaseCap, contentLeft + 352, mixedTop, 74, 18, TRUE);
-    MoveWindow(controls_.editMixedPhaseCap, contentLeft + 352, mixedTop + 22, 68, 26, TRUE);
-    MoveWindow(controls_.unitMixedPhaseCap, contentLeft + 424, mixedTop + 26, 28, 18, TRUE);
-    const int preRingTop = mixedTop + 62;
-    MoveWindow(controls_.labelPreRingingCompensationFrequencies, contentLeft, preRingTop, 120, 18, TRUE);
-    MoveWindow(controls_.editPreRingingCompensationFrequencies, contentLeft, preRingTop + 22, 260, 26, TRUE);
-    MoveWindow(controls_.unitPreRingingCompensationFrequencies, contentLeft + 266, preRingTop + 26, 22, 18, TRUE);
-    MoveWindow(controls_.labelPreRingingCompensationStrength, contentLeft + 320, preRingTop, 120, 18, TRUE);
-    MoveWindow(controls_.sliderPreRingingCompensationStrength, contentLeft + 320, preRingTop + 20, 120, 32, TRUE);
-    MoveWindow(controls_.valuePreRingingCompensationStrength, contentLeft + 446, preRingTop + 24, 36, 18, TRUE);
-    MoveWindow(controls_.buttonRecalculate, contentLeft, top + 186, contentWidth, 32, TRUE);
+    const int phaseCorrectionTop = top + 58;
+    const int phaseCorrectionHeight = 78;
+    MoveWindow(controls_.phaseCorrectionGroup, contentLeft, phaseCorrectionTop, contentWidth, phaseCorrectionHeight, TRUE);
+    SetWindowPos(controls_.phaseCorrectionGroup,
+                 HWND_BOTTOM,
+                 0,
+                 0,
+                 0,
+                 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    const int phaseFieldTop = phaseCorrectionTop + 18;
+    const int phaseFieldLeft = contentLeft + 14;
+    const int phaseFieldGap = 12;
+    const int limitLeft = phaseFieldLeft;
+    const int windowLeft = limitLeft + 96;
+    const int strengthLeft = windowLeft + 100;
+    const int capLeft = strengthLeft + 110;
+    const int spotsLeft = capLeft + 100;
+    const int preRingLeft = spotsLeft + 164;
+    MoveWindow(controls_.labelMixedPhaseMax, limitLeft, phaseFieldTop, 52, 18, TRUE);
+    MoveWindow(controls_.editMixedPhaseMax, limitLeft, phaseFieldTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitMixedPhaseMax, limitLeft + 72, phaseFieldTop + 26, 22, 18, TRUE);
+    MoveWindow(controls_.labelExcessPhaseWindow, windowLeft, phaseFieldTop, 58, 18, TRUE);
+    MoveWindow(controls_.editExcessPhaseWindow, windowLeft, phaseFieldTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitExcessPhaseWindow, windowLeft + 72, phaseFieldTop + 26, 24, 18, TRUE);
+    MoveWindow(controls_.labelMixedPhaseStrength, strengthLeft, phaseFieldTop, 64, 18, TRUE);
+    MoveWindow(controls_.editMixedPhaseStrength, strengthLeft, phaseFieldTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitMixedPhaseStrength, strengthLeft + 72, phaseFieldTop + 26, 34, 18, TRUE);
+    MoveWindow(controls_.labelMixedPhaseCap, capLeft, phaseFieldTop, 42, 18, TRUE);
+    MoveWindow(controls_.editMixedPhaseCap, capLeft, phaseFieldTop + 22, 68, 26, TRUE);
+    MoveWindow(controls_.unitMixedPhaseCap, capLeft + 72, phaseFieldTop + 26, 28, 18, TRUE);
+    MoveWindow(controls_.labelPreRingingCompensationFrequencies, spotsLeft, phaseFieldTop, 52, 18, TRUE);
+    MoveWindow(controls_.editPreRingingCompensationFrequencies, spotsLeft, phaseFieldTop + 22, 130, 26, TRUE);
+    MoveWindow(controls_.unitPreRingingCompensationFrequencies, spotsLeft + 136, phaseFieldTop + 26, 22, 18, TRUE);
+    MoveWindow(controls_.labelPreRingingCompensationStrength, preRingLeft, phaseFieldTop, 74, 18, TRUE);
+    MoveWindow(controls_.sliderPreRingingCompensationStrength, preRingLeft, phaseFieldTop + 20, 118, 32, TRUE);
+    MoveWindow(controls_.valuePreRingingCompensationStrength, preRingLeft + 124, phaseFieldTop + 24, 36, 18, TRUE);
+    MoveWindow(controls_.buttonRecalculate, contentLeft, phaseCorrectionTop + phaseCorrectionHeight + 10, contentWidth, 32, TRUE);
 
-    int y = top + 236;
+    int y = phaseCorrectionTop + phaseCorrectionHeight + 60;
     const int legendLeft = contentLeft + contentWidth - legendWidth;
     const int graphRight = legendLeft - legendGap;
     const int effectButtonWidth = 72;
@@ -1125,6 +1200,12 @@ void FiltersPage::layout() {
     MoveWindow(controls_.requestedMixedGroupDelayLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     requestedMixedGroupDelayGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int requestedMixedGroupDelayFirstRowTop = y + 24 + 18;
+    MoveWindow(controls_.checkboxShowRequestedMixedGroupDelayPreLeft,
+               checkboxLeft,
+               requestedMixedGroupDelayFirstRowTop,
+               checkboxWidth,
+               20,
+               TRUE);
     MoveWindow(controls_.lineRequestedMixedGroupDelayPreLeft,
                lineLeft,
                requestedMixedGroupDelayFirstRowTop + 8,
@@ -1136,6 +1217,12 @@ void FiltersPage::layout() {
                requestedMixedGroupDelayFirstRowTop + 2,
                labelWidth,
                18,
+               TRUE);
+    MoveWindow(controls_.checkboxShowRequestedMixedGroupDelayPreRight,
+               checkboxLeft,
+               requestedMixedGroupDelayFirstRowTop + rowStep,
+               checkboxWidth,
+               20,
                TRUE);
     MoveWindow(controls_.lineRequestedMixedGroupDelayPreRight,
                lineLeft,
@@ -1149,6 +1236,12 @@ void FiltersPage::layout() {
                labelWidth,
                18,
                TRUE);
+    MoveWindow(controls_.checkboxShowRequestedMixedGroupDelayLeft,
+               checkboxLeft,
+               requestedMixedGroupDelayFirstRowTop + (rowStep * 2),
+               checkboxWidth,
+               20,
+               TRUE);
     MoveWindow(controls_.lineRequestedMixedGroupDelayLeft,
                lineLeft,
                requestedMixedGroupDelayFirstRowTop + (rowStep * 2) + 8,
@@ -1160,6 +1253,12 @@ void FiltersPage::layout() {
                requestedMixedGroupDelayFirstRowTop + (rowStep * 2) + 2,
                labelWidth,
                18,
+               TRUE);
+    MoveWindow(controls_.checkboxShowRequestedMixedGroupDelayRight,
+               checkboxLeft,
+               requestedMixedGroupDelayFirstRowTop + (rowStep * 3),
+               checkboxWidth,
+               20,
                TRUE);
     MoveWindow(controls_.lineRequestedMixedGroupDelayRight,
                lineLeft,
@@ -1372,7 +1471,7 @@ void FiltersPage::refreshPreRingingCompensationStrengthValue() const {
 }
 
 void FiltersPage::refreshExcessPhaseWindowLabel() const {
-    SetWindowTextW(controls_.labelExcessPhaseWindow, L"Phase Window");
+    SetWindowTextW(controls_.labelExcessPhaseWindow, L"Window");
 }
 
 int FiltersPage::selectedGroupDelayZoomPreset() const {
@@ -1402,6 +1501,7 @@ bool FiltersPage::differenceViewSelected() const {
 
 void FiltersPage::refreshPhaseModeControls() const {
     const BOOL mixedEnabled = mixedModeSelected() ? TRUE : FALSE;
+    EnableWindow(controls_.phaseCorrectionGroup, mixedEnabled);
     EnableWindow(controls_.labelMixedPhaseMax, mixedEnabled);
     EnableWindow(controls_.editMixedPhaseMax, mixedEnabled);
     EnableWindow(controls_.unitMixedPhaseMax, mixedEnabled);
@@ -1512,6 +1612,10 @@ void FiltersPage::loadViewSettings(const UiSettings& ui) {
     showExcessPhaseInputLeft_ = ui.filterShowExcessPhaseInputLeft;
     showExcessPhasePredictedRight_ = ui.filterShowExcessPhasePredictedRight;
     showExcessPhasePredictedLeft_ = ui.filterShowExcessPhasePredictedLeft;
+    showRequestedMixedGroupDelayPreRight_ = ui.filterShowRequestedMixedGroupDelayPreRight;
+    showRequestedMixedGroupDelayPreLeft_ = ui.filterShowRequestedMixedGroupDelayPreLeft;
+    showRequestedMixedGroupDelayRight_ = ui.filterShowRequestedMixedGroupDelayRight;
+    showRequestedMixedGroupDelayLeft_ = ui.filterShowRequestedMixedGroupDelayLeft;
     showInputGroupDelayLeft_ = ui.filterShowInputGroupDelayLeft;
     showInputGroupDelayRight_ = ui.filterShowInputGroupDelayRight;
     showPredictedGroupDelayRight_ = ui.filterShowPredictedGroupDelayRight;
@@ -1548,6 +1652,22 @@ void FiltersPage::syncViewSettingsToControls() const {
     SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft,
                  BM_SETCHECK,
                  showExcessPhasePredictedLeft_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayPreRight,
+                 BM_SETCHECK,
+                 showRequestedMixedGroupDelayPreRight_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayPreLeft,
+                 BM_SETCHECK,
+                 showRequestedMixedGroupDelayPreLeft_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayRight,
+                 BM_SETCHECK,
+                 showRequestedMixedGroupDelayRight_ ? BST_CHECKED : BST_UNCHECKED,
+                 0);
+    SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayLeft,
+                 BM_SETCHECK,
+                 showRequestedMixedGroupDelayLeft_ ? BST_CHECKED : BST_UNCHECKED,
                  0);
     SendMessageW(controls_.buttonExcessPhaseEffect, BM_SETCHECK, showExcessPhaseEffect_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowInputGroupDelayLeft,
@@ -1600,6 +1720,14 @@ void FiltersPage::syncViewSettingsFromControls() {
         SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhasePredictedLeft_ =
         SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showRequestedMixedGroupDelayPreRight_ =
+        SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayPreRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showRequestedMixedGroupDelayPreLeft_ =
+        SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayPreLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showRequestedMixedGroupDelayRight_ =
+        SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    showRequestedMixedGroupDelayLeft_ =
+        SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhaseEffect_ = SendMessageW(controls_.buttonExcessPhaseEffect, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showInputGroupDelayLeft_ =
         SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -1639,6 +1767,14 @@ void FiltersPage::saveViewSettings(UiSettings& ui) const {
         SendMessageW(controls_.checkboxShowExcessPhasePredictedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterShowExcessPhasePredictedLeft =
         SendMessageW(controls_.checkboxShowExcessPhasePredictedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowRequestedMixedGroupDelayPreRight =
+        SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayPreRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowRequestedMixedGroupDelayPreLeft =
+        SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayPreLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowRequestedMixedGroupDelayRight =
+        SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    ui.filterShowRequestedMixedGroupDelayLeft =
+        SendMessageW(controls_.checkboxShowRequestedMixedGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterShowInputGroupDelayLeft =
         SendMessageW(controls_.checkboxShowInputGroupDelayLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     ui.filterShowInputGroupDelayRight =
@@ -1969,6 +2105,10 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowExcessPhaseInputLeft ||
          commandId == kCheckboxShowExcessPhasePredictedRight ||
          commandId == kCheckboxShowExcessPhasePredictedLeft ||
+         commandId == kCheckboxShowRequestedMixedGroupDelayPreRight ||
+         commandId == kCheckboxShowRequestedMixedGroupDelayPreLeft ||
+         commandId == kCheckboxShowRequestedMixedGroupDelayRight ||
+         commandId == kCheckboxShowRequestedMixedGroupDelayLeft ||
          commandId == kButtonExcessPhaseEffect ||
          commandId == kCheckboxShowInputGroupDelayLeft ||
          commandId == kCheckboxShowInputGroupDelayRight ||
@@ -2617,8 +2757,7 @@ void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace)
 
     if (impulseTimeMs.empty()) {
         impulseGraph_.setDefaultXRange(false, 0.0, 1.0);
-        impulseGraph_.setDefaultYRange(false, -1.0, 1.0);
-        impulseGraph_.resetView();
+        impulseGraph_.setDefaultYRange(false, -kImpulseGraphDefaultYLimit, kImpulseGraphDefaultYLimit);
         return;
     }
 
@@ -2629,12 +2768,14 @@ void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace)
     impulseGraph_.setDefaultXRange(true,
                                    clampValue(-negativeWindowMs, fullMinMs, fullMaxMs),
                                    clampValue(kImpulseGraphPositiveWindowMs, fullMinMs, fullMaxMs));
-    impulseGraph_.setDefaultYRange(!differenceView, -1.0, 1.0);
-    impulseGraph_.resetView();
+    impulseGraph_.setDefaultYRange(!differenceView,
+                                   -kImpulseGraphDefaultYLimit,
+                                   kImpulseGraphDefaultYLimit);
 }
 
 PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
+    configureFilterPlotAppearance(data);
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"dB";
@@ -2738,6 +2879,7 @@ PlotGraphData FiltersPage::buildCorrectionGraphData(const WorkspaceState& worksp
 
 PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
+    configureFilterPlotAppearance(data);
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"dB";
@@ -2877,6 +3019,7 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
 
 PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
+    configureFilterPlotAppearance(data);
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"deg";
@@ -2997,6 +3140,7 @@ PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& works
 
 PlotGraphData FiltersPage::buildRequestedMixedGroupDelayGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
+    configureFilterPlotAppearance(data);
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"ms";
@@ -3033,27 +3177,29 @@ PlotGraphData FiltersPage::buildRequestedMixedGroupDelayGraphData(const Workspac
 
     double minY = std::numeric_limits<double>::max();
     double maxY = std::numeric_limits<double>::lowest();
-    if (!sourceResult->right.requestedMixedGroupDelayPreSolveMs.empty()) {
+    if (showRequestedMixedGroupDelayPreRight_ &&
+        !sourceResult->right.requestedMixedGroupDelayPreSolveMs.empty()) {
         accumulateFiniteRange(sourceResult->right.requestedMixedGroupDelayPreSolveMs, minY, maxY);
         data.series.push_back({L"Right pre",
                                ui_theme::kRed,
-                               sourceResult->right.requestedMixedGroupDelayPreSolveMs,
-                               PlotGraphLineStyle::Dash});
+                               sourceResult->right.requestedMixedGroupDelayPreSolveMs});
     }
-    if (!sourceResult->left.requestedMixedGroupDelayPreSolveMs.empty()) {
+    if (showRequestedMixedGroupDelayPreLeft_ &&
+        !sourceResult->left.requestedMixedGroupDelayPreSolveMs.empty()) {
         accumulateFiniteRange(sourceResult->left.requestedMixedGroupDelayPreSolveMs, minY, maxY);
         data.series.push_back({L"Left pre",
                                ui_theme::kGreen,
-                               sourceResult->left.requestedMixedGroupDelayPreSolveMs,
-                               PlotGraphLineStyle::Dash});
+                               sourceResult->left.requestedMixedGroupDelayPreSolveMs});
     }
-    if (!sourceResult->right.requestedMixedGroupDelayMs.empty()) {
+    if (showRequestedMixedGroupDelayRight_ &&
+        !sourceResult->right.requestedMixedGroupDelayMs.empty()) {
         accumulateFiniteRange(sourceResult->right.requestedMixedGroupDelayMs, minY, maxY);
         data.series.push_back({L"Right post",
                                ui_theme::kMagenta,
                                sourceResult->right.requestedMixedGroupDelayMs});
     }
-    if (!sourceResult->left.requestedMixedGroupDelayMs.empty()) {
+    if (showRequestedMixedGroupDelayLeft_ &&
+        !sourceResult->left.requestedMixedGroupDelayMs.empty()) {
         accumulateFiniteRange(sourceResult->left.requestedMixedGroupDelayMs, minY, maxY);
         data.series.push_back({L"Left post",
                                ui_theme::kGray,
@@ -3071,6 +3217,7 @@ PlotGraphData FiltersPage::buildRequestedMixedGroupDelayGraphData(const Workspac
 
 PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
+    configureFilterPlotAppearance(data);
     data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
     data.xUnit = L"Hz";
     data.yUnit = L"ms";
@@ -3197,6 +3344,7 @@ PlotGraphData FiltersPage::buildGroupDelayGraphData(const WorkspaceState& worksp
 
 PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace) const {
     PlotGraphData data;
+    configureFilterPlotAppearance(data);
     data.xAxisMode = PlotGraphXAxisMode::Linear;
     data.yAxisMode = PlotGraphYAxisMode::SymmetricAroundZero;
     data.xUnit = L"ms";

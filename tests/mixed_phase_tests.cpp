@@ -932,14 +932,14 @@ bool expectPreRingingCompensationFrequenciesStayWithinPhaseRange() {
     settings.phaseMode = "mixed";
     settings.lowCorrectionHz = 55.0;
     settings.mixedPhaseMaxFrequencyHz = 180.0;
-    settings.preRingingCompensationFrequenciesHz = {30, 55, 120, 120, 180, 220};
+    settings.preRingingCompensationFrequenciesHz = {30, 55, 120, 120, 180, 220, 520};
     settings.preRingingCompensationStrength = 1.5;
 
     wolfie::measurement::normalizeFilterDesignSettings(settings, 48000);
 
-    const std::vector<int> expectedFrequenciesHz = {55, 120, 180};
+    const std::vector<int> expectedFrequenciesHz = {55, 120, 180, 220};
     if (settings.preRingingCompensationFrequenciesHz != expectedFrequenciesHz) {
-        std::cerr << "pre-ringing compensation frequencies were not normalized to the mixed-phase range\n";
+        std::cerr << "pre-ringing compensation frequencies were not normalized to the mixed-phase transition range\n";
         return false;
     }
     if (std::abs(settings.preRingingCompensationStrength - 1.0) > 1.0e-6) {

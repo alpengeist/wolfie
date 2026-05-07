@@ -409,6 +409,18 @@ void loadUiSettingsFromJson(const std::string& content, UiSettings& ui) {
     if (const auto value = findJsonBool(content, "filterShowExcessPhasePredictedLeft")) {
         ui.filterShowExcessPhasePredictedLeft = *value;
     }
+    if (const auto value = findJsonBool(content, "filterShowRequestedMixedGroupDelayPreRight")) {
+        ui.filterShowRequestedMixedGroupDelayPreRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowRequestedMixedGroupDelayPreLeft")) {
+        ui.filterShowRequestedMixedGroupDelayPreLeft = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowRequestedMixedGroupDelayRight")) {
+        ui.filterShowRequestedMixedGroupDelayRight = *value;
+    }
+    if (const auto value = findJsonBool(content, "filterShowRequestedMixedGroupDelayLeft")) {
+        ui.filterShowRequestedMixedGroupDelayLeft = *value;
+    }
     if (const auto value = findJsonBool(content, "filterShowInputGroupDelayLeft")) {
         ui.filterShowInputGroupDelayLeft = *value;
     }
@@ -1473,6 +1485,14 @@ void writeWorkspaceSettingsJsonFile(const WorkspaceState& workspace) {
                   << (workspace.ui.filterShowExcessPhasePredictedRight ? "true" : "false") << ",\n"
                   << "    \"filterShowExcessPhasePredictedLeft\": "
                   << (workspace.ui.filterShowExcessPhasePredictedLeft ? "true" : "false") << ",\n"
+                  << "    \"filterShowRequestedMixedGroupDelayPreRight\": "
+                  << (workspace.ui.filterShowRequestedMixedGroupDelayPreRight ? "true" : "false") << ",\n"
+                  << "    \"filterShowRequestedMixedGroupDelayPreLeft\": "
+                  << (workspace.ui.filterShowRequestedMixedGroupDelayPreLeft ? "true" : "false") << ",\n"
+                  << "    \"filterShowRequestedMixedGroupDelayRight\": "
+                  << (workspace.ui.filterShowRequestedMixedGroupDelayRight ? "true" : "false") << ",\n"
+                  << "    \"filterShowRequestedMixedGroupDelayLeft\": "
+                  << (workspace.ui.filterShowRequestedMixedGroupDelayLeft ? "true" : "false") << ",\n"
                   << "    \"filterShowInputGroupDelayLeft\": "
                   << (workspace.ui.filterShowInputGroupDelayLeft ? "true" : "false") << ",\n"
                   << "    \"filterShowInputGroupDelayRight\": "
@@ -1555,6 +1575,14 @@ void writeUiSettingsJsonFile(const WorkspaceState& workspace) {
            << (workspace.ui.filterShowExcessPhasePredictedRight ? "true" : "false") << ",\n"
            << "  \"filterShowExcessPhasePredictedLeft\": "
            << (workspace.ui.filterShowExcessPhasePredictedLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowRequestedMixedGroupDelayPreRight\": "
+           << (workspace.ui.filterShowRequestedMixedGroupDelayPreRight ? "true" : "false") << ",\n"
+           << "  \"filterShowRequestedMixedGroupDelayPreLeft\": "
+           << (workspace.ui.filterShowRequestedMixedGroupDelayPreLeft ? "true" : "false") << ",\n"
+           << "  \"filterShowRequestedMixedGroupDelayRight\": "
+           << (workspace.ui.filterShowRequestedMixedGroupDelayRight ? "true" : "false") << ",\n"
+           << "  \"filterShowRequestedMixedGroupDelayLeft\": "
+           << (workspace.ui.filterShowRequestedMixedGroupDelayLeft ? "true" : "false") << ",\n"
            << "  \"filterShowInputGroupDelayLeft\": "
            << (workspace.ui.filterShowInputGroupDelayLeft ? "true" : "false") << ",\n"
            << "  \"filterShowInputGroupDelayRight\": "

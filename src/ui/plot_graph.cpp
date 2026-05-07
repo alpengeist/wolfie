@@ -207,6 +207,58 @@ std::vector<double> buildYTicks(double minY, double maxY) {
     return ticks;
 }
 
+bool approximatelyEqual(double left, double right, double epsilon = 1.0e-9) {
+    return std::abs(left - right) <= epsilon;
+}
+
+bool containsApproximateTick(const std::vector<double>& ticks, double value, double epsilon = 1.0e-9) {
+    for (const double tick : ticks) {
+        if (approximatelyEqual(tick, value, epsilon)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<double> buildYGridTicks(double minY, double maxY, const std::vector<double>& majorTicks, int subdivision) {
+    if (majorTicks.empty()) {
+        return {};
+    }
+
+    const int clampedSubdivision = std::max(subdivision, 1);
+    const double range = std::max(maxY - minY, 1.0e-9);
+    double majorStep = 0.0;
+    if (majorTicks.size() >= 2) {
+        majorStep = std::abs(majorTicks[1] - majorTicks[0]);
+    }
+    if (majorStep <= 1.0e-9) {
+        majorStep = nextNiceStep(range / 6.0);
+    }
+    const double minorStep = majorStep / static_cast<double>(clampedSubdivision);
+    const double epsilon = std::max(minorStep * 1.0e-6, 1.0e-9);
+
+    std::vector<double> ticks;
+    ticks.push_back(minY);
+
+    const double firstAlignedTick = std::ceil((minY - epsilon) / minorStep) * minorStep;
+    for (double tick = firstAlignedTick; tick < maxY - epsilon; tick += minorStep) {
+        if (tick <= minY + epsilon) {
+            continue;
+        }
+        if (!ticks.empty() && approximatelyEqual(ticks.back(), tick, epsilon)) {
+            continue;
+        }
+        ticks.push_back(tick);
+    }
+
+    if (!ticks.empty() && approximatelyEqual(ticks.back(), maxY, epsilon)) {
+        ticks.back() = maxY;
+    } else {
+        ticks.push_back(maxY);
+    }
+    return ticks;
+}
+
 void expandAutoYRange(double& minY, double& maxY) {
     if (!std::isfinite(minY) || !std::isfinite(maxY)) {
         minY = 0.0;
@@ -1326,25 +1378,35 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
     const std::vector<double> xTicks = buildXTicks(layout.graph, data_, layout.visibleMinX, layout.visibleMaxX);
     const std::vector<AxisLabel> xLabels =
         buildXLabels(hdc, layout.graph, data_, layout.visibleMinX, layout.visibleMaxX, xTicks);
+    const std::vector<double> yGridTicks =
+        buildYGridTicks(layout.minY, layout.maxY, layout.yTicks, data_.yTickSubdivision);
 
-    HBRUSH stripeBrush = CreateSolidBrush(ui_theme::graphStripeColor());
-    for (size_t index = 0; index + 1 < layout.yTicks.size(); ++index) {
-        if ((index % 2) != 0) {
-            continue;
+    if (data_.zebraStripeYBands) {
+        const COLORREF stripeColor =
+            ui_theme::blendColor(ui_theme::graphBackgroundColor(), ui_theme::kBorder, 0.45);
+        HBRUSH stripeBrush = CreateSolidBrush(stripeColor);
+        const std::vector<double>& stripeTicks = yGridTicks.size() >= 2 ? yGridTicks : layout.yTicks;
+        for (size_t index = 0; index + 1 < stripeTicks.size(); ++index) {
+            if ((index % 2) != 0) {
+                continue;
+            }
+
+            const int y0 = graphYFromValue(layout.graph, stripeTicks[index], layout.minY, layout.maxY);
+            const int y1 = graphYFromValue(layout.graph, stripeTicks[index + 1], layout.minY, layout.maxY);
+            RECT stripeRect{layout.graph.left, std::min(y0, y1), layout.graph.right, std::max(y0, y1)};
+            FillRect(hdc, &stripeRect, stripeBrush);
         }
-
-        const int y0 = graphYFromValue(layout.graph, layout.yTicks[index], layout.minY, layout.maxY);
-        const int y1 = graphYFromValue(layout.graph, layout.yTicks[index + 1], layout.minY, layout.maxY);
-        RECT stripeRect{layout.graph.left, std::min(y0, y1), layout.graph.right, std::max(y0, y1)};
-        FillRect(hdc, &stripeRect, stripeBrush);
+        DeleteObject(stripeBrush);
     }
-    DeleteObject(stripeBrush);
 
     for (const PlotGraphXSpan& span : data_.xSpans) {
         fillXSpanOverlay(hdc, layout.graph, data_, layout.visibleMinX, layout.visibleMaxX, span);
     }
 
-    SetDCPenColor(hdc, ui_theme::kBorder);
+    const COLORREF majorGridColor = ui_theme::kBorder;
+    const COLORREF minorGridColor = ui_theme::blendColor(ui_theme::graphBackgroundColor(), ui_theme::kBorder, 0.72);
+
+    SetDCPenColor(hdc, majorGridColor);
     Rectangle(hdc, layout.graph.left, layout.graph.top, layout.graph.right, layout.graph.bottom);
 
     for (const double tick : xTicks) {
@@ -1353,6 +1415,16 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
         MoveToEx(hdc, x, layout.graph.top, nullptr);
         LineTo(hdc, x, layout.graph.bottom);
     }
+    SetDCPenColor(hdc, minorGridColor);
+    for (const double tick : yGridTicks) {
+        if (containsApproximateTick(layout.yTicks, tick)) {
+            continue;
+        }
+        const int y = graphYFromValue(layout.graph, tick, layout.minY, layout.maxY);
+        MoveToEx(hdc, layout.graph.left, y, nullptr);
+        LineTo(hdc, layout.graph.right, y);
+    }
+    SetDCPenColor(hdc, majorGridColor);
     for (const double tick : layout.yTicks) {
         const int y = graphYFromValue(layout.graph, tick, layout.minY, layout.maxY);
         MoveToEx(hdc, layout.graph.left, y, nullptr);

@@ -57,6 +57,7 @@ private:
         HWND labelSmoothness = nullptr;
         HWND sliderSmoothness = nullptr;
         HWND valueSmoothness = nullptr;
+        HWND phaseCorrectionGroup = nullptr;
         HWND labelMixedPhaseMax = nullptr;
         HWND editMixedPhaseMax = nullptr;
         HWND unitMixedPhaseMax = nullptr;
@@ -124,12 +125,16 @@ private:
         HWND labelExcessPhasePredictedLeft = nullptr;
         HWND requestedMixedGroupDelayTitle = nullptr;
         HWND requestedMixedGroupDelayLegendFrame = nullptr;
+        HWND checkboxShowRequestedMixedGroupDelayPreRight = nullptr;
         HWND lineRequestedMixedGroupDelayPreRight = nullptr;
         HWND labelRequestedMixedGroupDelayPreRight = nullptr;
+        HWND checkboxShowRequestedMixedGroupDelayPreLeft = nullptr;
         HWND lineRequestedMixedGroupDelayPreLeft = nullptr;
         HWND labelRequestedMixedGroupDelayPreLeft = nullptr;
+        HWND checkboxShowRequestedMixedGroupDelayRight = nullptr;
         HWND lineRequestedMixedGroupDelayRight = nullptr;
         HWND labelRequestedMixedGroupDelayRight = nullptr;
+        HWND checkboxShowRequestedMixedGroupDelayLeft = nullptr;
         HWND lineRequestedMixedGroupDelayLeft = nullptr;
         HWND labelRequestedMixedGroupDelayLeft = nullptr;
         HWND checkboxShowPredictedGroupDelayRight = nullptr;
@@ -218,6 +223,10 @@ private:
     static constexpr int kEditPreRingingCompensationFrequencies = 3452;
     static constexpr int kSliderPreRingingCompensationStrength = 3453;
     static constexpr int kRequestedMixedGroupDelayGraph = 3454;
+    static constexpr int kCheckboxShowRequestedMixedGroupDelayPreRight = 3455;
+    static constexpr int kCheckboxShowRequestedMixedGroupDelayPreLeft = 3456;
+    static constexpr int kCheckboxShowRequestedMixedGroupDelayRight = 3457;
+    static constexpr int kCheckboxShowRequestedMixedGroupDelayLeft = 3458;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK GroupDelayZoomSliderProc(HWND window,
@@ -299,6 +308,10 @@ private:
     bool showExcessPhaseInputLeft_ = true;
     bool showExcessPhasePredictedRight_ = true;
     bool showExcessPhasePredictedLeft_ = true;
+    bool showRequestedMixedGroupDelayPreRight_ = true;
+    bool showRequestedMixedGroupDelayPreLeft_ = true;
+    bool showRequestedMixedGroupDelayRight_ = true;
+    bool showRequestedMixedGroupDelayLeft_ = true;
     bool showExcessPhaseEffect_ = false;
     bool showInputGroupDelayLeft_ = true;
     bool showInputGroupDelayRight_ = true;
