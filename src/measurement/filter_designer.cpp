@@ -24,6 +24,8 @@ constexpr double kMaxSmoothness = 4.0;
 constexpr double kCutLimitSoftness = 0.78;
 constexpr double kBoostLimitSoftness = 0.92;
 constexpr double kPreRingingCompensationHalfWidthOctaves = 0.25;
+// Mixed-phase full-strength correction extends to this multiple before tapering out.
+constexpr double kMixedPhaseCorrectionTaperFactor = 2;
 enum class NormalizedPhaseMode {
     Minimum,
     ExcessLf,
@@ -174,7 +176,7 @@ MixedPhaseLimitBand mixedPhaseLimitBand(const FilterDesignSettings& settings, in
     band.fullCorrectionHz =
         clampValue(settings.mixedPhaseMaxFrequencyHz, 60.0, std::max(120.0, nyquist * 0.25));
     band.taperEndHz =
-        clampValue(band.fullCorrectionHz * 2.5,
+        clampValue(band.fullCorrectionHz * kMixedPhaseCorrectionTaperFactor,
                    band.fullCorrectionHz + 80.0,
                    std::max(band.fullCorrectionHz + 80.0, nyquist * 0.6));
     return band;
