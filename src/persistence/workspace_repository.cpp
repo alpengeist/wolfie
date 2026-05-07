@@ -1409,7 +1409,11 @@ void writeWorkspaceSettingsJsonFile(const WorkspaceState& workspace) {
                   << "    \"filterMixedPhaseMaxFrequencyHz\": " << workspace.filters.mixedPhaseMaxFrequencyHz << ",\n"
                   << "    \"filterExcessPhaseWindowMs\": " << workspace.filters.excessPhaseWindowMs << ",\n"
                   << "    \"filterMixedPhaseStrength\": " << workspace.filters.mixedPhaseStrength << ",\n"
-                  << "    \"filterMixedPhaseMaxCorrectionDegrees\": " << workspace.filters.mixedPhaseMaxCorrectionDegrees << "\n"
+                  << "    \"filterMixedPhaseMaxCorrectionDegrees\": " << workspace.filters.mixedPhaseMaxCorrectionDegrees << ",\n"
+                  << "    \"filterPreRingingCompensationStrength\": " << workspace.filters.preRingingCompensationStrength << ",\n"
+                  << "    \"filterPreRingingCompensationFrequenciesHz\": ";
+    writeJsonIntArray(workspaceJson, workspace.filters.preRingingCompensationFrequenciesHz);
+    workspaceJson << "\n"
                   << "  },\n"
                   << "  \"ui\": {\n"
                   << "    \"measurementSectionHeight\": " << workspace.ui.measurementSectionHeight << ",\n"
@@ -1841,6 +1845,12 @@ WorkspaceState WorkspaceRepository::load(const std::filesystem::path& path) cons
         }
         if (const auto value = findJsonNumber(*content, "filterMixedPhaseMaxCorrectionDegrees")) {
             workspace.filters.mixedPhaseMaxCorrectionDegrees = *value;
+        }
+        if (const auto value = findJsonNumber(*content, "filterPreRingingCompensationStrength")) {
+            workspace.filters.preRingingCompensationStrength = *value;
+        }
+        if (const auto value = findJsonIntArray(*content, "filterPreRingingCompensationFrequenciesHz")) {
+            workspace.filters.preRingingCompensationFrequenciesHz = *value;
         }
     }
 

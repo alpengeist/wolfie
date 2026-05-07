@@ -11,10 +11,18 @@ namespace wolfie::persistence {
 
 namespace {
 
-constexpr std::string_view kFilterStoreMagic = "wolfie-filter-store-v1";
+constexpr std::string_view kFilterStoreMagicV1 = "wolfie-filter-store-v1";
+constexpr std::string_view kFilterStoreMagicV2 = "wolfie-filter-store-v2";
+constexpr std::string_view kFilterStoreMagicV3 = "wolfie-filter-store-v3";
 constexpr uint32_t kMaxStringBytes = 1u << 20;
 constexpr uint32_t kMaxVectorElements = 1u << 22;
 constexpr uint32_t kMaxProcessLogEntries = 1u << 14;
+
+enum class FilterStoreVersion {
+    V1,
+    V2,
+    V3
+};
 
 std::filesystem::path filterStorePath(const std::filesystem::path& rootPath, std::string_view variant) {
     return rootPath / "filters" / (std::string(variant) + ".filter-store.bin");
@@ -66,6 +74,24 @@ bool readDoubleVector(std::ifstream& in, std::vector<double>& values) {
                                                   static_cast<std::streamsize>(sizeof(double) * size)));
 }
 
+bool writeIntVector(std::ofstream& out, const std::vector<int>& values) {
+    const uint32_t size = static_cast<uint32_t>(values.size());
+    return writeScalar(out, size) &&
+           (size == 0 || static_cast<bool>(out.write(reinterpret_cast<const char*>(values.data()),
+                                                     static_cast<std::streamsize>(sizeof(int) * size))));
+}
+
+bool readIntVector(std::ifstream& in, std::vector<int>& values) {
+    uint32_t size = 0;
+    if (!readScalar(in, size) || size > kMaxVectorElements) {
+        return false;
+    }
+
+    values.assign(size, 0);
+    return size == 0 || static_cast<bool>(in.read(reinterpret_cast<char*>(values.data()),
+                                                  static_cast<std::streamsize>(sizeof(int) * size)));
+}
+
 bool writeStringVector(std::ofstream& out, const std::vector<std::string>& values) {
     const uint32_t size = static_cast<uint32_t>(values.size());
     if (!writeScalar(out, size)) {
@@ -111,10 +137,12 @@ bool writeSettings(std::ofstream& out, const FilterDesignSettings& settings) {
            writeScalar(out, settings.mixedPhaseMaxFrequencyHz) &&
            writeScalar(out, settings.excessPhaseWindowMs) &&
            writeScalar(out, settings.mixedPhaseStrength) &&
-           writeScalar(out, settings.mixedPhaseMaxCorrectionDegrees);
+           writeScalar(out, settings.mixedPhaseMaxCorrectionDegrees) &&
+           writeIntVector(out, settings.preRingingCompensationFrequenciesHz) &&
+           writeScalar(out, settings.preRingingCompensationStrength);
 }
 
-bool readSettings(std::ifstream& in, FilterDesignSettings& settings) {
+bool readSettingsV1(std::ifstream& in, FilterDesignSettings& settings) {
     int32_t tapCount = 0;
     int32_t displayPointCount = 0;
     if (!readScalar(in, tapCount) ||
@@ -139,11 +167,21 @@ bool readSettings(std::ifstream& in, FilterDesignSettings& settings) {
     return true;
 }
 
+bool readSettingsV2(std::ifstream& in, FilterDesignSettings& settings) {
+    if (!readSettingsV1(in, settings) ||
+        !readIntVector(in, settings.preRingingCompensationFrequenciesHz) ||
+        !readScalar(in, settings.preRingingCompensationStrength)) {
+        return false;
+    }
+    return true;
+}
+
 bool writeChannelResult(std::ofstream& out, const FilterDesignChannelResult& channel) {
     return writeDoubleVector(out, channel.correctionCurveDb) &&
            writeDoubleVector(out, channel.filterResponseDb) &&
            writeDoubleVector(out, channel.correctedResponseDb) &&
            writeDoubleVector(out, channel.inputGroupDelayMs) &&
+           writeDoubleVector(out, channel.requestedMixedGroupDelayMs) &&
            writeDoubleVector(out, channel.groupDelayMs) &&
            writeDoubleVector(out, channel.inputExcessPhaseDegrees) &&
            writeDoubleVector(out, channel.inputExcessPhaseContinuousDegrees) &&
@@ -156,12 +194,16 @@ bool writeChannelResult(std::ofstream& out, const FilterDesignChannelResult& cha
            writeScalar(out, channel.peakAmplitude);
 }
 
-bool readChannelResult(std::ifstream& in, FilterDesignChannelResult& channel) {
+bool readChannelResult(std::ifstream& in,
+                       FilterDesignChannelResult& channel,
+                       FilterStoreVersion version) {
     int32_t impulsePeakIndex = 0;
     if (!readDoubleVector(in, channel.correctionCurveDb) ||
         !readDoubleVector(in, channel.filterResponseDb) ||
         !readDoubleVector(in, channel.correctedResponseDb) ||
         !readDoubleVector(in, channel.inputGroupDelayMs) ||
+        (version == FilterStoreVersion::V3 &&
+         !readDoubleVector(in, channel.requestedMixedGroupDelayMs)) ||
         !readDoubleVector(in, channel.groupDelayMs) ||
         !readDoubleVector(in, channel.inputExcessPhaseDegrees) ||
         !readDoubleVector(in, channel.inputExcessPhaseContinuousDegrees) ||
@@ -200,7 +242,9 @@ bool writeStoredFilter(std::ofstream& out, const StoredFilterDesign& storedFilte
              writeChannelResult(out, storedFilter.result.right)));
 }
 
-bool readStoredFilter(std::ifstream& in, StoredFilterDesign& storedFilter) {
+bool readStoredFilter(std::ifstream& in,
+                      StoredFilterDesign& storedFilter,
+                      FilterStoreVersion version) {
     storedFilter = {};
 
     uint8_t available = 0;
@@ -215,7 +259,10 @@ bool readStoredFilter(std::ifstream& in, StoredFilterDesign& storedFilter) {
     int32_t tapCount = 0;
     int32_t fftSize = 0;
     int32_t positiveBinCount = 0;
-    if (!readSettings(in, storedFilter.settings) ||
+    const bool settingsOk = version == FilterStoreVersion::V1
+                                ? readSettingsV1(in, storedFilter.settings)
+                                : readSettingsV2(in, storedFilter.settings);
+    if (!settingsOk ||
         !readScalar(in, sampleRate) ||
         !readScalar(in, tapCount) ||
         !readScalar(in, fftSize) ||
@@ -228,8 +275,8 @@ bool readStoredFilter(std::ifstream& in, StoredFilterDesign& storedFilter) {
         !readStringVector(in, storedFilter.result.processLog) ||
         !readDoubleVector(in, storedFilter.result.frequencyAxisHz) ||
         !readDoubleVector(in, storedFilter.result.targetCurveDb) ||
-        !readChannelResult(in, storedFilter.result.left) ||
-        !readChannelResult(in, storedFilter.result.right)) {
+        !readChannelResult(in, storedFilter.result.left, version) ||
+        !readChannelResult(in, storedFilter.result.right, version)) {
         storedFilter = {};
         return false;
     }
@@ -257,9 +304,9 @@ bool saveVariantFile(const std::filesystem::path& rootPath,
         return false;
     }
 
-    const std::array<char, kFilterStoreMagic.size()> magicBytes = [] {
-        std::array<char, kFilterStoreMagic.size()> bytes{};
-        std::copy(kFilterStoreMagic.begin(), kFilterStoreMagic.end(), bytes.begin());
+    const std::array<char, kFilterStoreMagicV3.size()> magicBytes = [] {
+        std::array<char, kFilterStoreMagicV3.size()> bytes{};
+        std::copy(kFilterStoreMagicV3.begin(), kFilterStoreMagicV3.end(), bytes.begin());
         return bytes;
     }();
 
@@ -277,16 +324,25 @@ bool loadVariantFile(const std::filesystem::path& rootPath,
         return false;
     }
 
-    std::array<char, kFilterStoreMagic.size()> magicBytes{};
+    std::array<char, kFilterStoreMagicV3.size()> magicBytes{};
     if (!in.read(magicBytes.data(), static_cast<std::streamsize>(magicBytes.size()))) {
         return false;
     }
-    if (!std::equal(magicBytes.begin(), magicBytes.end(), kFilterStoreMagic.begin(), kFilterStoreMagic.end())) {
+    const bool isV3 =
+        std::equal(magicBytes.begin(), magicBytes.end(), kFilterStoreMagicV3.begin(), kFilterStoreMagicV3.end());
+    const bool isV2 =
+        std::equal(magicBytes.begin(), magicBytes.end(), kFilterStoreMagicV2.begin(), kFilterStoreMagicV2.end());
+    const bool isV1 =
+        std::equal(magicBytes.begin(), magicBytes.end(), kFilterStoreMagicV1.begin(), kFilterStoreMagicV1.end());
+    if (!isV1 && !isV2 && !isV3) {
         storedFilter = {};
         return false;
     }
 
-    return readStoredFilter(in, storedFilter);
+    return readStoredFilter(in,
+                            storedFilter,
+                            isV3 ? FilterStoreVersion::V3
+                                 : (isV2 ? FilterStoreVersion::V2 : FilterStoreVersion::V1));
 }
 
 }  // namespace

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <sstream>
 
 #include <commctrl.h>
 
@@ -25,7 +26,9 @@ constexpr int kGroupDelayZoomRangesMs[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 1
 constexpr int kGroupDelayZoomPresetCount =
     static_cast<int>(sizeof(kGroupDelayZoomRangesMs) / sizeof(kGroupDelayZoomRangesMs[0]));
 constexpr int kGroupDelayZoomFitPreset = kGroupDelayZoomPresetCount;
+constexpr int kPreRingingCompensationStrengthSteps = 10;
 constexpr double kImpulseGraphNegativeWindowMs = 10.0;
+constexpr double kImpulseGraphMixedNegativeWindowMs = 50.0;
 constexpr double kImpulseGraphPositiveWindowMs = 50.0;
 constexpr double kImpulseGraphMinZoomFactor = 0.5;
 constexpr double kImpulseGraphMaxZoomFactor = 2.0;
@@ -57,8 +60,62 @@ int smoothnessDisplayValueFromSliderPosition(LRESULT position) {
     return clampValue(static_cast<int>(position), 0, kSmoothnessStepCount - 1) + 1;
 }
 
+int preRingingCompensationStrengthSliderPositionFromValue(double strength) {
+    const double clamped = clampValue(strength, 0.0, 1.0);
+    return clampValue(static_cast<int>(std::lround(clamped * kPreRingingCompensationStrengthSteps)),
+                      0,
+                      kPreRingingCompensationStrengthSteps);
+}
+
+double preRingingCompensationStrengthValueFromSliderPosition(LRESULT position) {
+    const int clamped = clampValue(static_cast<int>(position), 0, kPreRingingCompensationStrengthSteps);
+    return static_cast<double>(clamped) / static_cast<double>(kPreRingingCompensationStrengthSteps);
+}
+
+std::wstring formatIntList(const std::vector<int>& values) {
+    if (values.empty()) {
+        return L"";
+    }
+
+    std::wstring text;
+    for (size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) {
+            text += L", ";
+        }
+        text += std::to_wstring(values[index]);
+    }
+    return text;
+}
+
+std::vector<int> parseIntList(const std::wstring& text) {
+    std::wstring normalized = text;
+    for (wchar_t& ch : normalized) {
+        if (ch == L',' || ch == L';' || ch == L'\r' || ch == L'\n' || ch == L'\t') {
+            ch = L' ';
+        }
+    }
+
+    std::wistringstream stream(normalized);
+    std::vector<int> values;
+    long long value = 0;
+    while (stream >> value) {
+        if (value >= std::numeric_limits<int>::min() &&
+            value <= std::numeric_limits<int>::max()) {
+            values.push_back(static_cast<int>(value));
+        }
+    }
+    return values;
+}
+
 int clampGroupDelayZoomPreset(int preset) {
     return clampValue(preset, 0, kGroupDelayZoomFitPreset);
+}
+
+double impulseGraphNegativeWindowMsForViewMode(const std::string& filterViewMode) {
+    if (filterViewMode == "mixed") {
+        return kImpulseGraphMixedNegativeWindowMs;
+    }
+    return kImpulseGraphNegativeWindowMs;
 }
 
 std::wstring groupDelayZoomLabelFromPreset(int preset) {
@@ -473,6 +530,23 @@ void FiltersPage::createControls() {
     controls_.editMixedPhaseCap = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
                                                   0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditMixedPhaseCap)), instance_, nullptr);
     controls_.unitMixedPhaseCap = CreateWindowW(L"STATIC", L"deg", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelPreRingingCompensationFrequencies = CreateWindowW(L"STATIC", L"Pre-Ring Spots", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.editPreRingingCompensationFrequencies = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
+                                                                      0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEditPreRingingCompensationFrequencies)), instance_, nullptr);
+    controls_.unitPreRingingCompensationFrequencies = CreateWindowW(L"STATIC", L"Hz", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelPreRingingCompensationStrength = CreateWindowW(L"STATIC", L"Pre-Ring Strength", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.sliderPreRingingCompensationStrength = CreateWindowW(TRACKBAR_CLASSW,
+                                                                   nullptr,
+                                                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ | kHelpBubbleChildClipStyle,
+                                                                   0,
+                                                                   0,
+                                                                   0,
+                                                                   0,
+                                                                   window_,
+                                                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSliderPreRingingCompensationStrength)),
+                                                                   instance_,
+                                                                   nullptr);
+    controls_.valuePreRingingCompensationStrength = CreateWindowW(L"STATIC", L"0.00", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonRecalculate = CreateWindowW(L"BUTTON", L"Recalculate", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | kHelpBubbleChildClipStyle,
                                                 0, 0, 0, 0, window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonRecalculate)), instance_, nullptr);
     helpBubble_.registerLabel(controls_.labelTapCount, L"Sets the FIR length. More taps allow finer correction but increase latency and processing cost.");
@@ -486,6 +560,8 @@ void FiltersPage::createControls() {
     helpBubble_.registerLabel(controls_.labelExcessPhaseWindow, L"Sets the time window in milliseconds used to derive the phase-preparation transfer before mixed-phase correction is computed.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseStrength, L"Controls how strongly mixed-phase correction is applied within the allowed range.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseCap, L"Caps the maximum phase rotation the mixed-phase solver may request.");
+    helpBubble_.registerLabel(controls_.labelPreRingingCompensationFrequencies, L"Enter space- or comma-separated center frequencies where mixed-phase correction should back off to reduce pre-ringing.");
+    helpBubble_.registerLabel(controls_.labelPreRingingCompensationStrength, L"Controls how aggressively the listed pre-ringing spots suppress local mixed-phase correction.");
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.inversionLegendFrame = CreateWindowW(L"STATIC",
@@ -705,6 +781,23 @@ void FiltersPage::createControls() {
                                                                    nullptr);
     controls_.lineExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.requestedMixedGroupDelayTitle = CreateWindowW(L"STATIC", L"Requested Mixed Group Delay", WS_CHILD | WS_VISIBLE,
+                                                            0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.requestedMixedGroupDelayLegendFrame = CreateWindowW(L"STATIC",
+                                                                  L"",
+                                                                  WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
+                                                                  0,
+                                                                  0,
+                                                                  0,
+                                                                  0,
+                                                                  window_,
+                                                                  nullptr,
+                                                                  instance_,
+                                                                  nullptr);
+    controls_.lineRequestedMixedGroupDelayRight = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelRequestedMixedGroupDelayRight = CreateWindowW(L"STATIC", L"R req", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.lineRequestedMixedGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.labelRequestedMixedGroupDelayLeft = CreateWindowW(L"STATIC", L"L req", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonGroupDelayEffect = CreateWindowW(L"BUTTON",
@@ -863,6 +956,15 @@ void FiltersPage::createControls() {
     SendMessageW(controls_.sliderSmoothness, TBM_SETLINESIZE, 0, 1);
     SendMessageW(controls_.sliderSmoothness, TBM_SETPAGESIZE, 0, 1);
     setSelectedSmoothness(1.0);
+    SendMessageW(controls_.sliderPreRingingCompensationStrength, TBM_SETRANGEMIN, FALSE, 0);
+    SendMessageW(controls_.sliderPreRingingCompensationStrength,
+                 TBM_SETRANGEMAX,
+                 FALSE,
+                 static_cast<LPARAM>(kPreRingingCompensationStrengthSteps));
+    SendMessageW(controls_.sliderPreRingingCompensationStrength, TBM_SETTICFREQ, 1, 0);
+    SendMessageW(controls_.sliderPreRingingCompensationStrength, TBM_SETLINESIZE, 0, 1);
+    SendMessageW(controls_.sliderPreRingingCompensationStrength, TBM_SETPAGESIZE, 0, 1);
+    setSelectedPreRingingCompensationStrength(0.0);
     SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETRANGEMIN, FALSE, 0);
     SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETRANGEMAX, FALSE, static_cast<LPARAM>(kGroupDelayZoomFitPreset));
     SendMessageW(controls_.sliderGroupDelayZoom, TBM_SETTICFREQ, 1, 0);
@@ -873,11 +975,13 @@ void FiltersPage::createControls() {
     correctionGraph_.create(window_, instance_, kCorrectionGraph);
     correctedGraph_.create(window_, instance_, kCorrectedGraph);
     excessPhaseGraph_.create(window_, instance_, kExcessPhaseGraph);
+    requestedMixedGroupDelayGraph_.create(window_, instance_, kRequestedMixedGroupDelayGraph);
     groupDelayGraph_.create(window_, instance_, kGroupDelayGraph);
     impulseGraph_.create(window_, instance_, kImpulseGraph);
     correctionGraph_.setHoverCrosshairEnabled(true);
     correctedGraph_.setHoverCrosshairEnabled(true);
     excessPhaseGraph_.setHoverCrosshairEnabled(true);
+    requestedMixedGroupDelayGraph_.setHoverCrosshairEnabled(true);
     groupDelayGraph_.setHoverCrosshairEnabled(true);
     refreshPhaseModeControls();
     refreshRecalculateButton();
@@ -932,9 +1036,16 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelMixedPhaseCap, contentLeft + 352, mixedTop, 74, 18, TRUE);
     MoveWindow(controls_.editMixedPhaseCap, contentLeft + 352, mixedTop + 22, 68, 26, TRUE);
     MoveWindow(controls_.unitMixedPhaseCap, contentLeft + 424, mixedTop + 26, 28, 18, TRUE);
-    MoveWindow(controls_.buttonRecalculate, contentLeft, top + 124, contentWidth, 32, TRUE);
+    const int preRingTop = mixedTop + 62;
+    MoveWindow(controls_.labelPreRingingCompensationFrequencies, contentLeft, preRingTop, 120, 18, TRUE);
+    MoveWindow(controls_.editPreRingingCompensationFrequencies, contentLeft, preRingTop + 22, 260, 26, TRUE);
+    MoveWindow(controls_.unitPreRingingCompensationFrequencies, contentLeft + 266, preRingTop + 26, 22, 18, TRUE);
+    MoveWindow(controls_.labelPreRingingCompensationStrength, contentLeft + 320, preRingTop, 120, 18, TRUE);
+    MoveWindow(controls_.sliderPreRingingCompensationStrength, contentLeft + 320, preRingTop + 20, 120, 32, TRUE);
+    MoveWindow(controls_.valuePreRingingCompensationStrength, contentLeft + 446, preRingTop + 24, 36, 18, TRUE);
+    MoveWindow(controls_.buttonRecalculate, contentLeft, top + 186, contentWidth, 32, TRUE);
 
-    int y = top + 174;
+    int y = top + 236;
     const int legendLeft = contentLeft + contentWidth - legendWidth;
     const int graphRight = legendLeft - legendGap;
     const int effectButtonWidth = 72;
@@ -1004,6 +1115,36 @@ void FiltersPage::layout() {
     MoveWindow(controls_.checkboxShowExcessPhasePredictedRight, checkboxLeft, excessPhaseFirstRowTop + (rowStep * 3), checkboxWidth, 20, TRUE);
     MoveWindow(controls_.lineExcessPhasePredictedRight, lineLeft, excessPhaseFirstRowTop + (rowStep * 3) + 8, lineWidth, lineHeight, TRUE);
     MoveWindow(controls_.labelExcessPhasePredictedRight, labelLeft, excessPhaseFirstRowTop + (rowStep * 3) + 2, labelWidth, 18, TRUE);
+
+    y += 24 + graphHeight + graphGap;
+    MoveWindow(controls_.requestedMixedGroupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
+    MoveWindow(controls_.requestedMixedGroupDelayLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
+    requestedMixedGroupDelayGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
+    const int requestedMixedGroupDelayFirstRowTop = y + 24 + 18;
+    MoveWindow(controls_.lineRequestedMixedGroupDelayLeft,
+               lineLeft,
+               requestedMixedGroupDelayFirstRowTop + 8,
+               lineWidth,
+               lineHeight,
+               TRUE);
+    MoveWindow(controls_.labelRequestedMixedGroupDelayLeft,
+               labelLeft,
+               requestedMixedGroupDelayFirstRowTop + 2,
+               labelWidth,
+               18,
+               TRUE);
+    MoveWindow(controls_.lineRequestedMixedGroupDelayRight,
+               lineLeft,
+               requestedMixedGroupDelayFirstRowTop + rowStep + 8,
+               lineWidth,
+               lineHeight,
+               TRUE);
+    MoveWindow(controls_.labelRequestedMixedGroupDelayRight,
+               labelLeft,
+               requestedMixedGroupDelayFirstRowTop + rowStep + 2,
+               labelWidth,
+               18,
+               TRUE);
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.groupDelayTitle, contentLeft, y, contentWidth, 18, TRUE);
@@ -1084,6 +1225,9 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     setWindowTextValue(controls_.editExcessPhaseWindow, formatWideDouble(settings.excessPhaseWindowMs, 0));
     setWindowTextValue(controls_.editMixedPhaseStrength, formatWideDouble(settings.mixedPhaseStrength, 2));
     setWindowTextValue(controls_.editMixedPhaseCap, formatWideDouble(settings.mixedPhaseMaxCorrectionDegrees, 0));
+    setWindowTextValue(controls_.editPreRingingCompensationFrequencies,
+                       formatIntList(settings.preRingingCompensationFrequenciesHz));
+    setSelectedPreRingingCompensationStrength(settings.preRingingCompensationStrength);
     refreshExcessPhaseWindowLabel();
     loadViewSettings(workspace.ui);
     syncViewSettingsToControls();
@@ -1095,6 +1239,7 @@ void FiltersPage::populate(const WorkspaceState& workspace) {
     correctionGraph_.setData(buildCorrectionGraphData(workspace));
     correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
     excessPhaseGraph_.setData(buildExcessPhaseGraphData(workspace));
+    requestedMixedGroupDelayGraph_.setData(buildRequestedMixedGroupDelayGraphData(workspace));
     groupDelayGraph_.setData(buildGroupDelayGraphData(workspace));
     applyGroupDelayZoomRange();
     impulseGraph_.setData(buildImpulseGraphData(workspace));
@@ -1135,6 +1280,9 @@ void FiltersPage::syncToWorkspace(WorkspaceState& workspace) const {
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseCap), value)) {
         workspace.filters.mixedPhaseMaxCorrectionDegrees = value;
     }
+    workspace.filters.preRingingCompensationFrequenciesHz =
+        parseIntList(getWindowTextValue(controls_.editPreRingingCompensationFrequencies));
+    workspace.filters.preRingingCompensationStrength = selectedPreRingingCompensationStrength();
     measurement::normalizeFilterDesignSettings(workspace.filters, workspace.measurement.sampleRate);
     saveViewSettings(workspace.ui);
 }
@@ -1146,6 +1294,7 @@ void FiltersPage::setRecalculateInProgress(bool running) {
             correctionGraph_.window(),
             correctedGraph_.window(),
             excessPhaseGraph_.window(),
+            requestedMixedGroupDelayGraph_.window(),
             groupDelayGraph_.window(),
             impulseGraph_.window(),
         };
@@ -1170,10 +1319,28 @@ void FiltersPage::setSelectedSmoothness(double smoothness) const {
     refreshSmoothnessValue();
 }
 
+double FiltersPage::selectedPreRingingCompensationStrength() const {
+    return preRingingCompensationStrengthValueFromSliderPosition(
+        SendMessageW(controls_.sliderPreRingingCompensationStrength, TBM_GETPOS, 0, 0));
+}
+
+void FiltersPage::setSelectedPreRingingCompensationStrength(double strength) const {
+    SendMessageW(controls_.sliderPreRingingCompensationStrength,
+                 TBM_SETPOS,
+                 TRUE,
+                 preRingingCompensationStrengthSliderPositionFromValue(strength));
+    refreshPreRingingCompensationStrengthValue();
+}
+
 void FiltersPage::refreshSmoothnessValue() const {
     setWindowTextValue(controls_.valueSmoothness,
                        std::to_wstring(smoothnessDisplayValueFromSliderPosition(
                            SendMessageW(controls_.sliderSmoothness, TBM_GETPOS, 0, 0))));
+}
+
+void FiltersPage::refreshPreRingingCompensationStrengthValue() const {
+    setWindowTextValue(controls_.valuePreRingingCompensationStrength,
+                       formatWideDouble(selectedPreRingingCompensationStrength(), 2));
 }
 
 void FiltersPage::refreshExcessPhaseWindowLabel() const {
@@ -1219,6 +1386,12 @@ void FiltersPage::refreshPhaseModeControls() const {
     EnableWindow(controls_.labelMixedPhaseCap, mixedEnabled);
     EnableWindow(controls_.editMixedPhaseCap, mixedEnabled);
     EnableWindow(controls_.unitMixedPhaseCap, mixedEnabled);
+    EnableWindow(controls_.labelPreRingingCompensationFrequencies, mixedEnabled);
+    EnableWindow(controls_.editPreRingingCompensationFrequencies, mixedEnabled);
+    EnableWindow(controls_.unitPreRingingCompensationFrequencies, mixedEnabled);
+    EnableWindow(controls_.labelPreRingingCompensationStrength, mixedEnabled);
+    EnableWindow(controls_.sliderPreRingingCompensationStrength, mixedEnabled);
+    EnableWindow(controls_.valuePreRingingCompensationStrength, mixedEnabled);
 }
 
 void FiltersPage::refreshFilterViewPresentation() const {
@@ -1491,6 +1664,9 @@ FilterDesignSettings FiltersPage::currentSettings() const {
     if (tryParseDouble(getWindowTextValue(controls_.editMixedPhaseCap), value)) {
         settings.mixedPhaseMaxCorrectionDegrees = value;
     }
+    settings.preRingingCompensationFrequenciesHz =
+        parseIntList(getWindowTextValue(controls_.editPreRingingCompensationFrequencies));
+    settings.preRingingCompensationStrength = selectedPreRingingCompensationStrength();
 
     measurement::normalizeFilterDesignSettings(settings, sampleRate_);
     return settings;
@@ -1507,7 +1683,9 @@ bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const Filte
            std::abs(left.mixedPhaseMaxFrequencyHz - right.mixedPhaseMaxFrequencyHz) < 0.001 &&
            std::abs(left.excessPhaseWindowMs - right.excessPhaseWindowMs) < 0.001 &&
            std::abs(left.mixedPhaseStrength - right.mixedPhaseStrength) < 0.001 &&
-           std::abs(left.mixedPhaseMaxCorrectionDegrees - right.mixedPhaseMaxCorrectionDegrees) < 0.001;
+           std::abs(left.mixedPhaseMaxCorrectionDegrees - right.mixedPhaseMaxCorrectionDegrees) < 0.001 &&
+           left.preRingingCompensationFrequenciesHz == right.preRingingCompensationFrequenciesHz &&
+           std::abs(left.preRingingCompensationStrength - right.preRingingCompensationStrength) < 0.001;
 }
 
 void FiltersPage::refreshPendingHighlightState() {
@@ -1541,6 +1719,16 @@ void FiltersPage::refreshPendingHighlightState() {
     mixedPhaseCapPending_ = hasPendingNumericEdit(controls_.editMixedPhaseCap,
                                                   appliedSettings_.mixedPhaseMaxCorrectionDegrees,
                                                   settings.mixedPhaseMaxCorrectionDegrees);
+    const std::wstring preRingingFrequencyText =
+        getWindowTextValue(controls_.editPreRingingCompensationFrequencies);
+    const std::vector<int> preRingingFrequencies = parseIntList(preRingingFrequencyText);
+    const bool hasNonWhitespacePreRingingText =
+        preRingingFrequencyText.find_first_not_of(L" \t\r\n,;") != std::wstring::npos;
+    preRingingCompensationFrequenciesPending_ =
+        preRingingFrequencies != appliedSettings_.preRingingCompensationFrequenciesHz ||
+        (hasNonWhitespacePreRingingText && preRingingFrequencies.empty());
+    preRingingCompensationStrengthPending_ =
+        std::abs(settings.preRingingCompensationStrength - appliedSettings_.preRingingCompensationStrength) >= 0.001;
 
     const HWND controlsToInvalidate[] = {
         controls_.labelTapCount,
@@ -1572,6 +1760,12 @@ void FiltersPage::refreshPendingHighlightState() {
         controls_.labelMixedPhaseCap,
         controls_.editMixedPhaseCap,
         controls_.unitMixedPhaseCap,
+        controls_.labelPreRingingCompensationFrequencies,
+        controls_.editPreRingingCompensationFrequencies,
+        controls_.unitPreRingingCompensationFrequencies,
+        controls_.labelPreRingingCompensationStrength,
+        controls_.sliderPreRingingCompensationStrength,
+        controls_.valuePreRingingCompensationStrength,
     };
     for (HWND control : controlsToInvalidate) {
         if (control != nullptr) {
@@ -1724,7 +1918,8 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kEditMixedPhaseMax ||
          commandId == kEditExcessPhaseWindow ||
          commandId == kEditMixedPhaseStrength ||
-         commandId == kEditMixedPhaseCap) &&
+         commandId == kEditMixedPhaseCap ||
+         commandId == kEditPreRingingCompensationFrequencies) &&
         notificationCode == EN_CHANGE) {
         if (commandId == kEditExcessPhaseWindow) {
             refreshExcessPhaseWindowLabel();
@@ -1763,6 +1958,7 @@ bool FiltersPage::handleCommand(WORD commandId,
         correctionGraph_.setData(buildCorrectionGraphData(workspace));
         correctedGraph_.setData(buildCorrectedResponseGraphData(workspace));
         excessPhaseGraph_.setData(buildExcessPhaseGraphData(workspace));
+        requestedMixedGroupDelayGraph_.setData(buildRequestedMixedGroupDelayGraphData(workspace));
         groupDelayGraph_.setData(buildGroupDelayGraphData(workspace));
         applySharedFrequencyHoverMarker();
         return true;
@@ -1836,6 +2032,9 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
             if (source == page->controls_.sliderSmoothness) {
                 page->refreshSmoothnessValue();
                 page->refreshRecalculateButton();
+            } else if (source == page->controls_.sliderPreRingingCompensationStrength) {
+                page->refreshPreRingingCompensationStrengthValue();
+                page->refreshRecalculateButton();
             } else if (source == page->controls_.sliderGroupDelayZoom) {
                 page->refreshGroupDelayZoomValue();
             }
@@ -1864,6 +2063,7 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
                 if (draw->hwndItem == page->controls_.inversionLegendFrame ||
                     draw->hwndItem == page->controls_.correctedLegendFrame ||
                     draw->hwndItem == page->controls_.excessPhaseLegendFrame ||
+                    draw->hwndItem == page->controls_.requestedMixedGroupDelayLegendFrame ||
                     draw->hwndItem == page->controls_.groupDelayLegendFrame) {
                     drawLegendFrame(*draw);
                     return TRUE;
@@ -1896,6 +2096,8 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         static HBRUSH lineExcessPhaseInputLeftBrush = CreateSolidBrush(ui_theme::kGreen);
         static HBRUSH lineExcessPhasePredictedRightBrush = CreateSolidBrush(ui_theme::kMagenta);
         static HBRUSH lineExcessPhasePredictedLeftBrush = CreateSolidBrush(ui_theme::kGray);
+        static HBRUSH lineRequestedMixedGroupDelayRightBrush = CreateSolidBrush(ui_theme::kMagenta);
+        static HBRUSH lineRequestedMixedGroupDelayLeftBrush = CreateSolidBrush(ui_theme::kGray);
         static HBRUSH lineInputGroupDelayLeftBrush = CreateSolidBrush(ui_theme::kGreen);
         static HBRUSH lineInputGroupDelayRightBrush = CreateSolidBrush(ui_theme::kRed);
         static HBRUSH linePredictedGroupDelayRightBrush = CreateSolidBrush(ui_theme::kMagenta);
@@ -1964,6 +2166,14 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
                 SetBkColor(hdc, ui_theme::kGray);
                 return reinterpret_cast<INT_PTR>(lineExcessPhasePredictedLeftBrush);
             }
+            if (control == page->controls_.lineRequestedMixedGroupDelayRight) {
+                SetBkColor(hdc, ui_theme::kMagenta);
+                return reinterpret_cast<INT_PTR>(lineRequestedMixedGroupDelayRightBrush);
+            }
+            if (control == page->controls_.lineRequestedMixedGroupDelayLeft) {
+                SetBkColor(hdc, ui_theme::kGray);
+                return reinterpret_cast<INT_PTR>(lineRequestedMixedGroupDelayLeftBrush);
+            }
             if (control == page->controls_.lineInputGroupDelayLeft) {
                 SetBkColor(hdc, ui_theme::kGreen);
                 return reinterpret_cast<INT_PTR>(lineInputGroupDelayLeftBrush);
@@ -2022,6 +2232,16 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
             } else if (control == page->controls_.labelMixedPhaseCap ||
                        control == page->controls_.unitMixedPhaseCap) {
                 SetTextColor(hdc, page->mixedPhaseCapPending_ ? ui_theme::kMagenta : ui_theme::kText);
+            } else if (control == page->controls_.labelPreRingingCompensationFrequencies ||
+                       control == page->controls_.unitPreRingingCompensationFrequencies) {
+                SetTextColor(hdc,
+                             page->preRingingCompensationFrequenciesPending_ ? ui_theme::kMagenta
+                                                                            : ui_theme::kText);
+            } else if (control == page->controls_.labelPreRingingCompensationStrength ||
+                       control == page->controls_.valuePreRingingCompensationStrength) {
+                SetTextColor(hdc,
+                             page->preRingingCompensationStrengthPending_ ? ui_theme::kMagenta
+                                                                         : ui_theme::kText);
             }
         }
         SetBkMode(hdc, TRANSPARENT);
@@ -2047,6 +2267,8 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
                                  : control == page->controls_.editExcessPhaseWindow ? page->excessPhaseWindowPending_
                                  : control == page->controls_.editMixedPhaseStrength ? page->mixedPhaseStrengthPending_
                                  : control == page->controls_.editMixedPhaseCap      ? page->mixedPhaseCapPending_
+                                 : control == page->controls_.editPreRingingCompensationFrequencies
+                                     ? page->preRingingCompensationFrequenciesPending_
                                                                                      : false;
             SetTextColor(hdc, pending ? ui_theme::kMagenta : ui_theme::kText);
         } else {
@@ -2232,6 +2454,18 @@ bool FiltersPage::handleMouseWheel(WPARAM wParam) {
 }
 
 bool FiltersPage::handleHScroll(HWND source, WorkspaceState& workspace) {
+    if (source == controls_.sliderPreRingingCompensationStrength) {
+        refreshPreRingingCompensationStrengthValue();
+        refreshRecalculateButton();
+        return false;
+    }
+
+    if (source == controls_.sliderSmoothness) {
+        refreshSmoothnessValue();
+        refreshRecalculateButton();
+        return false;
+    }
+
     if (source != controls_.sliderGroupDelayZoom) {
         return false;
     }
@@ -2284,6 +2518,7 @@ void FiltersPage::applySharedFrequencyHoverMarker() {
     correctionGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
     correctedGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
     excessPhaseGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
+    requestedMixedGroupDelayGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
     groupDelayGraph_.setSharedHoverMarker(true, sharedFrequencyHoverActive_, sharedFrequencyHoverHz_);
 }
 
@@ -2295,6 +2530,8 @@ PlotGraph* FiltersPage::frequencyGraphForCommandId(WORD commandId) {
         return &correctedGraph_;
     case kExcessPhaseGraph:
         return &excessPhaseGraph_;
+    case kRequestedMixedGroupDelayGraph:
+        return &requestedMixedGroupDelayGraph_;
     case kGroupDelayGraph:
         return &groupDelayGraph_;
     default:
@@ -2313,6 +2550,7 @@ void FiltersPage::applySharedFrequencyXRange(const PlotGraph& sourceGraph) {
     correctionGraph_.setVisibleXRange(minX, maxX);
     correctedGraph_.setVisibleXRange(minX, maxX);
     excessPhaseGraph_.setVisibleXRange(minX, maxX);
+    requestedMixedGroupDelayGraph_.setVisibleXRange(minX, maxX);
     groupDelayGraph_.setVisibleXRange(minX, maxX);
 }
 
@@ -2320,6 +2558,7 @@ void FiltersPage::resetSharedFrequencyXRange() {
     correctionGraph_.resetXRange();
     correctedGraph_.resetXRange();
     excessPhaseGraph_.resetXRange();
+    requestedMixedGroupDelayGraph_.resetXRange();
     groupDelayGraph_.resetXRange();
 }
 
@@ -2348,8 +2587,9 @@ void FiltersPage::configureImpulseGraphViewport(const WorkspaceState& workspace)
     const double fullMinMs = impulseTimeMs.front();
     const double fullMaxMs = impulseTimeMs.back();
 
+    const double negativeWindowMs = impulseGraphNegativeWindowMsForViewMode(workspace.ui.filterViewMode);
     impulseGraph_.setDefaultXRange(true,
-                                   clampValue(-kImpulseGraphNegativeWindowMs, fullMinMs, fullMaxMs),
+                                   clampValue(-negativeWindowMs, fullMinMs, fullMaxMs),
                                    clampValue(kImpulseGraphPositiveWindowMs, fullMinMs, fullMaxMs));
     impulseGraph_.setDefaultYRange(!differenceView, -1.0, 1.0);
     impulseGraph_.resetView();
@@ -2713,6 +2953,52 @@ PlotGraphData FiltersPage::buildExcessPhaseGraphData(const WorkspaceState& works
         const double halfSpan = std::max((paddedMax - paddedMin) * 0.5, minimumSpan * 0.5);
         data.minY = center - halfSpan;
         data.maxY = center + halfSpan;
+    }
+    return data;
+}
+
+PlotGraphData FiltersPage::buildRequestedMixedGroupDelayGraphData(const WorkspaceState& workspace) const {
+    PlotGraphData data;
+    data.xAxisMode = PlotGraphXAxisMode::LogFrequency;
+    data.xUnit = L"Hz";
+    data.yUnit = L"ms";
+
+    const FilterDesignResult* sourceResult = nullptr;
+    if (workspace.ui.filterViewMode == "difference") {
+        sourceResult = workspace.mixedFilter.available() ? &workspace.mixedFilter.result : nullptr;
+    } else if (workspace.filterResult.valid) {
+        sourceResult = &workspace.filterResult;
+    }
+
+    if (sourceResult == nullptr || !sourceResult->valid) {
+        return data;
+    }
+
+    data.xValues = sourceResult->frequencyAxisHz;
+    if (data.xValues.empty()) {
+        return data;
+    }
+
+    double minY = std::numeric_limits<double>::max();
+    double maxY = std::numeric_limits<double>::lowest();
+    if (!sourceResult->right.requestedMixedGroupDelayMs.empty()) {
+        accumulateFiniteRange(sourceResult->right.requestedMixedGroupDelayMs, minY, maxY);
+        data.series.push_back({L"Right request",
+                               ui_theme::kMagenta,
+                               sourceResult->right.requestedMixedGroupDelayMs});
+    }
+    if (!sourceResult->left.requestedMixedGroupDelayMs.empty()) {
+        accumulateFiniteRange(sourceResult->left.requestedMixedGroupDelayMs, minY, maxY);
+        data.series.push_back({L"Left request",
+                               ui_theme::kGray,
+                               sourceResult->left.requestedMixedGroupDelayMs});
+    }
+
+    if (std::isfinite(minY) && std::isfinite(maxY)) {
+        data.fixedYRange = true;
+        const double padded = std::max(std::max(std::abs(minY), std::abs(maxY)) + 0.5, 5.0);
+        data.minY = -padded;
+        data.maxY = padded;
     }
     return data;
 }

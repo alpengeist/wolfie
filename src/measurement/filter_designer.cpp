@@ -23,6 +23,7 @@ constexpr double kDegreesToRadians = std::numbers::pi_v<double> / 180.0;
 constexpr double kMaxSmoothness = 4.0;
 constexpr double kCutLimitSoftness = 0.78;
 constexpr double kBoostLimitSoftness = 0.92;
+constexpr double kPreRingingCompensationHalfWidthOctaves = 0.25;
 enum class NormalizedPhaseMode {
     Minimum,
     ExcessLf,
@@ -141,6 +142,39 @@ std::string describePhasePreparationSource(const PreparedPhaseData& preparedPhas
     }
     if (!preparedPhase.phaseValueSetKey.empty()) {
         stream << " from " << preparedPhase.phaseValueSetKey;
+    }
+    return stream.str();
+}
+
+std::vector<int> normalizePreRingingCompensationFrequencies(const std::vector<int>& frequenciesHz,
+                                                            const FilterDesignSettings& settings) {
+    std::vector<int> normalized;
+    normalized.reserve(frequenciesHz.size());
+    const int minFrequencyHz = static_cast<int>(std::ceil(settings.lowCorrectionHz));
+    const int maxFrequencyHz = static_cast<int>(std::floor(settings.mixedPhaseMaxFrequencyHz));
+    for (const int frequencyHz : frequenciesHz) {
+        if (frequencyHz < minFrequencyHz || frequencyHz > maxFrequencyHz) {
+            continue;
+        }
+        normalized.push_back(frequencyHz);
+    }
+
+    std::sort(normalized.begin(), normalized.end());
+    normalized.erase(std::unique(normalized.begin(), normalized.end()), normalized.end());
+    return normalized;
+}
+
+std::string formatFrequencyListHz(const std::vector<int>& frequenciesHz) {
+    if (frequenciesHz.empty()) {
+        return "none";
+    }
+
+    std::ostringstream stream;
+    for (size_t index = 0; index < frequenciesHz.size(); ++index) {
+        if (index > 0) {
+            stream << ", ";
+        }
+        stream << frequenciesHz[index] << " Hz";
     }
     return stream.str();
 }
@@ -785,6 +819,33 @@ double excessPhaseCorrectionWeightAt(double frequencyHz,
                                          std::max(taperEndHz - fullCorrectionHz, 1.0e-9)));
 }
 
+double preRingingCompensationWeightAt(double frequencyHz, const FilterDesignSettings& settings) {
+    if (settings.preRingingCompensationFrequenciesHz.empty() ||
+        settings.preRingingCompensationStrength <= 1.0e-6 ||
+        !std::isfinite(frequencyHz) ||
+        frequencyHz <= 0.0) {
+        return 1.0;
+    }
+
+    double strongestBackoff = 0.0;
+    for (const int targetFrequencyHz : settings.preRingingCompensationFrequenciesHz) {
+        if (targetFrequencyHz <= 0) {
+            continue;
+        }
+        const double distanceOctaves =
+            std::abs(std::log2(frequencyHz / static_cast<double>(targetFrequencyHz)));
+        if (distanceOctaves >= kPreRingingCompensationHalfWidthOctaves) {
+            continue;
+        }
+
+        const double localBackoff =
+            1.0 - smoothRamp(distanceOctaves / kPreRingingCompensationHalfWidthOctaves);
+        strongestBackoff = std::max(strongestBackoff, localBackoff);
+    }
+
+    return 1.0 - (settings.preRingingCompensationStrength * strongestBackoff);
+}
+
 std::vector<double> buildExcessPhaseCorrectionDegrees(const std::vector<double>& displayFrequencyAxisHz,
                                                       const std::vector<double>& inputExcessPhaseRadians,
                                                       const FilterDesignSettings& settings,
@@ -802,9 +863,12 @@ std::vector<double> buildExcessPhaseCorrectionDegrees(const std::vector<double>&
     for (size_t index = 0; index < count; ++index) {
         const double taperWeight =
             excessPhaseCorrectionWeightAt(displayFrequencyAxisHz[index], settings, sampleRate);
-        taperWeights[index] = taperWeight;
-        desiredCorrectionDegrees[index] = -inputExcessPhaseDegrees[index] * taperWeight * settings.mixedPhaseStrength;
-        trackingWeights[index] = taperWeight * taperWeight;
+        const double compensatedWeight =
+            taperWeight * preRingingCompensationWeightAt(displayFrequencyAxisHz[index], settings);
+        taperWeights[index] = compensatedWeight;
+        desiredCorrectionDegrees[index] =
+            -inputExcessPhaseDegrees[index] * compensatedWeight * settings.mixedPhaseStrength;
+        trackingWeights[index] = compensatedWeight * compensatedWeight;
     }
 
     const double regularization = 48.0 *
@@ -1085,6 +1149,7 @@ struct DesignedChannel {
     std::vector<double> filterResponseDb;
     std::vector<double> correctedResponseDb;
     std::vector<double> inputGroupDelayMs;
+    std::vector<double> requestedMixedGroupDelayMs;
     std::vector<double> groupDelayMs;
     std::vector<double> inputExcessPhaseDegrees;
     std::vector<double> inputExcessPhaseContinuousDegrees;
@@ -1185,6 +1250,8 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
                                                         inputPhaseView->excessPhaseRadians,
                                                         settings,
                                                         sampleRate);
+            channel.requestedMixedGroupDelayMs =
+                buildGroupDelayMs(displayFrequencyAxisHz, degreesToRadians(correctionPhaseDegrees));
             const std::vector<double> positivePhaseCorrectionRadians =
                 buildPositivePhaseCorrectionRadians(sampleRate,
                                                     fftSize,
@@ -1244,7 +1311,8 @@ DesignedChannel designChannel(const std::vector<double>& displayFrequencyAxisHz,
                                                   sampleRate);
             const std::vector<double> correctionPhaseRadians = degreesToRadians(correctionPhaseDegrees);
 
-            channel.groupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, correctionPhaseRadians);
+            channel.requestedMixedGroupDelayMs = buildGroupDelayMs(displayFrequencyAxisHz, correctionPhaseRadians);
+            channel.groupDelayMs = channel.requestedMixedGroupDelayMs;
             const PreparedPhaseView predictedView =
                 buildPredictedPhaseView(*preparedInput,
                                         displayFrequencyAxisHz,
@@ -1322,6 +1390,10 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
     settings.mixedPhaseStrength = clampValue(settings.mixedPhaseStrength, 0.0, 1.0);
     settings.mixedPhaseMaxCorrectionDegrees =
         clampValue(settings.mixedPhaseMaxCorrectionDegrees, 30.0, 720.0);
+    settings.preRingingCompensationStrength =
+        clampValue(settings.preRingingCompensationStrength, 0.0, 1.0);
+    settings.preRingingCompensationFrequenciesHz =
+        normalizePreRingingCompensationFrequencies(settings.preRingingCompensationFrequenciesHz, settings);
 }
 
 FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
@@ -1354,6 +1426,17 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     appendProcessLog(result.processLog,
                      "Normalized filter settings: phase mode " + settings.phaseMode +
                          ", tap count " + std::to_string(settings.tapCount) + ".");
+    if (!settings.preRingingCompensationFrequenciesHz.empty() &&
+        settings.preRingingCompensationStrength > 1.0e-6) {
+        std::ostringstream stream;
+        stream.setf(std::ios::fixed);
+        stream.precision(2);
+        stream << settings.preRingingCompensationStrength;
+        appendProcessLog(result.processLog,
+                         "Pre-ringing compensation backs off mixed-phase correction around " +
+                             formatFrequencyListHz(settings.preRingingCompensationFrequenciesHz) +
+                             " with strength " + stream.str() + ".");
+    }
 
     const std::vector<double> displayFrequencyAxisHz =
         buildLogFrequencyAxis(targetPlot.minFrequencyHz, targetPlot.maxFrequencyHz, settings.displayPointCount);
@@ -1513,6 +1596,7 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     result.left.filterResponseDb = left.filterResponseDb;
     result.left.correctedResponseDb = left.correctedResponseDb;
     result.left.inputGroupDelayMs = left.inputGroupDelayMs;
+    result.left.requestedMixedGroupDelayMs = left.requestedMixedGroupDelayMs;
     result.left.groupDelayMs = left.groupDelayMs;
     result.left.inputExcessPhaseDegrees = left.inputExcessPhaseDegrees;
     result.left.inputExcessPhaseContinuousDegrees = left.inputExcessPhaseContinuousDegrees;
@@ -1527,6 +1611,7 @@ FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,
     result.right.filterResponseDb = right.filterResponseDb;
     result.right.correctedResponseDb = right.correctedResponseDb;
     result.right.inputGroupDelayMs = right.inputGroupDelayMs;
+    result.right.requestedMixedGroupDelayMs = right.requestedMixedGroupDelayMs;
     result.right.groupDelayMs = right.groupDelayMs;
     result.right.inputExcessPhaseDegrees = right.inputExcessPhaseDegrees;
     result.right.inputExcessPhaseContinuousDegrees = right.inputExcessPhaseContinuousDegrees;

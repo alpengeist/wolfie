@@ -799,6 +799,100 @@ bool expectMixedModeDoesNotPushWrappedEnergyIntoLateTail() {
     return true;
 }
 
+bool expectPreRingingCompensationBacksOffListedBand() {
+    wolfie::MeasurementSettings measurement;
+    measurement.sampleRate = 48000;
+    measurement.startFrequencyHz = 20.0;
+    measurement.endFrequencyHz = 20000.0;
+
+    wolfie::TargetCurveSettings targetCurve;
+    wolfie::measurement::normalizeTargetCurveSettings(targetCurve, 20.0, 20000.0);
+
+    wolfie::FilterDesignSettings baselineSettings;
+    baselineSettings.tapCount = 16384;
+    baselineSettings.phaseMode = "mixed";
+    baselineSettings.mixedPhaseMaxCorrectionDegrees = 720.0;
+
+    wolfie::FilterDesignSettings compensatedSettings = baselineSettings;
+    compensatedSettings.preRingingCompensationFrequenciesHz = {70};
+    compensatedSettings.preRingingCompensationStrength = 1.0;
+
+    const wolfie::SmoothedResponse response = wolfie::tests::buildFlatResponse(0.0);
+    const wolfie::MeasurementResult phaseMeasurement =
+        wolfie::tests::buildPhaseMeasurement(measurement.sampleRate, 0.0, 3.0, 0.0);
+    const wolfie::FilterDesignResult baselineResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           baselineSettings,
+                                           &phaseMeasurement);
+    const wolfie::FilterDesignResult compensatedResult =
+        wolfie::measurement::designFilters(response,
+                                           measurement,
+                                           targetCurve,
+                                           compensatedSettings,
+                                           &phaseMeasurement);
+    if (!baselineResult.valid || !compensatedResult.valid) {
+        std::cerr << "pre-ringing compensation case did not produce valid filter results\n";
+        return false;
+    }
+
+    const double baselineResidual = wolfie::tests::bandMeanAbs(baselineResult.frequencyAxisHz,
+                                                               baselineResult.left.predictedExcessPhaseDegrees,
+                                                               60.0,
+                                                               85.0);
+    const double compensatedResidual = wolfie::tests::bandMeanAbs(compensatedResult.frequencyAxisHz,
+                                                                  compensatedResult.left.predictedExcessPhaseDegrees,
+                                                                  60.0,
+                                                                  85.0);
+    if (compensatedResidual < baselineResidual + 0.01) {
+        std::cerr << "pre-ringing compensation did not materially back off the listed band (baseline="
+                  << baselineResidual << ", compensated=" << compensatedResidual << ")\n";
+        return false;
+    }
+
+    const double outerBandDelta = wolfie::tests::bandMeanAbsDelta(compensatedResult.frequencyAxisHz,
+                                                                  baselineResult.left.predictedExcessPhaseDegrees,
+                                                                  compensatedResult.left.predictedExcessPhaseDegrees,
+                                                                  120.0,
+                                                                  200.0);
+    if (outerBandDelta > 10.0) {
+        std::cerr << "pre-ringing compensation changed too much out of band (" << outerBandDelta
+                  << " deg)\n";
+        return false;
+    }
+
+    if (!wolfie::tests::processLogContains(compensatedResult, "Pre-ringing compensation backs off")) {
+        std::cerr << "pre-ringing compensation was not reported in the filter process log\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool expectPreRingingCompensationFrequenciesStayWithinPhaseRange() {
+    wolfie::FilterDesignSettings settings;
+    settings.phaseMode = "mixed";
+    settings.lowCorrectionHz = 55.0;
+    settings.mixedPhaseMaxFrequencyHz = 180.0;
+    settings.preRingingCompensationFrequenciesHz = {30, 55, 120, 120, 180, 220};
+    settings.preRingingCompensationStrength = 1.5;
+
+    wolfie::measurement::normalizeFilterDesignSettings(settings, 48000);
+
+    const std::vector<int> expectedFrequenciesHz = {55, 120, 180};
+    if (settings.preRingingCompensationFrequenciesHz != expectedFrequenciesHz) {
+        std::cerr << "pre-ringing compensation frequencies were not normalized to the mixed-phase range\n";
+        return false;
+    }
+    if (std::abs(settings.preRingingCompensationStrength - 1.0) > 1.0e-6) {
+        std::cerr << "pre-ringing compensation strength was not clamped into range\n";
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace
 
 int main() {
@@ -816,5 +910,7 @@ int main() {
         {"expectInputGroupDelayIsPublishedFromMeasuredPhase", expectInputGroupDelayIsPublishedFromMeasuredPhase},
         {"expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps", expectContinuousExcessPhaseSeriesStaySmoothAcrossWraps},
         {"expectMixedModeDoesNotPushWrappedEnergyIntoLateTail", expectMixedModeDoesNotPushWrappedEnergyIntoLateTail},
+        {"expectPreRingingCompensationBacksOffListedBand", expectPreRingingCompensationBacksOffListedBand},
+        {"expectPreRingingCompensationFrequenciesStayWithinPhaseRange", expectPreRingingCompensationFrequenciesStayWithinPhaseRange},
     });
 }

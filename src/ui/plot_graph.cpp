@@ -25,6 +25,33 @@ T clampValue(T value, T low, T high) {
     return std::max(low, std::min(value, high));
 }
 
+void effectiveXBounds(const PlotGraphData& data,
+                      bool hasDefaultXRange,
+                      double defaultMinX,
+                      double defaultMaxX,
+                      double& minX,
+                      double& maxX) {
+    minX = 0.0;
+    maxX = 1.0;
+    if (!data.xValues.empty()) {
+        minX = data.xValues.front();
+        maxX = data.xValues.back();
+        if (std::abs(maxX - minX) < 1.0e-9) {
+            maxX = minX + 1.0;
+        }
+    }
+
+    if (data.xAxisMode != PlotGraphXAxisMode::Linear || !hasDefaultXRange) {
+        return;
+    }
+
+    minX = std::min(minX, std::min(defaultMinX, defaultMaxX));
+    maxX = std::max(maxX, std::max(defaultMinX, defaultMaxX));
+    if (std::abs(maxX - minX) < 1.0e-9) {
+        maxX = minX + 1.0;
+    }
+}
+
 struct GraphLayout {
     RECT graph{};
     RECT resetButton{};
@@ -250,13 +277,7 @@ GraphLayout buildLayout(HDC hdc,
     GetTextMetricsW(hdc, &metrics);
     layout.textHeight = std::max(static_cast<int>(metrics.tmHeight), 12);
 
-    if (!data.xValues.empty()) {
-        layout.fullMinX = data.xValues.front();
-        layout.fullMaxX = data.xValues.back();
-        if (std::abs(layout.fullMaxX - layout.fullMinX) < 1.0e-9) {
-            layout.fullMaxX = layout.fullMinX + 1.0;
-        }
-    }
+    effectiveXBounds(data, hasDefaultXRange, defaultMinX, defaultMaxX, layout.fullMinX, layout.fullMaxX);
 
     double baseMinX = hasDefaultXRange ? defaultMinX : layout.fullMinX;
     double baseMaxX = hasDefaultXRange ? defaultMaxX : layout.fullMaxX;
@@ -599,10 +620,12 @@ std::wstring buildMeasurementInfoText(const PlotGraphData& data, double deltaX, 
     if (data.measurementDerivedValueMode == PlotGraphMeasurementDerivedValueMode::QuarterCycleFrequencyFromDeltaX) {
         const double deltaXMs = std::abs(deltaX);
         if (deltaXMs >= 1.0e-6) {
-            const double quarterCycleFrequencyHz = 250.0 / deltaXMs;
-            info += L"    f ";
-            info += formatHoverFrequency(quarterCycleFrequencyHz);
-            info += L" (assuming quarter cycle)";
+            const double lambdaQuarterFrequencyHz = 250.0 / deltaXMs;
+            const double lambdaHalfFrequencyHz = 500.0 / deltaXMs;
+            info += L"    lambda/4 ";
+            info += formatHoverFrequency(lambdaQuarterFrequencyHz);
+            info += L"    lambda/2 ";
+            info += formatHoverFrequency(lambdaHalfFrequencyHz);
         }
     }
     return info;
@@ -942,8 +965,9 @@ void PlotGraph::setVisibleXRange(double minX, double maxX) {
         return;
     }
 
-    const double fullMinX = data_.xValues.front();
-    const double fullMaxX = data_.xValues.back();
+    double fullMinX = 0.0;
+    double fullMaxX = 1.0;
+    effectiveXBounds(data_, hasDefaultXRange_, defaultMinX_, defaultMaxX_, fullMinX, fullMaxX);
     const double nextMinX = clampValue(std::min(minX, maxX), fullMinX, fullMaxX);
     const double nextMaxX = clampValue(std::max(minX, maxX), fullMinX, fullMaxX);
     if ((nextMaxX - nextMinX) <= kMinimumVisibleXSpan) {
@@ -997,8 +1021,9 @@ bool PlotGraph::zoomX(double factor) {
         return false;
     }
 
-    const double fullMinX = data_.xValues.front();
-    const double fullMaxX = data_.xValues.back();
+    double fullMinX = 0.0;
+    double fullMaxX = 1.0;
+    effectiveXBounds(data_, hasDefaultXRange_, defaultMinX_, defaultMaxX_, fullMinX, fullMaxX);
     const double fullSpan = std::max(fullMaxX - fullMinX, kMinimumVisibleXSpan);
     const double currentMinX = hasCustomXRange_ ? visibleMinX_ : (hasDefaultXRange_ ? defaultMinX_ : fullMinX);
     const double currentMaxX = hasCustomXRange_ ? visibleMaxX_ : (hasDefaultXRange_ ? defaultMaxX_ : fullMaxX);
@@ -1033,8 +1058,9 @@ bool PlotGraph::zoomXFromMin(double factor) {
         return false;
     }
 
-    const double fullMinX = data_.xValues.front();
-    const double fullMaxX = data_.xValues.back();
+    double fullMinX = 0.0;
+    double fullMaxX = 1.0;
+    effectiveXBounds(data_, hasDefaultXRange_, defaultMinX_, defaultMaxX_, fullMinX, fullMaxX);
     const double fullSpan = std::max(fullMaxX - fullMinX, kMinimumVisibleXSpan);
     const double currentMinX = hasCustomXRange_ ? visibleMinX_ : (hasDefaultXRange_ ? defaultMinX_ : fullMinX);
     const double currentMaxX = hasCustomXRange_ ? visibleMaxX_ : (hasDefaultXRange_ ? defaultMaxX_ : fullMaxX);

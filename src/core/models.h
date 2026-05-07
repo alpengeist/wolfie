@@ -371,6 +371,8 @@ struct FilterDesignSettings {
     double excessPhaseWindowMs = 1.0;
     double mixedPhaseStrength = 1.0;
     double mixedPhaseMaxCorrectionDegrees = 360.0;
+    std::vector<int> preRingingCompensationFrequenciesHz;
+    double preRingingCompensationStrength = 0.0;
 };
 
 struct FilterDesignChannelResult {
@@ -378,6 +380,7 @@ struct FilterDesignChannelResult {
     std::vector<double> filterResponseDb;
     std::vector<double> correctedResponseDb;
     std::vector<double> inputGroupDelayMs;
+    std::vector<double> requestedMixedGroupDelayMs;
     std::vector<double> groupDelayMs;
     std::vector<double> inputExcessPhaseDegrees;
     std::vector<double> inputExcessPhaseContinuousDegrees;

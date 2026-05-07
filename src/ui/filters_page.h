@@ -69,6 +69,12 @@ private:
         HWND labelMixedPhaseCap = nullptr;
         HWND editMixedPhaseCap = nullptr;
         HWND unitMixedPhaseCap = nullptr;
+        HWND labelPreRingingCompensationFrequencies = nullptr;
+        HWND editPreRingingCompensationFrequencies = nullptr;
+        HWND unitPreRingingCompensationFrequencies = nullptr;
+        HWND labelPreRingingCompensationStrength = nullptr;
+        HWND sliderPreRingingCompensationStrength = nullptr;
+        HWND valuePreRingingCompensationStrength = nullptr;
         HWND buttonRecalculate = nullptr;
         HWND inversionTitle = nullptr;
         HWND inversionLegendFrame = nullptr;
@@ -116,6 +122,12 @@ private:
         HWND checkboxShowExcessPhasePredictedLeft = nullptr;
         HWND lineExcessPhasePredictedLeft = nullptr;
         HWND labelExcessPhasePredictedLeft = nullptr;
+        HWND requestedMixedGroupDelayTitle = nullptr;
+        HWND requestedMixedGroupDelayLegendFrame = nullptr;
+        HWND lineRequestedMixedGroupDelayRight = nullptr;
+        HWND labelRequestedMixedGroupDelayRight = nullptr;
+        HWND lineRequestedMixedGroupDelayLeft = nullptr;
+        HWND labelRequestedMixedGroupDelayLeft = nullptr;
         HWND checkboxShowPredictedGroupDelayRight = nullptr;
         HWND linePredictedGroupDelayRight = nullptr;
         HWND labelPredictedGroupDelayRight = nullptr;
@@ -199,6 +211,9 @@ private:
     static constexpr int kButtonCorrectedEffect = 3449;
     static constexpr int kButtonExcessPhaseEffect = 3450;
     static constexpr int kButtonGroupDelayEffect = 3451;
+    static constexpr int kEditPreRingingCompensationFrequencies = 3452;
+    static constexpr int kSliderPreRingingCompensationStrength = 3453;
+    static constexpr int kRequestedMixedGroupDelayGraph = 3454;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK GroupDelayZoomSliderProc(HWND window,
@@ -220,9 +235,12 @@ private:
     void createControls();
     [[nodiscard]] double selectedSmoothness() const;
     void setSelectedSmoothness(double smoothness) const;
+    [[nodiscard]] double selectedPreRingingCompensationStrength() const;
+    void setSelectedPreRingingCompensationStrength(double strength) const;
     [[nodiscard]] bool mixedModeSelected() const;
     [[nodiscard]] bool differenceViewSelected() const;
     void refreshSmoothnessValue() const;
+    void refreshPreRingingCompensationStrengthValue() const;
     void refreshExcessPhaseWindowLabel() const;
     [[nodiscard]] int selectedGroupDelayZoomPreset() const;
     void setSelectedGroupDelayZoomPreset(int preset) const;
@@ -250,6 +268,7 @@ private:
     PlotGraphData buildCorrectionGraphData(const WorkspaceState& workspace) const;
     PlotGraphData buildCorrectedResponseGraphData(const WorkspaceState& workspace) const;
     PlotGraphData buildExcessPhaseGraphData(const WorkspaceState& workspace) const;
+    PlotGraphData buildRequestedMixedGroupDelayGraphData(const WorkspaceState& workspace) const;
     PlotGraphData buildGroupDelayGraphData(const WorkspaceState& workspace) const;
     PlotGraphData buildImpulseGraphData(const WorkspaceState& workspace) const;
 
@@ -259,6 +278,7 @@ private:
     PlotGraph correctionGraph_;
     PlotGraph correctedGraph_;
     PlotGraph excessPhaseGraph_;
+    PlotGraph requestedMixedGroupDelayGraph_;
     PlotGraph groupDelayGraph_;
     PlotGraph impulseGraph_;
     std::string filterViewMode_ = "minimum";
@@ -298,6 +318,8 @@ private:
     bool excessPhaseWindowPending_ = false;
     bool mixedPhaseStrengthPending_ = false;
     bool mixedPhaseCapPending_ = false;
+    bool preRingingCompensationFrequenciesPending_ = false;
+    bool preRingingCompensationStrengthPending_ = false;
     bool recalculateInProgress_ = false;
     int sampleRate_ = 48000;
     int scrollOffset_ = 0;
