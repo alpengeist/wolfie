@@ -827,6 +827,49 @@ std::vector<double> buildGroupDelayMs(const std::vector<double>& frequencyAxisHz
     return groupDelayMs;
 }
 
+std::vector<double> integrateGroupDelayToPhaseRadians(const std::vector<double>& frequencyAxisHz,
+                                                      const std::vector<double>& groupDelayMs) {
+    const size_t count = std::min(frequencyAxisHz.size(), groupDelayMs.size());
+    std::vector<double> phaseRadians(count, 0.0);
+    if (count < 2) {
+        return phaseRadians;
+    }
+
+    for (size_t index = count - 1; index > 0; --index) {
+        const double highFrequencyHz = frequencyAxisHz[index];
+        const double lowFrequencyHz = frequencyAxisHz[index - 1];
+        const double highGroupDelayMs = groupDelayMs[index];
+        const double lowGroupDelayMs = groupDelayMs[index - 1];
+        if (!std::isfinite(highFrequencyHz) ||
+            !std::isfinite(lowFrequencyHz) ||
+            !std::isfinite(highGroupDelayMs) ||
+            !std::isfinite(lowGroupDelayMs)) {
+            phaseRadians[index - 1] = phaseRadians[index];
+            continue;
+        }
+
+        const double deltaFrequencyHz = highFrequencyHz - lowFrequencyHz;
+        const double averageGroupDelayMs = 0.5 * (highGroupDelayMs + lowGroupDelayMs);
+        phaseRadians[index - 1] =
+            phaseRadians[index] + ((2.0 * std::numbers::pi * averageGroupDelayMs * deltaFrequencyHz) / 1000.0);
+    }
+
+    return phaseRadians;
+}
+
+double maxAbsoluteWeightedValue(const std::vector<double>& values,
+                                const std::vector<double>& weights) {
+    const size_t count = std::min(values.size(), weights.size());
+    double maximum = 0.0;
+    for (size_t index = 0; index < count; ++index) {
+        if (!std::isfinite(values[index]) || weights[index] <= 1.0e-6) {
+            continue;
+        }
+        maximum = std::max(maximum, std::abs(values[index]));
+    }
+    return maximum;
+}
+
 std::vector<double> radiansToDegrees(const std::vector<double>& radians) {
     std::vector<double> degrees;
     degrees.reserve(radians.size());
@@ -966,40 +1009,59 @@ MixedPhaseCorrectionDesign buildExcessPhaseCorrectionDesign(const std::vector<do
                                                             int sampleRate) {
     const size_t count = std::min(displayFrequencyAxisHz.size(), inputExcessPhaseRadians.size());
     MixedPhaseCorrectionDesign design;
-    std::vector<double> inputExcessPhaseDegrees;
-    inputExcessPhaseDegrees.reserve(count);
-    for (size_t index = 0; index < count; ++index) {
-        inputExcessPhaseDegrees.push_back(inputExcessPhaseRadians[index] * kRadiansToDegrees);
-    }
-
-    design.preSolveCorrectionDegrees.assign(count, 0.0);
+    const std::vector<double> inputExcessGroupDelayMs =
+        buildGroupDelayMs(displayFrequencyAxisHz, inputExcessPhaseRadians);
+    design.preSolveGroupDelayMs.assign(count, 0.0);
     std::vector<double> trackingWeights(count, 0.0);
-    std::vector<double> limitWeights(count, 0.0);
+    std::vector<double> activeWeights(count, 0.0);
     for (size_t index = 0; index < count; ++index) {
-        const double taperWeight =
+        const double groupDelayWeight =
             excessPhaseCorrectionWeightAt(displayFrequencyAxisHz[index], settings, sampleRate);
         const double compensatedWeight =
-            taperWeight * preRingingCompensationWeightAt(displayFrequencyAxisHz[index], settings);
-        limitWeights[index] = compensatedWeight;
-        design.preSolveCorrectionDegrees[index] =
-            -inputExcessPhaseDegrees[index] * compensatedWeight * settings.mixedPhaseStrength;
+            groupDelayWeight * preRingingCompensationWeightAt(displayFrequencyAxisHz[index], settings);
+        activeWeights[index] = compensatedWeight;
+        if (!std::isfinite(inputExcessGroupDelayMs[index])) {
+            continue;
+        }
+
+        design.preSolveGroupDelayMs[index] =
+            -inputExcessGroupDelayMs[index] * compensatedWeight * settings.mixedPhaseStrength;
         trackingWeights[index] = compensatedWeight * compensatedWeight;
     }
 
-    const double regularization = 48.0 *
+    const double regularization = 18.0 *
                                   std::max(static_cast<double>(count) / 512.0, 1.0) *
                                   smoothnessRegularizationScale(std::max(settings.smoothness, 1.0));
-    design.postSolveCorrectionDegrees =
-        solveRegularizedCurve(design.preSolveCorrectionDegrees, trackingWeights, regularization);
-    for (size_t index = 0; index < design.postSolveCorrectionDegrees.size() && index < limitWeights.size(); ++index) {
-        const double limitedDegrees = settings.mixedPhaseMaxCorrectionDegrees * limitWeights[index];
-        design.postSolveCorrectionDegrees[index] =
-            clampValue(design.postSolveCorrectionDegrees[index], -limitedDegrees, limitedDegrees);
-    }
-    design.preSolveGroupDelayMs =
-        buildGroupDelayMs(displayFrequencyAxisHz, degreesToRadians(design.preSolveCorrectionDegrees));
     design.postSolveGroupDelayMs =
-        buildGroupDelayMs(displayFrequencyAxisHz, degreesToRadians(design.postSolveCorrectionDegrees));
+        solveRegularizedCurve(design.preSolveGroupDelayMs, trackingWeights, regularization);
+    for (size_t index = 0; index < design.postSolveGroupDelayMs.size() && index < activeWeights.size(); ++index) {
+        if (activeWeights[index] <= 1.0e-6 || !std::isfinite(design.postSolveGroupDelayMs[index])) {
+            design.postSolveGroupDelayMs[index] = 0.0;
+        }
+    }
+
+    std::vector<double> preSolveCorrectionRadians =
+        integrateGroupDelayToPhaseRadians(displayFrequencyAxisHz, design.preSolveGroupDelayMs);
+    std::vector<double> postSolveCorrectionRadians =
+        integrateGroupDelayToPhaseRadians(displayFrequencyAxisHz, design.postSolveGroupDelayMs);
+    const std::vector<double> postSolveCorrectionDegrees =
+        radiansToDegrees(postSolveCorrectionRadians);
+    const double maxPostSolveCorrectionDegrees =
+        maxAbsoluteWeightedValue(postSolveCorrectionDegrees, activeWeights);
+    if (maxPostSolveCorrectionDegrees > settings.mixedPhaseMaxCorrectionDegrees &&
+        maxPostSolveCorrectionDegrees > 1.0e-9) {
+        const double scale =
+            settings.mixedPhaseMaxCorrectionDegrees / maxPostSolveCorrectionDegrees;
+        for (double& value : design.postSolveGroupDelayMs) {
+            value *= scale;
+        }
+        for (double& value : postSolveCorrectionRadians) {
+            value *= scale;
+        }
+    }
+
+    design.preSolveCorrectionDegrees = radiansToDegrees(preSolveCorrectionRadians);
+    design.postSolveCorrectionDegrees = radiansToDegrees(postSolveCorrectionRadians);
     return design;
 }
 
