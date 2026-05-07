@@ -423,6 +423,56 @@ Mixed-phase regression policy:
 - treat the realized FIR as the load-bearing artifact, not just the predicted plots: regressions may hide if only the correction target or averaged band metrics are inspected
 - when balancing bass preservation against late artifacts, the acceptance check is the combined result on the real workspace: low-frequency corrected-response drift versus minimum phase must stay bounded, and the realized mixed FIR plus expected waterfall must improve in the expected direction when tap count is increased for that regression
 
+### Mixed-Phase Filter Generation
+
+The mixed-phase path is intentionally layered on top of the minimum-phase magnitude path instead of replacing it with full-band direct inversion.
+
+Current generation pipeline:
+
+1. `normalizeFilterDesignSettings()` snaps the FIR length to the supported tap counts, normalizes `phaseMode`, and clamps the mixed-phase controls before any solve begins.
+2. `mixedPhaseMaxFrequencyHz` defines the full-strength correction band. The current implementation applies full weight through that limit and then tapers the mixed-phase request to zero by `2x` that frequency, subject to Nyquist-based clamps.
+3. `preparePhaseData()` selects one matched magnitude/phase source pair for both channels. Selection order is: `reference_compensated_room` response, `reference_compensated_room` spectrum, `room` response, then `room` spectrum. Raw-only phase products are intentionally excluded from mixed-phase preparation.
+4. The preparation step unwraps the measured phase, derives bulk delay from `measurement.room_impulse_response`, removes that linear delay, and optionally applies the user `Phase Window` by reconstructing a transfer impulse, extracting a local window around the dominant impulse, cosine-fading the edges, and transforming back to a transfer function.
+5. The preparation step then smooths only the magnitude, rebuilds the corresponding minimum-phase curve from that smoothed magnitude, and defines excess phase as `delay-corrected measured phase - minimum phase`. This gives the mixed solver a phase-only residual instead of asking it to chase the full measured phase.
+6. The prepared channel is resampled onto the filter display axis and publishes wrapped excess phase, continuous excess phase, and measured input group delay for plotting and diagnostics.
+
+Mixed-phase correction design:
+
+- `buildExcessPhaseCorrectionDesign()` converts the prepared excess phase into an excess group-delay request. The solver works in group-delay space because it is easier to constrain locally and easier to reason about in the low-frequency band than raw phase rotations.
+- The request is weighted by the existing low-frequency correction envelope and by the mixed-phase limit band. Below the configured limit, mixed correction can run at full strength. In the transition band, the weight is tapered smoothly to zero. Above the taper end, mixed correction is disabled.
+- `mixedPhaseStrength` scales the requested correction before the regularized solve. A value of `0` should collapse back to minimum-phase behavior.
+- Pre-ringing compensation is applied as a local backoff multiplier around the user-listed center frequencies. It is intentionally narrowband and should reduce requested mixed correction mainly near those bands rather than reshaping the entire LF region.
+- The requested group-delay curve is smoothed with the regularized solver instead of being applied literally. This is where the implementation trades exact target cancellation for a realizable, lower-ripple mixed-phase request.
+- After the solve, bins outside the active band are forced back to zero. The solved group delay is then integrated back into phase.
+- `mixedPhaseMaxCorrectionDegrees` is enforced after the solve by scaling the entire requested mixed correction when the largest weighted phase rotation exceeds the configured cap. The cap limits the realized LF phase swing without changing the general correction shape.
+
+Stereo handling rules:
+
+- Mixed mode normally designs per-channel correction from each channel's own prepared excess phase.
+- When both channels show meaningful low-frequency excess phase and a meaningful left/right excess-phase delta, the implementation switches to a shared correction design computed as the average of the left and right requests. This preserves the stereo phase relationship instead of independently "fixing" each side toward a different LF timing target.
+- After both mixed filters are realized, their impulse peaks are aligned to a shared latency by delaying the earlier peak to the later one and then recomputing the realized response diagnostics from the shifted FIRs. This keeps stereo timing consistent in the published result and in the exported taps.
+
+FIR realization details:
+
+- The magnitude side still comes from the normal correction curve and minimum-phase positive-magnitude reconstruction.
+- Mixed mode then rotates that minimum-phase spectrum by the solved positive-frequency phase-correction curve and performs an inverse FFT to obtain a full mixed-phase impulse.
+- The impulse is not taken from a fixed offset. The implementation searches for the circular window with the highest energy for the requested tap count, extracts that segment, and applies a tail fade before publishing/exporting it.
+- If the solved mixed-phase correction is effectively zero, the mixed path falls back to the minimum-phase impulse builder instead of manufacturing a different FIR for no audible benefit.
+
+Published diagnostics and contracts:
+
+- `FilterDesignResult` publishes the requested mixed transition band as `requestedMixedTransitionStartHz` and `requestedMixedTransitionEndHz`.
+- Each channel publishes both the pre-solve and post-solve requested mixed group-delay curves, the realized filter group delay, the measured input excess phase, the predicted excess phase after the realized FIR, and the predicted total group delay.
+- The process log is part of the architectural contract for this path. It records the selected phase-preparation source, bulk-delay removal, configured phase window, whether correction was shared or per-channel, transition-band diagnostics, stereo peak alignment, and completion of each channel design.
+
+What mixed mode is not allowed to do:
+
+- It must not reinterpret pure bulk delay as excess phase.
+- It must not require raw-only phase products when room-based matched sources are unavailable.
+- It must not significantly disturb out-of-band phase once the mixed correction taper has reached zero.
+- It must not materially change the magnitude result relative to minimum phase when only the phase mode changes.
+- It must not sacrifice stereo low-frequency phase relationship for a cleaner-looking single-channel plot.
+
 ### Phase And Group-Delay Inputs
 
 The measurement layer publishes two transfer-function product families for transfer windows such as `raw`, `room`, and `reference_compensated_room`:
