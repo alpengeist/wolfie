@@ -522,7 +522,7 @@ void FiltersPage::createControls() {
     controls_.valueSmoothness = CreateWindowW(L"STATIC", L"1", WS_CHILD | WS_VISIBLE | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.phaseCorrectionGroup = CreateWindowW(L"BUTTON",
                                                    L"Phase Correction",
-                                                   WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+                                                   WS_CHILD | WS_VISIBLE | BS_GROUPBOX | kHelpBubbleChildClipStyle,
                                                    0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelMixedPhaseMax = CreateWindowW(L"STATIC", L"Limit", WS_CHILD | WS_VISIBLE | SS_NOTIFY | kHelpBubbleChildClipStyle, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.editMixedPhaseMax = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | kHelpBubbleChildClipStyle,
@@ -1085,8 +1085,8 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelSmoothness, contentLeft + 716, top, 250, 18, TRUE);
     MoveWindow(controls_.sliderSmoothness, contentLeft + 716, top + 20, 120, 32, TRUE);
     MoveWindow(controls_.valueSmoothness, contentLeft + 842, top + 24, 36, 18, TRUE);
-    const int phaseCorrectionTop = top + 58;
-    const int phaseCorrectionHeight = 78;
+    const int phaseCorrectionTop = top + 56;
+    const int phaseCorrectionHeight = 94;
     MoveWindow(controls_.phaseCorrectionGroup, contentLeft, phaseCorrectionTop, contentWidth, phaseCorrectionHeight, TRUE);
     SetWindowPos(controls_.phaseCorrectionGroup,
                  HWND_BOTTOM,
@@ -1097,7 +1097,6 @@ void FiltersPage::layout() {
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     const int phaseFieldTop = phaseCorrectionTop + 18;
     const int phaseFieldLeft = contentLeft + 14;
-    const int phaseFieldGap = 12;
     const int limitLeft = phaseFieldLeft;
     const int windowLeft = limitLeft + 96;
     const int strengthLeft = windowLeft + 100;
@@ -1116,15 +1115,15 @@ void FiltersPage::layout() {
     MoveWindow(controls_.labelMixedPhaseCap, capLeft, phaseFieldTop, 42, 18, TRUE);
     MoveWindow(controls_.editMixedPhaseCap, capLeft, phaseFieldTop + 22, 68, 26, TRUE);
     MoveWindow(controls_.unitMixedPhaseCap, capLeft + 72, phaseFieldTop + 26, 28, 18, TRUE);
-    MoveWindow(controls_.labelPreRingingCompensationFrequencies, spotsLeft, phaseFieldTop, 52, 18, TRUE);
+    MoveWindow(controls_.labelPreRingingCompensationFrequencies, spotsLeft, phaseFieldTop, 74, 18, TRUE);
     MoveWindow(controls_.editPreRingingCompensationFrequencies, spotsLeft, phaseFieldTop + 22, 130, 26, TRUE);
     MoveWindow(controls_.unitPreRingingCompensationFrequencies, spotsLeft + 136, phaseFieldTop + 26, 22, 18, TRUE);
-    MoveWindow(controls_.labelPreRingingCompensationStrength, preRingLeft, phaseFieldTop, 74, 18, TRUE);
+    MoveWindow(controls_.labelPreRingingCompensationStrength, preRingLeft, phaseFieldTop, 126, 18, TRUE);
     MoveWindow(controls_.sliderPreRingingCompensationStrength, preRingLeft, phaseFieldTop + 20, 118, 32, TRUE);
     MoveWindow(controls_.valuePreRingingCompensationStrength, preRingLeft + 124, phaseFieldTop + 24, 36, 18, TRUE);
-    MoveWindow(controls_.buttonRecalculate, contentLeft, phaseCorrectionTop + phaseCorrectionHeight + 10, contentWidth, 32, TRUE);
+    MoveWindow(controls_.buttonRecalculate, contentLeft, phaseCorrectionTop + phaseCorrectionHeight + 12, contentWidth, 32, TRUE);
 
-    int y = phaseCorrectionTop + phaseCorrectionHeight + 60;
+    int y = phaseCorrectionTop + phaseCorrectionHeight + 62;
     const int legendLeft = contentLeft + contentWidth - legendWidth;
     const int graphRight = legendLeft - legendGap;
     const int effectButtonWidth = 72;
@@ -2224,13 +2223,13 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     case WM_DRAWITEM:
         if (page != nullptr) {
             const auto* draw = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
-            if (draw != nullptr) {
-                if (draw->hwndItem == page->controls_.buttonRecalculate) {
-                    return page->drawRecalculateButton(*draw) ? TRUE : FALSE;
-                }
-                if (draw->hwndItem == page->controls_.inversionLegendFrame ||
-                    draw->hwndItem == page->controls_.correctedLegendFrame ||
-                    draw->hwndItem == page->controls_.excessPhaseLegendFrame ||
+                if (draw != nullptr) {
+                    if (draw->hwndItem == page->controls_.buttonRecalculate) {
+                        return page->drawRecalculateButton(*draw) ? TRUE : FALSE;
+                    }
+                    if (draw->hwndItem == page->controls_.inversionLegendFrame ||
+                        draw->hwndItem == page->controls_.correctedLegendFrame ||
+                        draw->hwndItem == page->controls_.excessPhaseLegendFrame ||
                     draw->hwndItem == page->controls_.requestedMixedGroupDelayLegendFrame ||
                     draw->hwndItem == page->controls_.groupDelayLegendFrame) {
                     drawLegendFrame(*draw);
@@ -2284,6 +2283,12 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         if (page != nullptr) {
             COMBOBOXINFO tapCountInfo{};
             const bool hasTapCountInfo = getComboBoxInfoSafe(page->controls_.comboTapCount, tapCountInfo);
+            if (control == page->controls_.phaseCorrectionGroup) {
+                SetBkMode(hdc, OPAQUE);
+                SetBkColor(hdc, ui_theme::backgroundColor());
+                SetTextColor(hdc, page->mixedModeSelected() ? ui_theme::kText : ui_theme::kMuted);
+                return reinterpret_cast<INT_PTR>(ui_theme::backgroundBrush());
+            }
             if (control == page->controls_.lineInputRight) {
                 SetBkColor(hdc, ui_theme::kRed);
                 return reinterpret_cast<INT_PTR>(lineInputRightBrush);
@@ -2619,6 +2624,10 @@ void FiltersPage::setScrollOffset(int scrollOffset) {
                    nullptr,
                    nullptr,
                    SW_INVALIDATE | SW_ERASE | SW_SCROLLCHILDREN);
+    RedrawWindow(controls_.phaseCorrectionGroup,
+                 nullptr,
+                 nullptr,
+                 RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_UPDATENOW);
     UpdateWindow(window_);
 }
 
