@@ -963,6 +963,17 @@ void FiltersPage::createControls() {
                                                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonRemoveRequestedMixedGroupDelaySpot)),
                                                                        instance_,
                                                                        nullptr);
+    controls_.buttonResetRequestedMixedGroupDelaySpot = CreateWindowW(L"BUTTON",
+                                                                      L"Reset",
+                                                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | kHelpBubbleChildClipStyle,
+                                                                      0,
+                                                                      0,
+                                                                      0,
+                                                                      0,
+                                                                      window_,
+                                                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonResetRequestedMixedGroupDelaySpot)),
+                                                                      instance_,
+                                                                      nullptr);
     controls_.buttonRecalculateRequestedMixedGroupDelay = CreateWindowW(L"BUTTON",
                                                                         L"Recalc",
                                                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | kHelpBubbleChildClipStyle,
@@ -1414,9 +1425,22 @@ void FiltersPage::layout() {
                  0,
                  0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    MoveWindow(controls_.buttonRecalculateRequestedMixedGroupDelay,
+    MoveWindow(controls_.buttonResetRequestedMixedGroupDelaySpot,
                requestedMixedButtonLeft,
                requestedMixedButtonsTop + 60,
+               requestedMixedButtonWidth,
+               24,
+               TRUE);
+    SetWindowPos(controls_.buttonResetRequestedMixedGroupDelaySpot,
+                 HWND_TOP,
+                 0,
+                 0,
+                 0,
+                 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    MoveWindow(controls_.buttonRecalculateRequestedMixedGroupDelay,
+               requestedMixedButtonLeft,
+               requestedMixedButtonsTop + 90,
                requestedMixedButtonWidth,
                24,
                TRUE);
@@ -1598,6 +1622,14 @@ void FiltersPage::setRecalculateInProgress(bool running) {
                      nullptr,
                      RDW_INVALIDATE | RDW_UPDATENOW);
     }
+    if (controls_.buttonResetRequestedMixedGroupDelaySpot != nullptr) {
+        EnableWindow(controls_.buttonResetRequestedMixedGroupDelaySpot,
+                     (!running && !differenceViewSelected() && mixedModeSelected()) ? TRUE : FALSE);
+        RedrawWindow(controls_.buttonResetRequestedMixedGroupDelaySpot,
+                     nullptr,
+                     nullptr,
+                     RDW_INVALIDATE | RDW_UPDATENOW);
+    }
 }
 
 double FiltersPage::selectedSmoothness() const {
@@ -1685,6 +1717,7 @@ void FiltersPage::refreshPhaseModeControls() const {
     EnableWindow(controls_.valuePreRingingCompensationStrength, mixedEnabled);
     EnableWindow(controls_.buttonAddRequestedMixedGroupDelaySpot, mixedEnabled);
     EnableWindow(controls_.buttonRemoveRequestedMixedGroupDelaySpot, mixedEnabled);
+    EnableWindow(controls_.buttonResetRequestedMixedGroupDelaySpot, mixedEnabled);
     EnableWindow(controls_.buttonRecalculateRequestedMixedGroupDelay, mixedEnabled);
 }
 
@@ -1736,6 +1769,7 @@ void FiltersPage::refreshFilterViewPresentation() const {
 
     ShowWindow(controls_.buttonAddRequestedMixedGroupDelaySpot, (!differenceView && mixedView) ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.buttonRemoveRequestedMixedGroupDelaySpot, (!differenceView && mixedView) ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.buttonResetRequestedMixedGroupDelaySpot, (!differenceView && mixedView) ? SW_SHOW : SW_HIDE);
     ShowWindow(controls_.buttonRecalculateRequestedMixedGroupDelay, (!differenceView && mixedView) ? SW_SHOW : SW_HIDE);
 
     ShowWindow(controls_.checkboxShowInputGroupDelayLeft, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
@@ -2163,6 +2197,11 @@ void FiltersPage::refreshRecalculateButton() {
                      (!recalculateInProgress_ && !differenceViewSelected() && mixedModeSelected()) ? TRUE : FALSE);
         InvalidateRect(controls_.buttonRecalculateRequestedMixedGroupDelay, nullptr, TRUE);
     }
+    if (controls_.buttonResetRequestedMixedGroupDelaySpot != nullptr) {
+        EnableWindow(controls_.buttonResetRequestedMixedGroupDelaySpot,
+                     (!recalculateInProgress_ && !differenceViewSelected() && mixedModeSelected()) ? TRUE : FALSE);
+        InvalidateRect(controls_.buttonResetRequestedMixedGroupDelaySpot, nullptr, TRUE);
+    }
 }
 
 bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
@@ -2350,6 +2389,16 @@ bool FiltersPage::handleCommand(WORD commandId,
             logMessages.push_back((commandId == kButtonAddRequestedMixedGroupDelaySpot ? L"Peak +: using " : L"Peak -: using ") +
                                   formatIntList(nextFrequenciesHz) + L".");
         }
+        refreshRecalculateButton();
+        requestedMixedGroupDelayGraph_.setData(buildRequestedMixedGroupDelayGraphData(workspace));
+        applySharedFrequencyHoverMarker();
+        return true;
+    }
+
+    if (commandId == kButtonResetRequestedMixedGroupDelaySpot &&
+        notificationCode == BN_CLICKED) {
+        setWindowTextValue(controls_.editPreRingingCompensationFrequencies, L"");
+        logMessages.push_back(L"Reset: cleared Ring Spots.");
         refreshRecalculateButton();
         requestedMixedGroupDelayGraph_.setData(buildRequestedMixedGroupDelayGraphData(workspace));
         applySharedFrequencyHoverMarker();
@@ -2563,7 +2612,8 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         if (message == WM_CTLCOLORBTN &&
             page != nullptr &&
             (control == page->controls_.buttonAddRequestedMixedGroupDelaySpot ||
-             control == page->controls_.buttonRemoveRequestedMixedGroupDelaySpot)) {
+             control == page->controls_.buttonRemoveRequestedMixedGroupDelaySpot ||
+             control == page->controls_.buttonResetRequestedMixedGroupDelaySpot)) {
             SetBkMode(hdc, OPAQUE);
             SetBkColor(hdc, GetSysColor(COLOR_BTNFACE));
             SetTextColor(hdc, ui_theme::kText);

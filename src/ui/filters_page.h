@@ -140,6 +140,7 @@ private:
         HWND labelRequestedMixedGroupDelayLeft = nullptr;
         HWND buttonAddRequestedMixedGroupDelaySpot = nullptr;
         HWND buttonRemoveRequestedMixedGroupDelaySpot = nullptr;
+        HWND buttonResetRequestedMixedGroupDelaySpot = nullptr;
         HWND buttonRecalculateRequestedMixedGroupDelay = nullptr;
         HWND checkboxShowPredictedGroupDelayRight = nullptr;
         HWND linePredictedGroupDelayRight = nullptr;
@@ -234,6 +235,7 @@ private:
     static constexpr int kButtonAddRequestedMixedGroupDelaySpot = 3459;
     static constexpr int kButtonRemoveRequestedMixedGroupDelaySpot = 3460;
     static constexpr int kButtonRecalculateRequestedMixedGroupDelay = 3461;
+    static constexpr int kButtonResetRequestedMixedGroupDelaySpot = 3462;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK GroupDelayZoomSliderProc(HWND window,
