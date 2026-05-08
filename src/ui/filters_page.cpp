@@ -650,7 +650,8 @@ void FiltersPage::createControls() {
     helpBubble_.registerLabel(controls_.labelExcessPhaseWindow, L"Sets the time window in milliseconds used to derive the phase-preparation transfer before mixed-phase correction is computed. Increase it only while the requested mixed group-delay chart keeps showing believable low-frequency structure inside the intended correction range. If larger windows start introducing group-delay spikes in the lower mids, especially above the Limit, reduce the window.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseStrength, L"Controls how strongly mixed-phase correction is applied within the allowed range.");
     helpBubble_.registerLabel(controls_.labelMixedPhaseCap, L"Caps the maximum phase rotation the mixed-phase solver may request.");
-    helpBubble_.registerLabel(controls_.labelPreRingingCompensationFrequencies, L"Enter space- or comma-separated center frequencies where mixed-phase correction should back off to reduce pre-ringing.");
+    helpBubble_.registerLabel(controls_.labelPreRingingCompensationFrequencies,
+                              L"Enter space- or comma-separated center frequencies where mixed-phase correction should back off to reduce pre-ringing. Use the requested mixed group-delay chart to inspect the candidate peaks. Peak + and Peak - step through the ranked spot suggestions, and Recalc refreshes that chart after settings changes.");
     helpBubble_.registerLabel(controls_.labelPreRingingCompensationStrength, L"Controls how aggressively the listed pre-ringing spots suppress local mixed-phase correction.");
     controls_.inversionTitle = CreateWindowW(L"STATIC", L"Inversion", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
@@ -964,7 +965,7 @@ void FiltersPage::createControls() {
                                                                        nullptr);
     controls_.buttonRecalculateRequestedMixedGroupDelay = CreateWindowW(L"BUTTON",
                                                                         L"Recalc",
-                                                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | kHelpBubbleChildClipStyle,
+                                                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | kHelpBubbleChildClipStyle,
                                                                         0,
                                                                         0,
                                                                         0,
@@ -2171,6 +2172,7 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
     const bool focused = (draw.itemState & ODS_FOCUS) != 0;
     const bool hot = (draw.itemState & ODS_HOTLIGHT) != 0;
     const bool disabled = (draw.itemState & ODS_DISABLED) != 0;
+    const bool isMainRecalculateButton = draw.hwndItem == controls_.buttonRecalculate;
 
     const COLORREF baseFill = recalculateInProgress_ ? ui_theme::kAccent : ui_theme::kGreen;
     const COLORREF hoverFill = blendColor(baseFill, RGB(255, 255, 255), 0.12);
@@ -2208,11 +2210,17 @@ bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
     if (pressed) {
         OffsetRect(&textRect, 0, 1);
     }
-    const wchar_t* label = differenceViewSelected()
-                               ? L"Mode Delta View"
-                               : (recalculateInProgress_
-                                      ? L"Calculating..."
-                                      : L"Recalculate");
+    const std::wstring currentLabel = getWindowTextValue(draw.hwndItem);
+    const wchar_t* label = currentLabel.c_str();
+    if (isMainRecalculateButton) {
+        label = differenceViewSelected()
+                    ? L"Mode Delta View"
+                    : (recalculateInProgress_
+                           ? L"Calculating..."
+                           : L"Recalculate");
+    } else if (recalculateInProgress_) {
+        label = L"Running";
+    }
     DrawTextW(hdc, label, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     if (focused && !disabled) {
@@ -2491,7 +2499,8 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         if (page != nullptr) {
             const auto* draw = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
             if (draw != nullptr) {
-                if (draw->hwndItem == page->controls_.buttonRecalculate) {
+                if (draw->hwndItem == page->controls_.buttonRecalculate ||
+                    draw->hwndItem == page->controls_.buttonRecalculateRequestedMixedGroupDelay) {
                     return page->drawRecalculateButton(*draw) ? TRUE : FALSE;
                 }
                 if (draw->hwndItem == page->controls_.phaseCorrectionGroup) {
