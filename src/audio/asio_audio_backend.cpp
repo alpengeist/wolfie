@@ -4,7 +4,6 @@
 #include <atomic>
 #include <cctype>
 #include <cmath>
-#include <cstdint>
 #include <mutex>
 #include <memory>
 #include <string>
@@ -19,15 +18,6 @@
 namespace wolfie::audio {
 
 namespace {
-
-double pcm16ToFloat(int16_t sample) {
-    return static_cast<double>(sample) / 32768.0;
-}
-
-int16_t floatToPcm16(float sample) {
-    const double clamped = std::clamp(static_cast<double>(sample), -1.0, 1.0);
-    return static_cast<int16_t>(std::lround(clamped * 32767.0));
-}
 
 std::string lowerAscii(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
@@ -108,7 +98,7 @@ public:
             measurement::syncDerivedMeasurementSettings(effectiveSettings);
         }
         playbackPlan_ = measurement::buildSweepPlaybackPlan(effectiveSettings, settings.outputVolumeDb, runMode);
-        playbackPcm_ = playbackPlan_.playbackPcm;
+        playbackStereo_ = playbackPlan_.playbackStereo;
         totalFrames_ = playbackPlan_.totalFrames;
         capturedSamples_.reserve(totalFrames_ + static_cast<size_t>(sampleRate_ / 2));
 
@@ -190,7 +180,7 @@ public:
         return playbackPlan_;
     }
 
-    const std::vector<int16_t>& capturedSamples() const override {
+    const std::vector<double>& capturedSamples() const override {
         return capturedSamples_;
     }
 
@@ -228,7 +218,7 @@ public:
         levels.peakAmplitudeDb = peakAmplitudeDb_.load();
     }
 
-    bool consumeCompletedAlignmentCycle(std::vector<int16_t>& capturedSamples) override {
+    bool consumeCompletedAlignmentCycle(std::vector<double>& capturedSamples) override {
         if (!continuousAlignment_) {
             return false;
         }
@@ -311,33 +301,33 @@ private:
         if (output != nullptr) {
             std::fill(output, output + (static_cast<size_t>(frameCount) * outputChannelCount_), 0.0f);
             for (unsigned int frame = 0; frame < frameCount; ++frame) {
-                int16_t leftSample = 0;
-                int16_t rightSample = 0;
+                double leftSample = 0.0;
+                double rightSample = 0.0;
                 const size_t playbackFrame = renderedFrames_.fetch_add(1);
                 if (continuousAlignment_ && totalFrames_ > 0) {
                     const size_t cycleFrame = playbackFrame % totalFrames_;
                     const size_t baseIndex = cycleFrame * 2;
-                    leftSample = playbackPcm_[baseIndex];
-                    rightSample = playbackPcm_[baseIndex + 1];
+                    leftSample = playbackStereo_[baseIndex];
+                    rightSample = playbackStereo_[baseIndex + 1];
                 } else if (playbackFrame < totalFrames_) {
                     const size_t baseIndex = playbackFrame * 2;
-                    leftSample = playbackPcm_[baseIndex];
-                    rightSample = playbackPcm_[baseIndex + 1];
+                    leftSample = playbackStereo_[baseIndex];
+                    rightSample = playbackStereo_[baseIndex + 1];
                 } else {
                     playbackDone_.store(true);
                 }
 
                 const size_t base = static_cast<size_t>(frame) * outputChannelCount_;
-                output[base + leftOutputOffset_] = static_cast<float>(pcm16ToFloat(leftSample));
-                output[base + rightOutputOffset_] = static_cast<float>(pcm16ToFloat(rightSample));
+                output[base + leftOutputOffset_] = static_cast<float>(std::clamp(leftSample, -1.0, 1.0));
+                output[base + rightOutputOffset_] = static_cast<float>(std::clamp(rightSample, -1.0, 1.0));
             }
         }
 
         auto* input = static_cast<float*>(inputBuffer);
         if (input != nullptr) {
-            std::vector<int16_t> frameSamples(frameCount, 0);
+            std::vector<double> frameSamples(frameCount, 0.0);
             for (unsigned int frame = 0; frame < frameCount; ++frame) {
-                frameSamples[frame] = floatToPcm16(input[frame]);
+                frameSamples[frame] = static_cast<double>(input[frame]);
             }
 
             if (continuousAlignment_) {
@@ -354,7 +344,7 @@ private:
                 capturedSamples_.insert(capturedSamples_.end(), frameSamples.begin(), frameSamples.end());
             }
 
-            const double currentDb = measurement::amplitudeDbFromPcm16(frameSamples.data(), frameCount);
+            const double currentDb = measurement::amplitudeDbFromSamples(frameSamples.data(), frameCount);
             currentAmplitudeDb_.store(currentDb);
             double peakDb = peakAmplitudeDb_.load();
             while (currentDb > peakDb && !peakAmplitudeDb_.compare_exchange_weak(peakDb, currentDb)) {
@@ -368,8 +358,8 @@ private:
     std::string driverName_;
     std::string lastRtAudioError_;
     measurement::SweepPlaybackPlan playbackPlan_;
-    std::vector<int16_t> playbackPcm_;
-    std::vector<int16_t> capturedSamples_;
+    std::vector<double> playbackStereo_;
+    std::vector<double> capturedSamples_;
     SessionDetails sessionDetails_;
     std::atomic<double> currentAmplitudeDb_{-90.0};
     std::atomic<double> peakAmplitudeDb_{-90.0};
@@ -378,8 +368,8 @@ private:
     std::atomic<bool> closed_{false};
     std::atomic<size_t> renderedFrames_{0};
     std::mutex cycleMutex_;
-    std::vector<int16_t> currentCycleSamples_;
-    std::vector<int16_t> completedCycleSamples_;
+    std::vector<double> currentCycleSamples_;
+    std::vector<double> completedCycleSamples_;
     bool completedCycleReady_ = false;
     bool continuousAlignment_ = false;
     int sampleRate_ = 44100;

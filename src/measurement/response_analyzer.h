@@ -10,11 +10,19 @@
 namespace wolfie::measurement {
 
 double amplitudeDbFromPcm16(const int16_t* samples, size_t count);
+double amplitudeDbFromSamples(const double* samples, size_t count);
 double sweepFrequencyAtSample(const MeasurementSettings& settings,
                               int sampleRate,
                               size_t sampleIndex,
                               size_t totalSamples);
 MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& capturedSamples,
+                                                    const SweepPlaybackPlan& playbackPlan,
+                                                    int sampleRate,
+                                                    const AudioSettings& audioSettings,
+                                                    const MeasurementSettings& settings,
+                                                    const MeasurementResult* referenceResult = nullptr,
+                                                    MeasurementRunMode runMode = MeasurementRunMode::Room);
+MeasurementResult buildMeasurementResultFromCapture(const std::vector<double>& capturedSamples,
                                                     const SweepPlaybackPlan& playbackPlan,
                                                     int sampleRate,
                                                     const AudioSettings& audioSettings,

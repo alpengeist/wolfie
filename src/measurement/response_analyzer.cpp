@@ -68,6 +68,12 @@ bool containsClipping(const std::vector<int16_t>& samples) {
     });
 }
 
+bool containsClipping(const std::vector<double>& samples) {
+    return std::any_of(samples.begin(), samples.end(), [](double sample) {
+        return std::isfinite(sample) && std::abs(sample) >= 0.999999;
+    });
+}
+
 struct InverseSweepFilter {
     std::vector<double> samples;
     size_t referencePeakIndex = 0;
@@ -477,7 +483,7 @@ std::vector<double> buildDeconvolutionKernelImpulseResponse(const SweepPlaybackP
                                selfDeconvolved.begin() + static_cast<std::ptrdiff_t>(impulseStart + availableLength));
 }
 
-std::vector<double> extractCaptureSegment(const std::vector<int16_t>& capturedSamples,
+std::vector<double> extractCaptureSegment(const std::vector<double>& capturedSamples,
                                           size_t segmentOffset,
                                           const SweepPlaybackPlan& playbackPlan,
                                           size_t extraTailFrames) {
@@ -492,11 +498,8 @@ std::vector<double> extractCaptureSegment(const std::vector<int16_t>& capturedSa
         return {};
     }
 
-    std::vector<double> segment(availableFrames, 0.0);
-    for (size_t i = 0; i < availableFrames; ++i) {
-        segment[i] = normalizedPcm16(capturedSamples[captureStart + i]);
-    }
-    return segment;
+    return std::vector<double>(capturedSamples.begin() + static_cast<std::ptrdiff_t>(captureStart),
+                               capturedSamples.begin() + static_cast<std::ptrdiff_t>(captureStart + availableFrames));
 }
 
 std::vector<double> makeTimeAxisSeconds(size_t sampleCount, size_t preRollFrames, int sampleRate) {
@@ -972,7 +975,7 @@ struct ChannelAnalysis {
     double impulsePeakToNoiseDb = 0.0;
 };
 
-ChannelAnalysis analyzeSweepSegment(const std::vector<int16_t>& capturedSamples,
+ChannelAnalysis analyzeSweepSegment(const std::vector<double>& capturedSamples,
                                     size_t segmentOffset,
                                     const SweepPlaybackPlan& playbackPlan,
                                     size_t alignmentSearchFrames,
@@ -1031,7 +1034,7 @@ ChannelAnalysis analyzeSweepSegment(const std::vector<int16_t>& capturedSamples,
     return analysis;
 }
 
-ChannelAnalysis analyzeMatchedCorrelationSegment(const std::vector<int16_t>& capturedSamples,
+ChannelAnalysis analyzeMatchedCorrelationSegment(const std::vector<double>& capturedSamples,
                                                  size_t segmentOffset,
                                                  const SweepPlaybackPlan& playbackPlan,
                                                  const InverseSweepFilter& matchedFilter,
@@ -1150,6 +1153,10 @@ double amplitudeDbFromPcm16(const int16_t* samples, size_t count) {
     return amplitudeToDb(rmsFromPcm16(samples, count));
 }
 
+double amplitudeDbFromSamples(const double* samples, size_t count) {
+    return amplitudeToDb(rmsFromDouble(samples, count));
+}
+
 double sweepFrequencyAtSample(const MeasurementSettings& settings,
                               int sampleRate,
                               size_t sampleIndex,
@@ -1175,8 +1182,27 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
                                                     const MeasurementSettings& settings,
                                                     const MeasurementResult* referenceResult,
                                                     MeasurementRunMode runMode) {
+    MeasurementResult result = buildMeasurementResultFromCapture(pcm16ToDouble(capturedSamples),
+                                                                 playbackPlan,
+                                                                 sampleRate,
+                                                                 audioSettings,
+                                                                 settings,
+                                                                 referenceResult,
+                                                                 runMode);
+    result.analysis.captureClippingDetected = containsClipping(capturedSamples);
+    result.analysis.captureRmsDb = rmsDbFromPcmVector(capturedSamples);
+    return result;
+}
+
+MeasurementResult buildMeasurementResultFromCapture(const std::vector<double>& capturedSamples,
+                                                    const SweepPlaybackPlan& playbackPlan,
+                                                    int sampleRate,
+                                                    const AudioSettings& audioSettings,
+                                                    const MeasurementSettings& settings,
+                                                    const MeasurementResult* referenceResult,
+                                                    MeasurementRunMode runMode) {
     MeasurementResult result;
-    result.analysis.analyzerVersion = "ir-v4";
+    result.analysis.analyzerVersion = "ir-v5";
     result.analysis.requestedBackend = audioSettings.backend;
     result.analysis.requestedDriver = audioSettings.backend == "asio" ? audioSettings.driver : "Windows Audio (WASAPI)";
     result.analysis.requestedWindowsInputDeviceId = audioSettings.windowsInputDeviceId;
@@ -1207,14 +1233,15 @@ MeasurementResult buildMeasurementResultFromCapture(const std::vector<int16_t>& 
         return result;
     }
 
-    const std::vector<double> captured = pcm16ToDouble(capturedSamples);
     result.analysis.captureClippingDetected = containsClipping(capturedSamples);
-    result.analysis.captureTooQuiet = maxAbsSample(captured) < 1.0e-4;
-    result.analysis.capturePeakDb = absolutePeakDb(captured);
-    result.analysis.captureRmsDb = rmsDbFromPcmVector(capturedSamples);
-    const size_t captureNoiseFrames = std::min<size_t>(std::max<size_t>(playbackPlan.leadInFrames, 64), captured.size());
+    result.analysis.captureTooQuiet = maxAbsSample(capturedSamples) < 1.0e-4;
+    result.analysis.capturePeakDb = absolutePeakDb(capturedSamples);
+    result.analysis.captureRmsDb = rmsDbFromSamples(capturedSamples);
+    const size_t captureNoiseFrames =
+        std::min<size_t>(std::max<size_t>(playbackPlan.leadInFrames, 64), capturedSamples.size());
     if (captureNoiseFrames > 0) {
-        const std::vector<double> leadingNoise(captured.begin(), captured.begin() + static_cast<std::ptrdiff_t>(captureNoiseFrames));
+        const std::vector<double> leadingNoise(capturedSamples.begin(),
+                                               capturedSamples.begin() + static_cast<std::ptrdiff_t>(captureNoiseFrames));
         result.analysis.captureNoiseFloorDb = rmsDbFromSamples(leadingNoise);
     }
 

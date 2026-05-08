@@ -624,7 +624,7 @@ public:
         return playbackPlan_;
     }
 
-    const std::vector<int16_t>& capturedSamples() const override {
+    const std::vector<double>& capturedSamples() const override {
         return capturedSamples_;
     }
 
@@ -652,7 +652,7 @@ public:
         levels.peakAmplitudeDb = peakAmplitudeDb_.load();
     }
 
-    bool consumeCompletedAlignmentCycle(std::vector<int16_t>& capturedSamples) override {
+    bool consumeCompletedAlignmentCycle(std::vector<double>& capturedSamples) override {
         if (!continuousAlignment_) {
             return false;
         }
@@ -698,14 +698,14 @@ private:
             if (continuousAlignment_ && playbackPlan_.totalFrames > 0) {
                 const size_t cycleFrame = playbackFramesQueued_ % playbackPlan_.totalFrames;
                 const size_t baseIndex = cycleFrame * 2;
-                leftSample = static_cast<double>(playbackPlan_.playbackPcm[baseIndex]) / 32768.0;
-                rightSample = static_cast<double>(playbackPlan_.playbackPcm[baseIndex + 1]) / 32768.0;
+                leftSample = playbackPlan_.playbackStereo[baseIndex];
+                rightSample = playbackPlan_.playbackStereo[baseIndex + 1];
                 ++playbackFramesQueued_;
                 allSilent = false;
             } else if (playbackFramesQueued_ < playbackPlan_.totalFrames) {
                 const size_t baseIndex = playbackFramesQueued_ * 2;
-                leftSample = static_cast<double>(playbackPlan_.playbackPcm[baseIndex]) / 32768.0;
-                rightSample = static_cast<double>(playbackPlan_.playbackPcm[baseIndex + 1]) / 32768.0;
+                leftSample = playbackPlan_.playbackStereo[baseIndex];
+                rightSample = playbackPlan_.playbackStereo[baseIndex + 1];
                 ++playbackFramesQueued_;
                 allSilent = false;
             }
@@ -761,18 +761,17 @@ private:
             }
 
             const size_t captureOffset = capturedSamples_.size();
-            std::vector<int16_t> frameSamples(frames, 0);
+            std::vector<double> frameSamples(frames, 0.0);
             auto* destination = frameSamples.data();
             if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0 || rawBuffer == nullptr) {
-                std::fill(destination, destination + frames, 0);
+                std::fill(destination, destination + frames, 0.0);
             } else {
                 const size_t frameStride = static_cast<size_t>(captureFormat_.channelCount) * captureFormat_.bytesPerChannel;
                 for (UINT32 frame = 0; frame < frames; ++frame) {
                     const uint8_t* frameBytes = rawBuffer + (static_cast<size_t>(frame) * frameStride);
                     const uint8_t* channelBytes =
                         frameBytes + (static_cast<size_t>(captureChannelIndex_) * captureFormat_.bytesPerChannel);
-                    const double normalized = readNormalizedSample(channelBytes, captureFormat_);
-                    destination[frame] = static_cast<int16_t>(std::lround(std::clamp(normalized, -1.0, 1.0) * 32767.0));
+                    destination[frame] = readNormalizedSample(channelBytes, captureFormat_);
                 }
             }
             captureClient->ReleaseBuffer(frames);
@@ -792,7 +791,7 @@ private:
                 std::copy(frameSamples.begin(), frameSamples.end(), capturedSamples_.begin() + static_cast<std::ptrdiff_t>(captureOffset));
             }
 
-            const double currentDb = measurement::amplitudeDbFromPcm16(frameSamples.data(), frames);
+            const double currentDb = measurement::amplitudeDbFromSamples(frameSamples.data(), frames);
             currentAmplitudeDb_.store(currentDb);
             updatePeak(currentDb);
         }
@@ -998,7 +997,7 @@ private:
     std::wstring startupError_;
     SessionDetails sessionDetails_;
     measurement::SweepPlaybackPlan playbackPlan_;
-    std::vector<int16_t> capturedSamples_;
+    std::vector<double> capturedSamples_;
     AudioDataFormat captureFormat_{};
     AudioDataFormat renderFormat_{};
     std::atomic<double> currentAmplitudeDb_{-90.0};
@@ -1007,8 +1006,8 @@ private:
     std::atomic<bool> playbackDone_{false};
     std::atomic<bool> closed_{false};
     std::mutex cycleMutex_;
-    std::vector<int16_t> currentCycleSamples_;
-    std::vector<int16_t> completedCycleSamples_;
+    std::vector<double> currentCycleSamples_;
+    std::vector<double> completedCycleSamples_;
     bool completedCycleReady_ = false;
     bool continuousAlignment_ = false;
     int sampleRate_ = 44100;

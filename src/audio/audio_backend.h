@@ -29,11 +29,11 @@ public:
     virtual void poll(AudioLevels& levels) = 0;
     virtual bool playbackDone() const = 0;
     virtual const measurement::SweepPlaybackPlan& playbackPlan() const = 0;
-    virtual const std::vector<int16_t>& capturedSamples() const = 0;
+    virtual const std::vector<double>& capturedSamples() const = 0;
     virtual int sampleRate() const = 0;
     virtual SessionDetails details() const = 0;
     virtual void stop(AudioLevels& levels) = 0;
-    virtual bool consumeCompletedAlignmentCycle(std::vector<int16_t>& capturedSamples) {
+    virtual bool consumeCompletedAlignmentCycle(std::vector<double>& capturedSamples) {
         (void)capturedSamples;
         return false;
     }

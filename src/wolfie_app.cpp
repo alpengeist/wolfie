@@ -1029,9 +1029,9 @@ WolfieApp::buildReanalyzedMeasurementWithCurrentMicCalibration(const WorkspaceSt
     }
 
     int captureSampleRate = 0;
-    std::vector<int16_t> capturedSamples;
+    std::vector<double> capturedSamples;
     std::wstring errorMessage;
-    if (!persistence::loadMonoPcm16WaveFile(rawCaptureArtifact->path, captureSampleRate, capturedSamples, errorMessage)) {
+    if (!persistence::loadMonoWaveFileNormalized(rawCaptureArtifact->path, captureSampleRate, capturedSamples, errorMessage)) {
         taskResult.errorMessage = L"Could not reanalyze the measurement: " + errorMessage;
         return taskResult;
     }

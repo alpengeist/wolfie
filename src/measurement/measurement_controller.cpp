@@ -103,7 +103,7 @@ bool MeasurementController::start(const WorkspaceState& workspace, MeasurementRu
         : (runMode_ == MeasurementRunMode::Alignment ? L"alignment-pulse.wav"
                                                      : L"logsweep.wav");
     status_.generatedSweepPath = measurementDir / sweepFileName;
-    measurement::writeStereoWaveFile(status_.generatedSweepPath, playbackPlan_.playbackPcm, session_->sampleRate());
+    measurement::writeStereoWaveFile(status_.generatedSweepPath, playbackPlan_.playbackStereo, session_->sampleRate());
 
     durationMs_ = static_cast<uint64_t>(
         std::ceil((static_cast<double>(playbackPlan_.totalFrames) * 1000.0) / static_cast<double>(session_->sampleRate())));
@@ -180,7 +180,7 @@ void MeasurementController::tick() {
     }
 
     if (runMode_ == MeasurementRunMode::Alignment) {
-        std::vector<int16_t> alignmentCycleCapture;
+        std::vector<double> alignmentCycleCapture;
         if (!session_->consumeCompletedAlignmentCycle(alignmentCycleCapture)) {
             return;
         }

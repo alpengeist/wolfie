@@ -11,7 +11,7 @@ namespace wolfie::measurement {
 
 struct SweepPlaybackPlan {
     std::vector<double> playedSweep;
-    std::vector<int16_t> playbackPcm;
+    std::vector<double> playbackStereo;
     size_t leadInFrames = 0;
     size_t sweepFrames = 0;
     size_t postRollFrames = 0;
@@ -26,10 +26,10 @@ SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings,
                                          double outputVolumeDb,
                                          MeasurementRunMode runMode = MeasurementRunMode::Room);
 bool writeStereoWaveFile(const std::filesystem::path& path,
-                         const std::vector<int16_t>& interleavedSamples,
+                         const std::vector<double>& interleavedSamples,
                          int sampleRate);
 bool writeMonoWaveFile(const std::filesystem::path& path,
-                       const std::vector<int16_t>& samples,
+                       const std::vector<double>& samples,
                        int sampleRate);
 
 }  // namespace wolfie::measurement

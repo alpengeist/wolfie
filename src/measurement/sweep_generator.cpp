@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 
 namespace wolfie::measurement {
@@ -102,30 +103,25 @@ std::vector<double> scaleSweepSamples(const std::vector<double>& samples, double
     return scaled;
 }
 
-int16_t sampleToPcm16(double sample) {
-    const double clamped = clampValue(sample, -1.0, 1.0);
-    return static_cast<int16_t>(std::round(clamped * 32767.0));
-}
-
-std::vector<int16_t> buildStereoSweepPcm(const std::vector<double>& sweepSamples,
-                                         int leadInSamples,
-                                         size_t postRollFrames,
-                                         size_t channelSweepCount) {
+std::vector<double> buildStereoSweepSamples(const std::vector<double>& sweepSamples,
+                                            int leadInSamples,
+                                            size_t postRollFrames,
+                                            size_t channelSweepCount) {
     const size_t safeLeadIn = static_cast<size_t>(std::max(0, leadInSamples));
     const size_t segmentFrames = safeLeadIn + sweepSamples.size() + postRollFrames;
     const size_t totalFrames = segmentFrames * std::max<size_t>(1, channelSweepCount);
-    std::vector<int16_t> pcm(totalFrames * 2, 0);
+    std::vector<double> interleaved(totalFrames * 2, 0.0);
 
     for (size_t i = 0; i < sweepSamples.size(); ++i) {
         const size_t leftFrame = safeLeadIn + i;
-        pcm[leftFrame * 2] = sampleToPcm16(sweepSamples[i]);
+        interleaved[leftFrame * 2] = sweepSamples[i];
         if (channelSweepCount >= 2) {
             const size_t rightFrame = segmentFrames + safeLeadIn + i;
-            pcm[rightFrame * 2 + 1] = sampleToPcm16(sweepSamples[i]);
+            interleaved[rightFrame * 2 + 1] = sweepSamples[i];
         }
     }
 
-    return pcm;
+    return interleaved;
 }
 
 }  // namespace
@@ -155,13 +151,13 @@ SweepPlaybackPlan buildSweepPlaybackPlan(const MeasurementSettings& settings,
     plan.segmentFrames = plan.leadInFrames + plan.sweepFrames + plan.postRollFrames;
     plan.channelSweepCount = runMode == MeasurementRunMode::Reference ? 1 : 2;
     plan.totalFrames = plan.segmentFrames * plan.channelSweepCount;
-    plan.playbackPcm =
-        buildStereoSweepPcm(plan.playedSweep, settings.leadInSamples, plan.postRollFrames, plan.channelSweepCount);
+    plan.playbackStereo =
+        buildStereoSweepSamples(plan.playedSweep, settings.leadInSamples, plan.postRollFrames, plan.channelSweepCount);
     return plan;
 }
 
 bool writeStereoWaveFile(const std::filesystem::path& path,
-                         const std::vector<int16_t>& interleavedSamples,
+                         const std::vector<double>& interleavedSamples,
                          int sampleRate) {
     std::ofstream out(path, std::ios::binary);
     if (!out) {
@@ -169,10 +165,11 @@ bool writeStereoWaveFile(const std::filesystem::path& path,
     }
 
     const uint16_t channels = 2;
-    const uint16_t bitsPerSample = 16;
+    const uint16_t bitsPerSample = 32;
+    const uint16_t formatTag = 3;  // IEEE float
     const uint32_t byteRate = sampleRate * channels * bitsPerSample / 8;
     const uint16_t blockAlign = channels * bitsPerSample / 8;
-    const uint32_t dataSize = static_cast<uint32_t>(interleavedSamples.size() * sizeof(int16_t));
+    const uint32_t dataSize = static_cast<uint32_t>(interleavedSamples.size() * sizeof(float));
     const uint32_t riffSize = 36 + dataSize;
 
     out.write("RIFF", 4);
@@ -180,7 +177,6 @@ bool writeStereoWaveFile(const std::filesystem::path& path,
     out.write("WAVE", 4);
     out.write("fmt ", 4);
     const uint32_t fmtSize = 16;
-    const uint16_t formatTag = 1;
     out.write(reinterpret_cast<const char*>(&fmtSize), sizeof(fmtSize));
     out.write(reinterpret_cast<const char*>(&formatTag), sizeof(formatTag));
     out.write(reinterpret_cast<const char*>(&channels), sizeof(channels));
@@ -190,13 +186,16 @@ bool writeStereoWaveFile(const std::filesystem::path& path,
     out.write(reinterpret_cast<const char*>(&bitsPerSample), sizeof(bitsPerSample));
     out.write("data", 4);
     out.write(reinterpret_cast<const char*>(&dataSize), sizeof(dataSize));
-    out.write(reinterpret_cast<const char*>(interleavedSamples.data()), static_cast<std::streamsize>(dataSize));
+    for (const double sample : interleavedSamples) {
+        const float clamped = static_cast<float>(clampValue(sample, -1.0, 1.0));
+        out.write(reinterpret_cast<const char*>(&clamped), sizeof(clamped));
+    }
 
     return static_cast<bool>(out);
 }
 
 bool writeMonoWaveFile(const std::filesystem::path& path,
-                       const std::vector<int16_t>& samples,
+                       const std::vector<double>& samples,
                        int sampleRate) {
     std::ofstream out(path, std::ios::binary);
     if (!out) {
@@ -204,10 +203,11 @@ bool writeMonoWaveFile(const std::filesystem::path& path,
     }
 
     const uint16_t channels = 1;
-    const uint16_t bitsPerSample = 16;
+    const uint16_t bitsPerSample = 32;
+    const uint16_t formatTag = 3;  // IEEE float
     const uint32_t byteRate = sampleRate * channels * bitsPerSample / 8;
     const uint16_t blockAlign = channels * bitsPerSample / 8;
-    const uint32_t dataSize = static_cast<uint32_t>(samples.size() * sizeof(int16_t));
+    const uint32_t dataSize = static_cast<uint32_t>(samples.size() * sizeof(float));
     const uint32_t riffSize = 36 + dataSize;
 
     out.write("RIFF", 4);
@@ -215,7 +215,6 @@ bool writeMonoWaveFile(const std::filesystem::path& path,
     out.write("WAVE", 4);
     out.write("fmt ", 4);
     const uint32_t fmtSize = 16;
-    const uint16_t formatTag = 1;
     out.write(reinterpret_cast<const char*>(&fmtSize), sizeof(fmtSize));
     out.write(reinterpret_cast<const char*>(&formatTag), sizeof(formatTag));
     out.write(reinterpret_cast<const char*>(&channels), sizeof(channels));
@@ -225,7 +224,10 @@ bool writeMonoWaveFile(const std::filesystem::path& path,
     out.write(reinterpret_cast<const char*>(&bitsPerSample), sizeof(bitsPerSample));
     out.write("data", 4);
     out.write(reinterpret_cast<const char*>(&dataSize), sizeof(dataSize));
-    out.write(reinterpret_cast<const char*>(samples.data()), static_cast<std::streamsize>(dataSize));
+    for (const double sample : samples) {
+        const float clamped = static_cast<float>(clampValue(sample, -1.0, 1.0));
+        out.write(reinterpret_cast<const char*>(&clamped), sizeof(clamped));
+    }
 
     return static_cast<bool>(out);
 }
