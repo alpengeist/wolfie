@@ -32,7 +32,8 @@ public:
                        bool& settingsChanged,
                        bool& recalculateRequested,
                        bool& viewSettingsChanged,
-                       bool& selectionChanged);
+                       bool& selectionChanged,
+                       std::vector<std::wstring>& logMessages);
 
     [[nodiscard]] HWND window() const { return window_; }
 
@@ -137,6 +138,9 @@ private:
         HWND checkboxShowRequestedMixedGroupDelayLeft = nullptr;
         HWND lineRequestedMixedGroupDelayLeft = nullptr;
         HWND labelRequestedMixedGroupDelayLeft = nullptr;
+        HWND buttonAddRequestedMixedGroupDelaySpot = nullptr;
+        HWND buttonRemoveRequestedMixedGroupDelaySpot = nullptr;
+        HWND buttonRecalculateRequestedMixedGroupDelay = nullptr;
         HWND checkboxShowPredictedGroupDelayRight = nullptr;
         HWND linePredictedGroupDelayRight = nullptr;
         HWND labelPredictedGroupDelayRight = nullptr;
@@ -227,6 +231,9 @@ private:
     static constexpr int kCheckboxShowRequestedMixedGroupDelayPreLeft = 3456;
     static constexpr int kCheckboxShowRequestedMixedGroupDelayRight = 3457;
     static constexpr int kCheckboxShowRequestedMixedGroupDelayLeft = 3458;
+    static constexpr int kButtonAddRequestedMixedGroupDelaySpot = 3459;
+    static constexpr int kButtonRemoveRequestedMixedGroupDelaySpot = 3460;
+    static constexpr int kButtonRecalculateRequestedMixedGroupDelay = 3461;
 
     static LRESULT CALLBACK PageWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK GroupDelayZoomSliderProc(HWND window,
@@ -262,6 +269,10 @@ private:
     void refreshFilterViewPresentation() const;
     void applyGroupDelayZoomRange();
     [[nodiscard]] FilterDesignSettings currentSettings() const;
+    [[nodiscard]] const FilterDesignResult* requestedMixedGroupDelaySourceResult(const WorkspaceState& workspace) const;
+    [[nodiscard]] const FilterDesignSettings* requestedMixedGroupDelaySourceSettings(const WorkspaceState& workspace) const;
+    [[nodiscard]] std::vector<int> requestedMixedGroupDelayCandidateFrequencies(const WorkspaceState& workspace) const;
+    [[nodiscard]] std::vector<int> requestedMixedGroupDelayDisplayedSpotFrequencies() const;
     void loadViewSettings(const UiSettings& ui);
     void syncViewSettingsToControls() const;
     void syncViewSettingsFromControls();

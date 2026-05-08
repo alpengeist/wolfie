@@ -898,6 +898,36 @@ void drawXMarker(HDC hdc,
     DeleteObject(markerPen);
 }
 
+void drawPointMarker(HDC hdc,
+                     const GraphLayout& layout,
+                     const PlotGraphData& data,
+                     const PlotGraphPointMarker& marker) {
+    if (!std::isfinite(marker.xValue) ||
+        !std::isfinite(marker.yValue) ||
+        marker.xValue < layout.visibleMinX ||
+        marker.xValue > layout.visibleMaxX) {
+        return;
+    }
+
+    const int x =
+        graphXFromValue(layout.graph, data.xAxisMode, layout.visibleMinX, layout.visibleMaxX, marker.xValue);
+    const int y = graphYFromValue(layout.graph, marker.yValue, layout.minY, layout.maxY);
+    const int halfSize = std::max(marker.pixelSize, 3) / 2;
+    RECT markerRect{x - halfSize, y - halfSize, x + halfSize + 1, y + halfSize + 1};
+
+    HBRUSH markerBrush = CreateSolidBrush(marker.color);
+    FillRect(hdc, &markerRect, markerBrush);
+    DeleteObject(markerBrush);
+
+    HPEN borderPen = CreatePen(PS_SOLID, 1, ui_theme::blendColor(marker.color, RGB(0, 0, 0), 0.35));
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, borderPen));
+    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)));
+    Rectangle(hdc, markerRect.left, markerRect.top, markerRect.right, markerRect.bottom);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(borderPen);
+}
+
 void drawSharedHoverMarker(HDC hdc, const GraphLayout& layout, const PlotGraphData& data, double xValue) {
     if (data.xValues.empty() || xValue < layout.visibleMinX || xValue > layout.visibleMaxX) {
         return;
@@ -1439,6 +1469,9 @@ void PlotGraph::drawStaticLayer(HDC hdc, const RECT& rect) const {
         for (const PlotGraphSeries& series : data_.series) {
             drawSeries(hdc, data_, layout, series);
         }
+    }
+    for (const PlotGraphPointMarker& marker : data_.pointMarkers) {
+        drawPointMarker(hdc, layout, data_, marker);
     }
 
     SetTextColor(hdc, ui_theme::kMuted);

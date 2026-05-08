@@ -53,11 +53,19 @@ struct PlotGraphXSpan {
     BYTE alpha = 32;
 };
 
+struct PlotGraphPointMarker {
+    double xValue = 0.0;
+    double yValue = 0.0;
+    COLORREF color = RGB(0, 0, 0);
+    int pixelSize = 7;
+};
+
 struct PlotGraphData {
     std::vector<double> xValues;
     std::vector<PlotGraphSeries> series;
     std::vector<PlotGraphXMarker> xMarkers;
     std::vector<PlotGraphXSpan> xSpans;
+    std::vector<PlotGraphPointMarker> pointMarkers;
     PlotGraphXAxisMode xAxisMode = PlotGraphXAxisMode::LogFrequency;
     PlotGraphYAxisMode yAxisMode = PlotGraphYAxisMode::Auto;
     std::wstring xUnit;

@@ -24,6 +24,10 @@ constexpr double kMaxSmoothness = 4.0;
 constexpr double kCutLimitSoftness = 0.78;
 constexpr double kBoostLimitSoftness = 0.92;
 constexpr double kPreRingingCompensationHalfWidthOctaves = 0.25;
+constexpr double kAutoSpotBaselineHalfWidthOctaves = 0.45;
+constexpr double kAutoSpotMergeHalfWidthOctaves = 0.20;
+constexpr double kAutoSpotMinExcessCycles = 0.005;
+constexpr double kAutoSpotMinExcessMs = 0.02;
 // Mixed-phase full-strength correction extends to this multiple before tapering out.
 constexpr double kMixedPhaseCorrectionTaperFactor = 2;
 enum class NormalizedPhaseMode {
@@ -52,6 +56,12 @@ struct TransitionBandDiagnostic {
     double peakMs = 0.0;
     double rmsMs = 0.0;
     double signedAreaMsHz = 0.0;
+};
+
+struct AutoSpotCandidate {
+    int frequencyHz = 0;
+    double score = 0.0;
+    double peakCycles = 0.0;
 };
 
 template <typename T>
@@ -299,6 +309,224 @@ std::string formatFrequencyListHz(const std::vector<int>& frequenciesHz) {
         stream << frequenciesHz[index] << " Hz";
     }
     return stream.str();
+}
+
+std::vector<double> buildCombinedRequestedGroupDelayMagnitudeMs(const FilterDesignResult& result) {
+    const size_t count = result.frequencyAxisHz.size();
+    std::vector<double> combined(count, std::numeric_limits<double>::quiet_NaN());
+    for (size_t index = 0; index < count; ++index) {
+        double strongestMagnitudeMs = 0.0;
+        bool haveValue = false;
+
+        if (index < result.left.requestedMixedGroupDelayPreSolveMs.size() &&
+            std::isfinite(result.left.requestedMixedGroupDelayPreSolveMs[index])) {
+            strongestMagnitudeMs =
+                std::max(strongestMagnitudeMs, std::abs(result.left.requestedMixedGroupDelayPreSolveMs[index]));
+            haveValue = true;
+        }
+        if (index < result.right.requestedMixedGroupDelayPreSolveMs.size() &&
+            std::isfinite(result.right.requestedMixedGroupDelayPreSolveMs[index])) {
+            strongestMagnitudeMs =
+                std::max(strongestMagnitudeMs, std::abs(result.right.requestedMixedGroupDelayPreSolveMs[index]));
+            haveValue = true;
+        }
+
+        if (haveValue) {
+            combined[index] = strongestMagnitudeMs;
+        }
+    }
+    return combined;
+}
+
+std::vector<double> buildAutoSpotBaselineMs(const std::vector<double>& frequencyAxisHz,
+                                            const std::vector<double>& magnitudeMs) {
+    const size_t count = std::min(frequencyAxisHz.size(), magnitudeMs.size());
+    std::vector<double> baseline(count, 0.0);
+    const double maxDistanceOctaves = kAutoSpotBaselineHalfWidthOctaves * 2.5;
+
+    for (size_t index = 0; index < count; ++index) {
+        const double centerFrequencyHz = frequencyAxisHz[index];
+        const double centerMagnitudeMs = magnitudeMs[index];
+        if (!std::isfinite(centerFrequencyHz) ||
+            centerFrequencyHz <= 0.0 ||
+            !std::isfinite(centerMagnitudeMs)) {
+            continue;
+        }
+
+        double weightedSum = 0.0;
+        double weightTotal = 0.0;
+        for (size_t candidateIndex = 0; candidateIndex < count; ++candidateIndex) {
+            const double candidateFrequencyHz = frequencyAxisHz[candidateIndex];
+            const double candidateMagnitudeMs = magnitudeMs[candidateIndex];
+            if (!std::isfinite(candidateFrequencyHz) ||
+                candidateFrequencyHz <= 0.0 ||
+                !std::isfinite(candidateMagnitudeMs)) {
+                continue;
+            }
+
+            const double distanceOctaves =
+                std::abs(std::log2(candidateFrequencyHz / centerFrequencyHz));
+            if (distanceOctaves > maxDistanceOctaves) {
+                continue;
+            }
+
+            const double normalizedDistance = distanceOctaves / kAutoSpotBaselineHalfWidthOctaves;
+            const double weight = std::exp(-0.5 * normalizedDistance * normalizedDistance);
+            weightedSum += candidateMagnitudeMs * weight;
+            weightTotal += weight;
+        }
+
+        baseline[index] = weightTotal > 1.0e-9 ? (weightedSum / weightTotal) : centerMagnitudeMs;
+    }
+
+    return baseline;
+}
+
+double preRingingLocalBackoffAtDistanceOctaves(double distanceOctaves) {
+    if (!std::isfinite(distanceOctaves) ||
+        distanceOctaves >= kPreRingingCompensationHalfWidthOctaves) {
+        return 0.0;
+    }
+    return 1.0 - smoothRamp(distanceOctaves / kPreRingingCompensationHalfWidthOctaves);
+}
+
+double frequencyCellWidthOctaves(const std::vector<double>& frequencyAxisHz, size_t index) {
+    if (frequencyAxisHz.empty() ||
+        index >= frequencyAxisHz.size() ||
+        !std::isfinite(frequencyAxisHz[index]) ||
+        frequencyAxisHz[index] <= 0.0) {
+        return 0.0;
+    }
+
+    if (frequencyAxisHz.size() == 1) {
+        return 1.0;
+    }
+
+    auto octaveDistance = [&frequencyAxisHz](size_t leftIndex, size_t rightIndex) {
+        const double leftFrequencyHz = frequencyAxisHz[leftIndex];
+        const double rightFrequencyHz = frequencyAxisHz[rightIndex];
+        if (!std::isfinite(leftFrequencyHz) ||
+            !std::isfinite(rightFrequencyHz) ||
+            leftFrequencyHz <= 0.0 ||
+            rightFrequencyHz <= 0.0) {
+            return 0.0;
+        }
+        return std::abs(std::log2(rightFrequencyHz / leftFrequencyHz));
+    };
+
+    if (index == 0) {
+        return octaveDistance(0, 1);
+    }
+    if (index + 1 >= frequencyAxisHz.size()) {
+        return octaveDistance(index - 1, index);
+    }
+    return 0.5 * (octaveDistance(index - 1, index) + octaveDistance(index, index + 1));
+}
+
+double scorePreRingingPotential(const std::vector<double>& frequencyAxisHz,
+                                const std::vector<double>& excessCycles,
+                                size_t peakIndex) {
+    if (peakIndex >= frequencyAxisHz.size() ||
+        peakIndex >= excessCycles.size() ||
+        !std::isfinite(frequencyAxisHz[peakIndex]) ||
+        frequencyAxisHz[peakIndex] <= 0.0) {
+        return 0.0;
+    }
+
+    const double centerFrequencyHz = frequencyAxisHz[peakIndex];
+    double score = 0.0;
+    for (size_t index = 0; index < frequencyAxisHz.size() && index < excessCycles.size(); ++index) {
+        if (!std::isfinite(frequencyAxisHz[index]) ||
+            frequencyAxisHz[index] <= 0.0 ||
+            !std::isfinite(excessCycles[index]) ||
+            excessCycles[index] <= 0.0) {
+            continue;
+        }
+
+        const double distanceOctaves = std::abs(std::log2(frequencyAxisHz[index] / centerFrequencyHz));
+        const double localBackoff = preRingingLocalBackoffAtDistanceOctaves(distanceOctaves);
+        if (localBackoff <= 0.0) {
+            continue;
+        }
+
+        score += excessCycles[index] * localBackoff * frequencyCellWidthOctaves(frequencyAxisHz, index);
+    }
+    return score;
+}
+
+std::vector<AutoSpotCandidate> collectAutoSpotCandidates(const std::vector<double>& frequencyAxisHz,
+                                                         const std::vector<double>& magnitudeMs,
+                                                         const std::vector<double>& baselineMs,
+                                                         double minFrequencyHz,
+                                                         double maxFrequencyHz) {
+    const size_t count = std::min({frequencyAxisHz.size(), magnitudeMs.size(), baselineMs.size()});
+    if (count < 3) {
+        return {};
+    }
+
+    std::vector<double> excessCycles(count, 0.0);
+    for (size_t index = 0; index < count; ++index) {
+        const double frequencyHz = frequencyAxisHz[index];
+        if (!std::isfinite(frequencyHz) ||
+            frequencyHz < minFrequencyHz ||
+            frequencyHz > maxFrequencyHz ||
+            !std::isfinite(magnitudeMs[index]) ||
+            !std::isfinite(baselineMs[index])) {
+            continue;
+        }
+
+        const double excessMs = std::max(0.0, magnitudeMs[index] - baselineMs[index]);
+        if (excessMs < kAutoSpotMinExcessMs) {
+            continue;
+        }
+        excessCycles[index] = excessMs * frequencyHz / 1000.0;
+    }
+
+    std::vector<AutoSpotCandidate> candidates;
+    for (size_t index = 1; index + 1 < count; ++index) {
+        const double peakCycles = excessCycles[index];
+        if (!std::isfinite(magnitudeMs[index]) ||
+            peakCycles < excessCycles[index - 1] ||
+            peakCycles < excessCycles[index + 1] ||
+            excessCycles[index] < kAutoSpotMinExcessCycles) {
+            continue;
+        }
+
+        candidates.push_back({static_cast<int>(std::lround(frequencyAxisHz[index])),
+                              scorePreRingingPotential(frequencyAxisHz, excessCycles, index),
+                              peakCycles});
+    }
+
+    std::sort(candidates.begin(), candidates.end(), [](const AutoSpotCandidate& left, const AutoSpotCandidate& right) {
+        if (std::abs(left.score - right.score) > 1.0e-9) {
+            return left.score > right.score;
+        }
+        if (std::abs(left.peakCycles - right.peakCycles) > 1.0e-9) {
+            return left.peakCycles > right.peakCycles;
+        }
+        return left.frequencyHz < right.frequencyHz;
+    });
+    return candidates;
+}
+
+std::vector<int> normalizePreRingingCandidateOrder(const std::vector<int>& frequenciesHz,
+                                                   const FilterDesignSettings& settings,
+                                                   int sampleRate) {
+    std::vector<int> normalized;
+    normalized.reserve(frequenciesHz.size());
+    const int minFrequencyHz = static_cast<int>(std::ceil(settings.lowCorrectionHz));
+    const MixedPhaseLimitBand band = mixedPhaseLimitBand(settings, sampleRate);
+    const int maxFrequencyHz = static_cast<int>(std::floor(band.taperEndHz));
+    for (const int frequencyHz : frequenciesHz) {
+        if (frequencyHz < minFrequencyHz || frequencyHz > maxFrequencyHz) {
+            continue;
+        }
+        if (std::find(normalized.begin(), normalized.end(), frequencyHz) != normalized.end()) {
+            continue;
+        }
+        normalized.push_back(frequencyHz);
+    }
+    return normalized;
 }
 
 double lowCorrectionWeightAt(double frequencyHz, const FilterDesignSettings& settings) {
@@ -995,12 +1223,7 @@ double preRingingCompensationWeightAt(double frequencyHz, const FilterDesignSett
         }
         const double distanceOctaves =
             std::abs(std::log2(frequencyHz / static_cast<double>(targetFrequencyHz)));
-        if (distanceOctaves >= kPreRingingCompensationHalfWidthOctaves) {
-            continue;
-        }
-
-        const double localBackoff =
-            1.0 - smoothRamp(distanceOctaves / kPreRingingCompensationHalfWidthOctaves);
+        const double localBackoff = preRingingLocalBackoffAtDistanceOctaves(distanceOctaves);
         strongestBackoff = std::max(strongestBackoff, localBackoff);
     }
 
@@ -1608,6 +1831,59 @@ void normalizeFilterDesignSettings(FilterDesignSettings& settings, int sampleRat
         normalizePreRingingCompensationFrequencies(settings.preRingingCompensationFrequenciesHz,
                                                    settings,
                                                    sampleRate);
+}
+
+std::vector<int> suggestPreRingingCompensationFrequencies(const FilterDesignResult& result,
+                                                          const FilterDesignSettings& sourceSettings) {
+    if (!result.valid || result.frequencyAxisHz.empty()) {
+        return {};
+    }
+
+    FilterDesignSettings settings = sourceSettings;
+    const int sampleRate = std::max(result.sampleRate, 44100);
+    normalizeFilterDesignSettings(settings, sampleRate);
+    if (normalizePhaseMode(settings.phaseMode) != NormalizedPhaseMode::Mixed) {
+        return {};
+    }
+
+    const std::vector<double> magnitudeMs = buildCombinedRequestedGroupDelayMagnitudeMs(result);
+    if (magnitudeMs.empty()) {
+        return {};
+    }
+
+    const std::vector<double> baselineMs = buildAutoSpotBaselineMs(result.frequencyAxisHz, magnitudeMs);
+    const MixedPhaseLimitBand band = mixedPhaseLimitBand(settings, sampleRate);
+    const double minFrequencyHz = std::max(settings.lowCorrectionHz, 1.0);
+    const double maxFrequencyHz =
+        result.requestedMixedTransitionEndHz > 0.0 ? result.requestedMixedTransitionEndHz : band.taperEndHz;
+    std::vector<AutoSpotCandidate> candidates =
+        collectAutoSpotCandidates(result.frequencyAxisHz,
+                                  magnitudeMs,
+                                  baselineMs,
+                                  minFrequencyHz,
+                                  maxFrequencyHz);
+
+    std::vector<int> suggestedFrequenciesHz;
+    suggestedFrequenciesHz.reserve(candidates.size());
+    for (const AutoSpotCandidate& candidate : candidates) {
+        bool overlapsExisting = false;
+        for (const int acceptedFrequencyHz : suggestedFrequenciesHz) {
+            const double distanceOctaves =
+                std::abs(std::log2(static_cast<double>(candidate.frequencyHz) /
+                                   static_cast<double>(std::max(acceptedFrequencyHz, 1))));
+            if (distanceOctaves < kAutoSpotMergeHalfWidthOctaves) {
+                overlapsExisting = true;
+                break;
+            }
+        }
+        if (overlapsExisting) {
+            continue;
+        }
+
+        suggestedFrequenciesHz.push_back(candidate.frequencyHz);
+    }
+
+    return normalizePreRingingCandidateOrder(suggestedFrequenciesHz, settings, sampleRate);
 }
 
 FilterDesignResult designFiltersForSampleRate(const SmoothedResponse& response,

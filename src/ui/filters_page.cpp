@@ -108,6 +108,42 @@ std::vector<int> parseIntList(const std::wstring& text) {
     return values;
 }
 
+double interpolateSeriesAtFrequency(const std::vector<double>& frequencyAxisHz,
+                                    const std::vector<double>& values,
+                                    double frequencyHz) {
+    const size_t count = std::min(frequencyAxisHz.size(), values.size());
+    if (count == 0 || !std::isfinite(frequencyHz) || frequencyHz <= 0.0) {
+        return 0.0;
+    }
+    if (count == 1 || frequencyHz <= frequencyAxisHz.front()) {
+        return values.front();
+    }
+    if (frequencyHz >= frequencyAxisHz[count - 1]) {
+        return values[count - 1];
+    }
+
+    const auto upper = std::lower_bound(frequencyAxisHz.begin(),
+                                        frequencyAxisHz.begin() + static_cast<std::ptrdiff_t>(count),
+                                        frequencyHz);
+    const size_t upperIndex = static_cast<size_t>(std::distance(frequencyAxisHz.begin(), upper));
+    if (upperIndex == 0) {
+        return values.front();
+    }
+
+    const size_t lowerIndex = upperIndex - 1;
+    const double x0 = std::log10(std::max(frequencyAxisHz[lowerIndex], 1.0e-6));
+    const double x1 = std::log10(std::max(frequencyAxisHz[upperIndex], 1.0e-6));
+    const double x = std::log10(std::max(frequencyHz, 1.0e-6));
+    const double y0 = values[lowerIndex];
+    const double y1 = values[upperIndex];
+    if (!std::isfinite(y0) || !std::isfinite(y1)) {
+        return 0.0;
+    }
+
+    const double t = clampValue((x - x0) / std::max(x1 - x0, 1.0e-9), 0.0, 1.0);
+    return y0 + ((y1 - y0) * t);
+}
+
 int clampGroupDelayZoomPreset(int preset) {
     return clampValue(preset, 0, kGroupDelayZoomFitPreset);
 }
@@ -904,6 +940,39 @@ void FiltersPage::createControls() {
         nullptr);
     controls_.lineRequestedMixedGroupDelayLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelRequestedMixedGroupDelayLeft = CreateWindowW(L"STATIC", L"L post", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    controls_.buttonAddRequestedMixedGroupDelaySpot = CreateWindowW(L"BUTTON",
+                                                                    L"Peak +",
+                                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | kHelpBubbleChildClipStyle,
+                                                                    0,
+                                                                    0,
+                                                                    0,
+                                                                    0,
+                                                                    window_,
+                                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonAddRequestedMixedGroupDelaySpot)),
+                                                                    instance_,
+                                                                    nullptr);
+    controls_.buttonRemoveRequestedMixedGroupDelaySpot = CreateWindowW(L"BUTTON",
+                                                                       L"Peak -",
+                                                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | kHelpBubbleChildClipStyle,
+                                                                       0,
+                                                                       0,
+                                                                       0,
+                                                                       0,
+                                                                       window_,
+                                                                       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonRemoveRequestedMixedGroupDelaySpot)),
+                                                                       instance_,
+                                                                       nullptr);
+    controls_.buttonRecalculateRequestedMixedGroupDelay = CreateWindowW(L"BUTTON",
+                                                                        L"Recalc",
+                                                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | kHelpBubbleChildClipStyle,
+                                                                        0,
+                                                                        0,
+                                                                        0,
+                                                                        0,
+                                                                        window_,
+                                                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonRecalculateRequestedMixedGroupDelay)),
+                                                                        instance_,
+                                                                        nullptr);
     controls_.groupDelayTitle = CreateWindowW(L"STATIC", L"Group Delay", WS_CHILD | WS_VISIBLE,
                                               0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.buttonGroupDelayEffect = CreateWindowW(L"BUTTON",
@@ -1315,6 +1384,48 @@ void FiltersPage::layout() {
                labelWidth,
                18,
                TRUE);
+    const int requestedMixedButtonLeft = legendLeft + 12;
+    const int requestedMixedButtonWidth = legendWidth - 24;
+    const int requestedMixedButtonsTop = requestedMixedGroupDelayFirstRowTop + (rowStep * 4) + 8;
+    MoveWindow(controls_.buttonAddRequestedMixedGroupDelaySpot,
+               requestedMixedButtonLeft,
+               requestedMixedButtonsTop,
+               requestedMixedButtonWidth,
+               24,
+               TRUE);
+    SetWindowPos(controls_.buttonAddRequestedMixedGroupDelaySpot,
+                 HWND_TOP,
+                 0,
+                 0,
+                 0,
+                 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    MoveWindow(controls_.buttonRemoveRequestedMixedGroupDelaySpot,
+               requestedMixedButtonLeft,
+               requestedMixedButtonsTop + 30,
+               requestedMixedButtonWidth,
+               24,
+               TRUE);
+    SetWindowPos(controls_.buttonRemoveRequestedMixedGroupDelaySpot,
+                 HWND_TOP,
+                 0,
+                 0,
+                 0,
+                 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    MoveWindow(controls_.buttonRecalculateRequestedMixedGroupDelay,
+               requestedMixedButtonLeft,
+               requestedMixedButtonsTop + 60,
+               requestedMixedButtonWidth,
+               24,
+               TRUE);
+    SetWindowPos(controls_.buttonRecalculateRequestedMixedGroupDelay,
+                 HWND_TOP,
+                 0,
+                 0,
+                 0,
+                 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
     y += 52 + graphHeight + graphGap;
     MoveWindow(controls_.impulseTitle, contentLeft, y, contentWidth, 18, TRUE);
@@ -1478,6 +1589,14 @@ void FiltersPage::setRecalculateInProgress(bool running) {
         EnableWindow(controls_.buttonRecalculate, (!running && !differenceViewSelected()) ? TRUE : FALSE);
         RedrawWindow(controls_.buttonRecalculate, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
     }
+    if (controls_.buttonRecalculateRequestedMixedGroupDelay != nullptr) {
+        EnableWindow(controls_.buttonRecalculateRequestedMixedGroupDelay,
+                     (!running && !differenceViewSelected() && mixedModeSelected()) ? TRUE : FALSE);
+        RedrawWindow(controls_.buttonRecalculateRequestedMixedGroupDelay,
+                     nullptr,
+                     nullptr,
+                     RDW_INVALIDATE | RDW_UPDATENOW);
+    }
 }
 
 double FiltersPage::selectedSmoothness() const {
@@ -1563,10 +1682,14 @@ void FiltersPage::refreshPhaseModeControls() const {
     EnableWindow(controls_.labelPreRingingCompensationStrength, mixedEnabled);
     EnableWindow(controls_.sliderPreRingingCompensationStrength, mixedEnabled);
     EnableWindow(controls_.valuePreRingingCompensationStrength, mixedEnabled);
+    EnableWindow(controls_.buttonAddRequestedMixedGroupDelaySpot, mixedEnabled);
+    EnableWindow(controls_.buttonRemoveRequestedMixedGroupDelaySpot, mixedEnabled);
+    EnableWindow(controls_.buttonRecalculateRequestedMixedGroupDelay, mixedEnabled);
 }
 
 void FiltersPage::refreshFilterViewPresentation() const {
     const bool differenceView = differenceViewSelected();
+    const bool mixedView = mixedModeSelected();
     const bool correctedEffectView = !differenceView && showCorrectedEffect_;
     const bool excessPhaseEffectView = !differenceView && showExcessPhaseEffect_;
     const bool groupDelayEffectView = !differenceView && showGroupDelayEffect_;
@@ -1609,6 +1732,10 @@ void FiltersPage::refreshFilterViewPresentation() const {
     SetWindowTextW(controls_.labelExcessPhaseInputLeft, L"L");
     SetWindowTextW(controls_.labelExcessPhasePredictedRight, excessPhaseEffectView ? L"R effect" : L"R pred");
     SetWindowTextW(controls_.labelExcessPhasePredictedLeft, excessPhaseEffectView ? L"L effect" : L"L pred");
+
+    ShowWindow(controls_.buttonAddRequestedMixedGroupDelaySpot, (!differenceView && mixedView) ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.buttonRemoveRequestedMixedGroupDelaySpot, (!differenceView && mixedView) ? SW_SHOW : SW_HIDE);
+    ShowWindow(controls_.buttonRecalculateRequestedMixedGroupDelay, (!differenceView && mixedView) ? SW_SHOW : SW_HIDE);
 
     ShowWindow(controls_.checkboxShowInputGroupDelayLeft, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.lineInputGroupDelayLeft, (differenceView || groupDelayEffectView) ? SW_HIDE : SW_SHOW);
@@ -1879,6 +2006,39 @@ FilterDesignSettings FiltersPage::currentSettings() const {
     return settings;
 }
 
+const FilterDesignResult* FiltersPage::requestedMixedGroupDelaySourceResult(const WorkspaceState& workspace) const {
+    if (workspace.ui.filterViewMode == "difference") {
+        return workspace.mixedFilter.available() ? &workspace.mixedFilter.result : nullptr;
+    }
+    if (workspace.filterResult.valid) {
+        return &workspace.filterResult;
+    }
+    return nullptr;
+}
+
+const FilterDesignSettings* FiltersPage::requestedMixedGroupDelaySourceSettings(const WorkspaceState& workspace) const {
+    if (workspace.ui.filterViewMode == "difference") {
+        return workspace.mixedFilter.available() ? &workspace.mixedFilter.settings : nullptr;
+    }
+    if (workspace.filterResult.valid && workspace.filterResult.phaseMode == "mixed") {
+        return &appliedSettings_;
+    }
+    return nullptr;
+}
+
+std::vector<int> FiltersPage::requestedMixedGroupDelayCandidateFrequencies(const WorkspaceState& workspace) const {
+    const FilterDesignResult* result = requestedMixedGroupDelaySourceResult(workspace);
+    const FilterDesignSettings* settings = requestedMixedGroupDelaySourceSettings(workspace);
+    if (result == nullptr || settings == nullptr || !result->valid || result->phaseMode != "mixed") {
+        return {};
+    }
+    return measurement::suggestPreRingingCompensationFrequencies(*result, *settings);
+}
+
+std::vector<int> FiltersPage::requestedMixedGroupDelayDisplayedSpotFrequencies() const {
+    return parseIntList(getWindowTextValue(controls_.editPreRingingCompensationFrequencies));
+}
+
 bool FiltersPage::areSettingsEqual(const FilterDesignSettings& left, const FilterDesignSettings& right) {
     return left.tapCount == right.tapCount &&
            left.phaseMode == right.phaseMode &&
@@ -1997,6 +2157,11 @@ void FiltersPage::refreshRecalculateButton() {
         EnableWindow(controls_.buttonRecalculate, (!recalculateInProgress_ && !differenceViewSelected()) ? TRUE : FALSE);
         InvalidateRect(controls_.buttonRecalculate, nullptr, TRUE);
     }
+    if (controls_.buttonRecalculateRequestedMixedGroupDelay != nullptr) {
+        EnableWindow(controls_.buttonRecalculateRequestedMixedGroupDelay,
+                     (!recalculateInProgress_ && !differenceViewSelected() && mixedModeSelected()) ? TRUE : FALSE);
+        InvalidateRect(controls_.buttonRecalculateRequestedMixedGroupDelay, nullptr, TRUE);
+    }
 }
 
 bool FiltersPage::drawRecalculateButton(const DRAWITEMSTRUCT& draw) const {
@@ -2067,7 +2232,8 @@ bool FiltersPage::handleCommand(WORD commandId,
                                 bool& settingsChanged,
                                 bool& recalculateRequested,
                                 bool& viewSettingsChanged,
-                                bool& selectionChanged) {
+                                bool& selectionChanged,
+                                std::vector<std::wstring>& logMessages) {
     PlotGraph* frequencyGraph = frequencyGraphForCommandId(commandId);
     if (frequencyGraph != nullptr && notificationCode == PlotGraph::kHoverChangedNotification) {
         sharedFrequencyHoverActive_ = frequencyGraph->hasHoveredXValue();
@@ -2132,6 +2298,63 @@ bool FiltersPage::handleCommand(WORD commandId,
             refreshExcessPhaseWindowLabel();
         }
         refreshRecalculateButton();
+        if (commandId == kEditPreRingingCompensationFrequencies) {
+            requestedMixedGroupDelayGraph_.setData(buildRequestedMixedGroupDelayGraphData(workspace));
+            applySharedFrequencyHoverMarker();
+        }
+        return true;
+    }
+
+    if ((commandId == kButtonAddRequestedMixedGroupDelaySpot ||
+         commandId == kButtonRemoveRequestedMixedGroupDelaySpot) &&
+        notificationCode == BN_CLICKED) {
+        const std::vector<int> candidateFrequenciesHz = requestedMixedGroupDelayCandidateFrequencies(workspace);
+        if (candidateFrequenciesHz.empty()) {
+            logMessages.push_back(L"Requested mixed group delay has no ranked spot candidates. Recalculate in Mixed mode first.");
+            return true;
+        }
+
+        const std::vector<int> currentFrequenciesHz = requestedMixedGroupDelayDisplayedSpotFrequencies();
+        size_t nextCount = std::min(currentFrequenciesHz.size(), candidateFrequenciesHz.size());
+        if (commandId == kButtonAddRequestedMixedGroupDelaySpot) {
+            const size_t candidateCount = candidateFrequenciesHz.size();
+            if (nextCount >= candidateCount) {
+                logMessages.push_back(L"Peak +: all ranked peaks are already selected.");
+                return true;
+            }
+            ++nextCount;
+        } else {
+            if (nextCount == 0) {
+                logMessages.push_back(L"Peak -: no ranked peaks are currently selected.");
+                return true;
+            }
+            --nextCount;
+        }
+
+        const std::vector<int> nextFrequenciesHz(candidateFrequenciesHz.begin(),
+                                                 candidateFrequenciesHz.begin() +
+                                                     static_cast<std::ptrdiff_t>(std::min(nextCount,
+                                                                                          candidateFrequenciesHz.size())));
+        setWindowTextValue(controls_.editPreRingingCompensationFrequencies, formatIntList(nextFrequenciesHz));
+        if (nextFrequenciesHz.empty()) {
+            logMessages.push_back(L"Peak -: cleared Ring Spots.");
+        } else {
+            logMessages.push_back((commandId == kButtonAddRequestedMixedGroupDelaySpot ? L"Peak +: using " : L"Peak -: using ") +
+                                  formatIntList(nextFrequenciesHz) + L".");
+        }
+        refreshRecalculateButton();
+        requestedMixedGroupDelayGraph_.setData(buildRequestedMixedGroupDelayGraphData(workspace));
+        applySharedFrequencyHoverMarker();
+        return true;
+    }
+
+    if (commandId == kButtonRecalculateRequestedMixedGroupDelay &&
+        notificationCode == BN_CLICKED) {
+        if (differenceViewSelected()) {
+            return true;
+        }
+        syncToWorkspace(workspace);
+        recalculateRequested = true;
         return true;
     }
 
@@ -2298,6 +2521,7 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORBTN: {
         static HBRUSH inputBrush = GetSysColorBrush(COLOR_WINDOW);
+        static HBRUSH buttonBrush = GetSysColorBrush(COLOR_BTNFACE);
         static HBRUSH lineInputRightBrush = CreateSolidBrush(ui_theme::kRed);
         static HBRUSH lineInputLeftBrush = CreateSolidBrush(ui_theme::kGreen);
         static HBRUSH lineInversionRightBrush = CreateSolidBrush(ui_theme::kMagenta);
@@ -2326,6 +2550,15 @@ LRESULT CALLBACK FiltersPage::PageWindowProc(HWND window, UINT message, WPARAM w
         LRESULT helpColorResult = 0;
         if (page != nullptr && page->helpBubble_.handleCtlColorStatic(hdc, control, helpColorResult)) {
             return helpColorResult;
+        }
+        if (message == WM_CTLCOLORBTN &&
+            page != nullptr &&
+            (control == page->controls_.buttonAddRequestedMixedGroupDelaySpot ||
+             control == page->controls_.buttonRemoveRequestedMixedGroupDelaySpot)) {
+            SetBkMode(hdc, OPAQUE);
+            SetBkColor(hdc, GetSysColor(COLOR_BTNFACE));
+            SetTextColor(hdc, ui_theme::kText);
+            return reinterpret_cast<INT_PTR>(buttonBrush);
         }
         SetTextColor(hdc, ui_theme::kText);
         if (page != nullptr) {
@@ -3202,12 +3435,7 @@ PlotGraphData FiltersPage::buildRequestedMixedGroupDelayGraphData(const Workspac
     data.xUnit = L"Hz";
     data.yUnit = L"ms";
 
-    const FilterDesignResult* sourceResult = nullptr;
-    if (workspace.ui.filterViewMode == "difference") {
-        sourceResult = workspace.mixedFilter.available() ? &workspace.mixedFilter.result : nullptr;
-    } else if (workspace.filterResult.valid) {
-        sourceResult = &workspace.filterResult;
-    }
+    const FilterDesignResult* sourceResult = requestedMixedGroupDelaySourceResult(workspace);
 
     if (sourceResult == nullptr || !sourceResult->valid) {
         return data;
@@ -3261,6 +3489,27 @@ PlotGraphData FiltersPage::buildRequestedMixedGroupDelayGraphData(const Workspac
         data.series.push_back({L"Left post",
                                ui_theme::kGray,
                                sourceResult->left.requestedMixedGroupDelayMs});
+    }
+
+    if (sourceResult->phaseMode == "mixed") {
+        const std::vector<int> displayedFrequenciesHz = requestedMixedGroupDelayDisplayedSpotFrequencies();
+        for (const int frequencyHz : displayedFrequenciesHz) {
+            const double leftValue =
+                interpolateSeriesAtFrequency(sourceResult->frequencyAxisHz,
+                                             sourceResult->left.requestedMixedGroupDelayPreSolveMs,
+                                             static_cast<double>(frequencyHz));
+            const double rightValue =
+                interpolateSeriesAtFrequency(sourceResult->frequencyAxisHz,
+                                             sourceResult->right.requestedMixedGroupDelayPreSolveMs,
+                                             static_cast<double>(frequencyHz));
+            const double yValue = std::abs(leftValue) >= std::abs(rightValue) ? leftValue : rightValue;
+            if (!std::isfinite(yValue)) {
+                continue;
+            }
+            data.pointMarkers.push_back({static_cast<double>(frequencyHz), yValue, ui_theme::kAccent, 7});
+            minY = std::min(minY, yValue);
+            maxY = std::max(maxY, yValue);
+        }
     }
 
     if (std::isfinite(minY) && std::isfinite(maxY)) {

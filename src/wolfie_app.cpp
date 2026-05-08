@@ -2022,13 +2022,18 @@ void WolfieApp::onCommand(WORD commandId, WORD notificationCode) {
     bool filtersRecalculateRequested = false;
     bool filterViewSettingsChanged = false;
     bool filterSelectionChanged = false;
+    std::vector<std::wstring> filterLogMessages;
     if (filtersPage_.handleCommand(commandId,
                                    notificationCode,
                                    workspace_,
                                    filterSettingsChanged,
                                    filtersRecalculateRequested,
                                    filterViewSettingsChanged,
-                                   filterSelectionChanged)) {
+                                   filterSelectionChanged,
+                                   filterLogMessages)) {
+        for (const std::wstring& message : filterLogMessages) {
+            appendLog(message);
+        }
         if (filterSelectionChanged) {
             applySelectedFilterView();
             invalidateFilterAnalysis();
