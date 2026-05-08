@@ -93,7 +93,6 @@ private:
         HWND lineInversionLeft = nullptr;
         HWND labelInversionLeft = nullptr;
         HWND correctedTitle = nullptr;
-        HWND buttonCorrectedEffect = nullptr;
         HWND correctedLegendFrame = nullptr;
         HWND lineCorrectedTarget = nullptr;
         HWND labelCorrectedTarget = nullptr;
@@ -222,7 +221,6 @@ private:
     static constexpr int kEditMixedPhaseCap = 3446;
     static constexpr int kSliderGroupDelayZoom = 3447;
     static constexpr int kEditExcessPhaseWindow = 3448;
-    static constexpr int kButtonCorrectedEffect = 3449;
     static constexpr int kButtonExcessPhaseEffect = 3450;
     static constexpr int kButtonGroupDelayEffect = 3451;
     static constexpr int kEditPreRingingCompensationFrequencies = 3452;
@@ -316,7 +314,6 @@ private:
     bool showCorrectedInputRight_ = true;
     bool showCorrectedLeft_ = true;
     bool showCorrectedRight_ = true;
-    bool showCorrectedEffect_ = false;
     bool showExcessPhaseInputRight_ = true;
     bool showExcessPhaseInputLeft_ = true;
     bool showExcessPhasePredictedRight_ = true;

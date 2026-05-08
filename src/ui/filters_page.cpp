@@ -720,17 +720,6 @@ void FiltersPage::createControls() {
     controls_.labelInversionLeft = CreateWindowW(L"STATIC", L"L inv", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.correctedTitle = CreateWindowW(L"STATIC", L"Predicted Corrected Response", WS_CHILD | WS_VISIBLE,
                                              0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.buttonCorrectedEffect = CreateWindowW(L"BUTTON",
-                                                    L"Effect",
-                                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_PUSHLIKE,
-                                                    0,
-                                                    0,
-                                                    0,
-                                                    0,
-                                                    window_,
-                                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kButtonCorrectedEffect)),
-                                                    instance_,
-                                                    nullptr);
     controls_.correctedLegendFrame = CreateWindowW(L"STATIC",
                                                    L"",
                                                    WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
@@ -872,7 +861,7 @@ void FiltersPage::createControls() {
                                                                    nullptr);
     controls_.lineExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.labelExcessPhasePredictedLeft = CreateWindowW(L"STATIC", L"L pred", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, window_, nullptr, instance_, nullptr);
-    controls_.requestedMixedGroupDelayTitle = CreateWindowW(L"STATIC", L"Requested Mixed Group Delay", WS_CHILD | WS_VISIBLE,
+    controls_.requestedMixedGroupDelayTitle = CreateWindowW(L"STATIC", L"Mixed group delay pre and post filter construction - high peaks have pre-ringing potential", WS_CHILD | WS_VISIBLE,
                                                             0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     controls_.requestedMixedGroupDelayLegendFrame = CreateWindowW(L"STATIC",
                                                                   L"",
@@ -1281,7 +1270,6 @@ void FiltersPage::layout() {
 
     y += 24 + graphHeight + graphGap;
     MoveWindow(controls_.correctedTitle, contentLeft, y, contentWidth, 18, TRUE);
-    MoveWindow(controls_.buttonCorrectedEffect, graphRight - effectButtonWidth, y - 2, effectButtonWidth, 22, TRUE);
     MoveWindow(controls_.correctedLegendFrame, legendLeft, y + 24, legendWidth, graphHeight, TRUE);
     correctedGraph_.layout(RECT{contentLeft, y + 24, graphRight, y + 24 + graphHeight});
     const int correctedFirstRowTop = y + 24 + 18;
@@ -1724,11 +1712,9 @@ void FiltersPage::refreshPhaseModeControls() const {
 void FiltersPage::refreshFilterViewPresentation() const {
     const bool differenceView = differenceViewSelected();
     const bool mixedView = mixedModeSelected();
-    const bool correctedEffectView = !differenceView && showCorrectedEffect_;
     const bool excessPhaseEffectView = !differenceView && showExcessPhaseEffect_;
     const bool groupDelayEffectView = !differenceView && showGroupDelayEffect_;
 
-    ShowWindow(controls_.buttonCorrectedEffect, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.buttonExcessPhaseEffect, differenceView ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.buttonGroupDelayEffect, differenceView ? SW_HIDE : SW_SHOW);
 
@@ -1743,18 +1729,18 @@ void FiltersPage::refreshFilterViewPresentation() const {
     SetWindowTextW(controls_.labelInversionRight, L"R inv");
     SetWindowTextW(controls_.labelInversionLeft, L"L inv");
 
-    ShowWindow(controls_.lineCorrectedTarget, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.labelCorrectedTarget, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.checkboxShowCorrectedInputLeft, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.lineCorrectedInputLeft, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.labelCorrectedInputLeft, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.checkboxShowCorrectedInputRight, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.lineCorrectedInputRight, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
-    ShowWindow(controls_.labelCorrectedInputRight, (differenceView || correctedEffectView) ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineCorrectedTarget, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedTarget, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowCorrectedInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineCorrectedInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedInputLeft, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.checkboxShowCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.lineCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
+    ShowWindow(controls_.labelCorrectedInputRight, differenceView ? SW_HIDE : SW_SHOW);
     SetWindowTextW(controls_.labelCorrectedInputLeft, L"L");
     SetWindowTextW(controls_.labelCorrectedInputRight, L"R");
-    SetWindowTextW(controls_.labelCorrectedLeft, correctedEffectView ? L"L effect" : L"L pred");
-    SetWindowTextW(controls_.labelCorrectedRight, correctedEffectView ? L"R effect" : L"R pred");
+    SetWindowTextW(controls_.labelCorrectedLeft, L"L pred");
+    SetWindowTextW(controls_.labelCorrectedRight, L"R pred");
 
     ShowWindow(controls_.checkboxShowExcessPhaseInputRight, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
     ShowWindow(controls_.lineExcessPhaseInputRight, (differenceView || excessPhaseEffectView) ? SW_HIDE : SW_SHOW);
@@ -1841,7 +1827,6 @@ void FiltersPage::syncViewSettingsToControls() const {
     SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_SETCHECK, showCorrectedInputRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedLeft, BM_SETCHECK, showCorrectedLeft_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowCorrectedRight, BM_SETCHECK, showCorrectedRight_ ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(controls_.buttonCorrectedEffect, BM_SETCHECK, showCorrectedEffect_ ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(controls_.checkboxShowExcessPhaseInputRight,
                  BM_SETCHECK,
                  showExcessPhaseInputRight_ ? BST_CHECKED : BST_UNCHECKED,
@@ -1916,7 +1901,6 @@ void FiltersPage::syncViewSettingsFromControls() {
     showCorrectedInputRight_ = SendMessageW(controls_.checkboxShowCorrectedInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showCorrectedLeft_ = SendMessageW(controls_.checkboxShowCorrectedLeft, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showCorrectedRight_ = SendMessageW(controls_.checkboxShowCorrectedRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    showCorrectedEffect_ = SendMessageW(controls_.buttonCorrectedEffect, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhaseInputRight_ =
         SendMessageW(controls_.checkboxShowExcessPhaseInputRight, BM_GETCHECK, 0, 0) == BST_CHECKED;
     showExcessPhaseInputLeft_ =
@@ -2423,7 +2407,6 @@ bool FiltersPage::handleCommand(WORD commandId,
          commandId == kCheckboxShowCorrectedInputRight ||
          commandId == kCheckboxShowCorrectedLeft ||
          commandId == kCheckboxShowCorrectedRight ||
-         commandId == kButtonCorrectedEffect ||
          commandId == kCheckboxShowExcessPhaseInputRight ||
          commandId == kCheckboxShowExcessPhaseInputLeft ||
          commandId == kCheckboxShowExcessPhasePredictedRight ||
@@ -3291,31 +3274,6 @@ PlotGraphData FiltersPage::buildCorrectedResponseGraphData(const WorkspaceState&
         resampleLogFrequency(workspace.smoothedResponse.frequencyAxisHz,
                              workspace.smoothedResponse.rightChannelDb,
                              workspace.filterResult.frequencyAxisHz);
-    if (showCorrectedEffect_) {
-        double minY = std::numeric_limits<double>::max();
-        double maxY = std::numeric_limits<double>::lowest();
-        if (showCorrectedLeft_) {
-            std::vector<double> delta =
-                subtractSeries(workspace.filterResult.left.correctedResponseDb, leftInputResponseDb);
-            accumulateFiniteRange(delta, minY, maxY);
-            data.series.push_back({L"Left effect", ui_theme::kGray, std::move(delta)});
-        }
-        if (showCorrectedRight_) {
-            std::vector<double> delta =
-                subtractSeries(workspace.filterResult.right.correctedResponseDb, rightInputResponseDb);
-            accumulateFiniteRange(delta, minY, maxY);
-            data.series.push_back({L"Right effect", ui_theme::kMagenta, std::move(delta)});
-        }
-        if (std::isfinite(minY) && std::isfinite(maxY)) {
-            const double halfSpan = std::max(std::max(std::abs(minY), std::abs(maxY)) + 0.5, 3.0);
-            data.minY = -halfSpan;
-            data.maxY = halfSpan;
-        } else {
-            data.minY = -3.0;
-            data.maxY = 3.0;
-        }
-        return data;
-    }
 
     double minY = std::numeric_limits<double>::max();
     double maxY = std::numeric_limits<double>::lowest();
@@ -3713,7 +3671,7 @@ PlotGraphData FiltersPage::buildImpulseGraphData(const WorkspaceState& workspace
     data.xAxisMode = PlotGraphXAxisMode::Linear;
     data.yAxisMode = PlotGraphYAxisMode::SymmetricAroundZero;
     data.xUnit = L"ms";
-    data.yUnit = L"linear";
+    data.yUnit = L"amp";
     data.measurementDerivedValueMode =
         PlotGraphMeasurementDerivedValueMode::QuarterCycleFrequencyFromDeltaX;
     if (workspace.ui.filterViewMode == "difference" &&
