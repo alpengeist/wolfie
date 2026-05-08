@@ -78,6 +78,12 @@ Reasoning:
 - Signal analysis, target evaluation, and filter design are domain logic.
 - UI code should not own FFTs, smoothing, phase handling, or filter prediction rules.
 
+Measurement precision rules:
+
+- The live measurement path is float-first. Playback sweeps and captured samples stay normalized floating-point inside `measurement`, `audio`, and `response_analyzer` instead of being reduced to `int16_t` before analysis.
+- The generated measurement artifacts `logsweep.wav`, `reference-logsweep.wav`, `alignment-pulse.wav`, and the raw-capture WAV artifacts are written as mono/stereo `32-bit IEEE float` WAV files.
+- `response_analyzer` keeps an `int16_t` capture entry point only as a compatibility wrapper for older callers and synthetic tests; the primary analysis path is normalized floating-point samples.
+
 Filter-design shaping rules:
 
 - When inversion reduces measured peaks, do not force the predicted response to sit exactly on or below the target at every point.
@@ -105,6 +111,7 @@ Responsibilities:
 - Implement playback and capture through WASAPI or ASIO.
 - Enumerate Windows audio endpoints for the settings UI.
 - Handle driver enumeration and ASIO control-panel access.
+- Expose normalized floating-point playback/capture data to the measurement layer even when the host API negotiates integer or float device formats.
 
 Reasoning:
 
@@ -126,6 +133,7 @@ Responsibilities:
 - Load and save workspace files and recent-workspace state.
 - Load and save named room-simulation parameter files under the workspace.
 - Persist measurement value sets, workspace settings, and app-level state.
+- Own compatibility for measurement-side file formats such as legacy `16-bit PCM` raw-capture WAVs and newer normalized float raw-capture WAVs used for reanalysis.
 
 Reasoning:
 
@@ -337,9 +345,10 @@ Reasoning:
 1. `MeasurementPage` pushes edited settings into `WorkspaceState`.
 2. `WolfieApp` starts `MeasurementController`.
 3. `MeasurementController` drives sweep playback and capture through an audio backend.
-4. `response_analyzer` produces `MeasurementResult`.
-5. `WorkspaceRepository` persists the result.
-6. `WolfieApp` can derive `SmoothedResponse` from the result when later workflows need it.
+4. The audio backend returns normalized floating-point capture data; `MeasurementController` also writes float WAV artifacts for the generated sweep/pulse and raw capture.
+5. `response_analyzer` produces `MeasurementResult`.
+6. `WorkspaceRepository` persists the result.
+7. `WolfieApp` can derive `SmoothedResponse` from the result when later workflows need it.
 
 ### Analysis
 
@@ -442,6 +451,8 @@ Mixed-phase correction design:
 - The request is weighted by the existing low-frequency correction envelope and by the mixed-phase limit band. Below the configured limit, mixed correction can run at full strength. In the transition band, the weight is tapered smoothly to zero. Above the taper end, mixed correction is disabled.
 - `mixedPhaseStrength` scales the requested correction before the regularized solve. A value of `0` should collapse back to minimum-phase behavior.
 - Pre-ringing compensation is applied as a local backoff multiplier around the user-listed center frequencies. It is intentionally narrowband and should reduce requested mixed correction mainly near those bands rather than reshaping the entire LF region.
+- Ring-spot auto-detection is based on the pre-solve requested mixed group-delay curve, not on the realized FIR or on raw measured group delay. The detector first builds a combined magnitude view from the stronger absolute left/right request at each display bin, estimates a smooth local baseline on the log-frequency axis, and keeps only local maxima whose excess above that baseline is meaningful inside the active mixed-phase band.
+- Ring-spot ordering is based on estimated pre-ringing potential rather than on raw milliseconds alone. Conceptually, a candidate scores well when it represents a concentrated excess-delay feature that the local pre-ringing backoff kernel would materially suppress; nearby peaks are merged so the ranked list prefers distinct hot spots instead of multiple picks from the same feature.
 - The requested group-delay curve is smoothed with the regularized solver instead of being applied literally. This is where the implementation trades exact target cancellation for a realizable, lower-ripple mixed-phase request.
 - After the solve, bins outside the active band are forced back to zero. The solved group delay is then integrated back into phase.
 - `mixedPhaseMaxCorrectionDegrees` is enforced after the solve by scaling the entire requested mixed correction when the largest weighted phase rotation exceeds the configured cap. The cap limits the realized LF phase swing without changing the general correction shape.
